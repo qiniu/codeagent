@@ -1,0 +1,20 @@
+server:
+  port: 8888
+  # webhook_secret: 通过 --webhook-secret 参数或 WEBHOOK_SECRET 环境变量设置
+
+github:
+  # token: 通过 --github-token 参数或 GITHUB_TOKEN 环境变量设置
+  webhook_url: "http://localhost:8888/hook"
+
+workspace:
+  base_dir: "/tmp/codeagent"
+  cleanup_after: "24h"
+
+claude:
+  # api_key: 通过 --claude-api-key 参数或 CLAUDE_API_KEY 环境变量设置
+  container_image: "anthropic/claude-code:latest"
+  timeout: "30m"
+
+docker:
+  socket: "unix:///var/run/docker.sock"
+  network: "bridge"
