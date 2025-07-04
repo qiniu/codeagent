@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/qbox/codeagent/internal/config"
 	"github.com/qbox/codeagent/pkg/models"
@@ -19,9 +20,12 @@ type geminiCode struct {
 
 func NewGemini(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	// 构建 Docker 命令
+	_, repo := parseRepoURL(workspace.Repository)
 	args := []string{
 		"run",
-		"--rm",                                             // 容器运行完后自动删除
+		"--rm", // 容器运行完后自动删除
+		"-it",
+		"-e", "GOOGLE_CLOUD_PROJECT=" + repo, // 设置 Google Cloud 项目环境变量
 		"-v", fmt.Sprintf("%s:/workspace", workspace.Path), // 挂载工作空间
 		"-v", fmt.Sprintf("%s:%s", filepath.Join(os.Getenv("HOME"), ".gemini"), "/root/.gemini"), // 挂载 gemini 认证信息
 		"-v", cfg.Gemini.BinPath + ":/usr/local/bin/gemini", // 挂载 gemini-cli 二进制
@@ -65,4 +69,16 @@ func (g *geminiCode) Close() error {
 		return err
 	}
 	return g.cmd.Wait()
+}
+
+func parseRepoURL(repoURL string) (owner, repo string) {
+	// 处理 HTTPS URL: https://github.com/owner/repo.git
+	if strings.Contains(repoURL, "github.com") {
+		parts := strings.Split(repoURL, "/")
+		if len(parts) >= 2 {
+			repo = strings.TrimSuffix(parts[len(parts)-1], ".git")
+			owner = parts[len(parts)-2]
+		}
+	}
+	return
 }
