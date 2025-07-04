@@ -18,7 +18,7 @@ import (
 
 type Manager struct {
 	baseDir    string
-	workspaces map[string]*models.Workspace
+	workspaces map[int]*models.Workspace
 	mutex      sync.RWMutex
 	config     *config.Config
 }
@@ -26,7 +26,7 @@ type Manager struct {
 func NewManager(cfg *config.Config) *Manager {
 	m := &Manager{
 		baseDir:    cfg.Workspace.BaseDir,
-		workspaces: make(map[string]*models.Workspace),
+		workspaces: make(map[int]*models.Workspace),
 		config:     cfg,
 	}
 
@@ -52,7 +52,7 @@ func (m *Manager) cleanupExpiredWorkspaces() {
 	defer m.mutex.Unlock()
 
 	now := time.Now()
-	expiredWorkspaces := []string{}
+	expiredWorkspaces := []int{}
 
 	for id, ws := range m.workspaces {
 		if now.Sub(ws.CreatedAt) > m.config.Workspace.CleanupAfter {
@@ -64,7 +64,7 @@ func (m *Manager) cleanupExpiredWorkspaces() {
 		ws := m.workspaces[id]
 		m.cleanupWorkspace(ws)
 		delete(m.workspaces, id)
-		log.Infof("Cleaned up expired workspace: %s", id)
+		log.Infof("Cleaned up expired workspace: %d", id)
 	}
 }
 
@@ -144,23 +144,18 @@ func (m *Manager) Prepare(issue *github.Issue) models.Workspace {
 		CreatedAt:  time.Now(),
 	}
 
-	// 注册工作空间
-	m.mutex.Lock()
-	m.workspaces[id] = &ws
-	m.mutex.Unlock()
-
 	return ws
 }
 
 // Cleanup 清理工作空间
 func (m *Manager) Cleanup(workspace models.Workspace) {
-	if workspace.ID == "" {
+	if workspace.PullRequest == nil {
 		return
 	}
 
 	// 从注册表中移除
 	m.mutex.Lock()
-	delete(m.workspaces, workspace.ID)
+	delete(m.workspaces, workspace.PullRequest.GetNumber())
 	m.mutex.Unlock()
 
 	// 清理文件系统
@@ -231,73 +226,38 @@ func (m *Manager) PrepareFromEvent(event *github.IssueCommentEvent) models.Works
 		CreatedAt:  time.Now(),
 	}
 
-	// 注册工作空间
-	m.mutex.Lock()
-	m.workspaces[id] = &ws
-	m.mutex.Unlock()
-
 	return ws
 }
 
 // PrepareFromPR 从 PullRequest 准备工作空间
-func (m *Manager) PrepareFromPR(pr *github.PullRequest) models.Workspace {
-	id := fmt.Sprintf("pr-%d-%d", pr.GetNumber(), time.Now().UnixNano())
-	path := filepath.Join(m.baseDir, id)
+func (m *Manager) Getworkspace(pr *github.PullRequest) *models.Workspace {
+	m.mutex.RLock()
+	if ws, ok := m.workspaces[pr.GetNumber()]; ok {
+		m.mutex.RUnlock()
+		return ws
+	}
+	m.mutex.RUnlock()
+	return nil
+}
 
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		log.Errorf("Failed to create workspace directory: %v", err)
-		return models.Workspace{}
+// RegisterWorkspace 注册工作空间
+func (m *Manager) RegisterWorkspace(ws *models.Workspace, pr *github.PullRequest) {
+	if ws == nil {
+		log.Errorf("Invalid workspace to register")
+		return
 	}
 
-	// 从 PR 获取仓库信息
-	repo := pr.GetBase().GetRepo()
-	if repo == nil {
-		log.Errorf("Repository not found in PR base")
-		return models.Workspace{}
-	}
-
-	// 构建克隆 URL
-	repoURL := repo.GetCloneURL()
-	if repoURL == "" {
-		log.Errorf("Failed to get repository URL")
-		return models.Workspace{}
-	}
-
-	// 克隆仓库
-	cmd := exec.Command("git", "clone", repoURL, path)
-	cloneOutput, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Errorf("Failed to clone repository: %v\nCommand output: %s", err, string(cloneOutput))
-		os.RemoveAll(path) // 清理失败的目录
-		return models.Workspace{}
-	}
-
-	// 切换到 PR 的 head 分支
-	headRef := pr.GetHead().GetRef()
-	cmd = exec.Command("git", "checkout", headRef)
-	cmd.Dir = path
-	checkoutOutput, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Errorf("Failed to checkout PR head ref %s: %v\nCommand output: %s", headRef, err, string(checkoutOutput))
-		os.RemoveAll(path) // 清理失败的目录
-		return models.Workspace{}
-	}
-
-	ws := models.Workspace{
-		ID:          id,
-		Path:        path,
-		Repository:  repoURL,
-		Branch:      headRef,
-		PullRequest: pr,
-		CreatedAt:   time.Now(),
-	}
-
-	// 注册工作空间
 	m.mutex.Lock()
-	m.workspaces[id] = &ws
-	m.mutex.Unlock()
+	defer m.mutex.Unlock()
 
-	return ws
+	ws.PullRequest = pr
+	if _, exists := m.workspaces[ws.PullRequest.GetNumber()]; exists {
+		log.Warnf("Workspace %s already registered", ws.ID)
+		return
+	}
+
+	m.workspaces[ws.PullRequest.GetNumber()] = ws
+	log.Infof("Registered workspace: %s", ws.ID)
 }
 
 // GetWorkspaceCount 获取当前工作空间数量

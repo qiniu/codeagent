@@ -207,6 +207,20 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 	return nil
 }
 
+// CommitAndPush 检测文件变更并提交推送
+func (c *Client) Push(workspace *models.Workspace) error {
+	// 推送到远程
+	cmd := exec.Command("git", "push")
+	cmd.Dir = workspace.Path
+	pushOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to push changes: %w\nCommand output: %s", err, string(pushOutput))
+	}
+
+	log.Infof("Committed and pushed changes for Issue #%d", workspace.Issue.GetNumber())
+	return nil
+}
+
 // GetPullRequestChanges 获取 PR 的变更内容 (diff)
 func (c *Client) GetPullRequestChanges(pr *github.PullRequest) (string, error) {
 	repoOwner, repoName := c.parseRepoURL(pr.GetHTMLURL())
@@ -257,6 +271,21 @@ func (c *Client) UpdatePullRequest(pr *github.PullRequest, newBody string) error
 
 	log.Infof("Updated PR #%d body", pr.GetNumber())
 	return nil
+}
+
+// GetPullRequestComments 获取 PR 的评论
+func (c *Client) GetPullRequestComments(pr *github.PullRequest) ([]*github.PullRequestComment, error) {
+	repoOwner, repoName := c.parseRepoURL(pr.GetHTMLURL())
+	if repoOwner == "" || repoName == "" {
+		return nil, fmt.Errorf("invalid repository URL: %s", pr.GetHTMLURL())
+	}
+
+	comments, _, err := c.client.PullRequests.ListComments(context.Background(), repoOwner, repoName, pr.GetNumber(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PR comments: %w", err)
+	}
+
+	return comments, nil
 }
 
 // parseRepoURL 解析仓库 URL 获取 owner 和 repo 名称
