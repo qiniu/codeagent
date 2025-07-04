@@ -1,0 +1,10 @@
+FROM node:20-alpine
+
+# 安装全局 gemini CLI
+RUN npm install -g @anthropic-ai/claude-code
+
+# 设置工作目录
+WORKDIR /workspace
+
+# 默认命令
+CMD ["claude"]
