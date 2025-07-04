@@ -11,8 +11,9 @@ type Workspace struct {
 	Path       string        `json:"path"`
 	Repository string        `json:"repository"`
 	Branch     string        `json:"branch"`
-	Issue      *github.Issue `json:"issue"`
-	CreatedAt  time.Time     `json:"created_at"`
+	Issue       *github.Issue       `json:"issue"`
+	PullRequest *github.PullRequest `json:"pull_request"`
+	CreatedAt   time.Time           `json:"created_at"`
 }
 
 type ExecutionResult struct {

@@ -187,7 +187,7 @@ func (m *Manager) PrepareFromEvent(event *github.IssueCommentEvent) models.Works
 	// 构建克隆 URL
 	repoURL := repo.GetCloneURL()
 	if repoURL == "" {
-		log.Errorf("Failed to get repository URL")
+		log.Errorf("Failed to get repository")
 		return models.Workspace{}
 	}
 
@@ -229,6 +229,67 @@ func (m *Manager) PrepareFromEvent(event *github.IssueCommentEvent) models.Works
 		Branch:     branch,
 		Issue:      event.Issue,
 		CreatedAt:  time.Now(),
+	}
+
+	// 注册工作空间
+	m.mutex.Lock()
+	m.workspaces[id] = &ws
+	m.mutex.Unlock()
+
+	return ws
+}
+
+// PrepareFromPR 从 PullRequest 准备工作空间
+func (m *Manager) PrepareFromPR(pr *github.PullRequest) models.Workspace {
+	id := fmt.Sprintf("pr-%d-%d", pr.GetNumber(), time.Now().UnixNano())
+	path := filepath.Join(m.baseDir, id)
+
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		log.Errorf("Failed to create workspace directory: %v", err)
+		return models.Workspace{}
+	}
+
+	// 从 PR 获取仓库信息
+	repo := pr.GetBase().GetRepo()
+	if repo == nil {
+		log.Errorf("Repository not found in PR base")
+		return models.Workspace{}
+	}
+
+	// 构建克隆 URL
+	repoURL := repo.GetCloneURL()
+	if repoURL == "" {
+		log.Errorf("Failed to get repository URL")
+		return models.Workspace{}
+	}
+
+	// 克隆仓库
+	cmd := exec.Command("git", "clone", repoURL, path)
+	cloneOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Errorf("Failed to clone repository: %v\nCommand output: %s", err, string(cloneOutput))
+		os.RemoveAll(path) // 清理失败的目录
+		return models.Workspace{}
+	}
+
+	// 切换到 PR 的 head 分支
+	headRef := pr.GetHead().GetRef()
+	cmd = exec.Command("git", "checkout", headRef)
+	cmd.Dir = path
+	checkoutOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Errorf("Failed to checkout PR head ref %s: %v\nCommand output: %s", headRef, err, string(checkoutOutput))
+		os.RemoveAll(path) // 清理失败的目录
+		return models.Workspace{}
+	}
+
+	ws := models.Workspace{
+		ID:          id,
+		Path:        path,
+		Repository:  repoURL,
+		Branch:      headRef,
+		PullRequest: pr,
+		CreatedAt:   time.Now(),
 	}
 
 	// 注册工作空间

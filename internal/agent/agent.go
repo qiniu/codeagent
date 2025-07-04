@@ -2,11 +2,9 @@ package agent
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"time"
+	"io"
 
-	"github.com/qbox/codeagent/internal/claude"
+	"github.com/qbox/codeagent/internal/code"
 	"github.com/qbox/codeagent/internal/config"
 	ghclient "github.com/qbox/codeagent/internal/github"
 	"github.com/qbox/codeagent/internal/workspace"
@@ -17,10 +15,10 @@ import (
 )
 
 type Agent struct {
-	config    *config.Config
-	github    *ghclient.Client
-	workspace *workspace.Manager
-	claude    *claude.Executor
+	config         *config.Config
+	github         *ghclient.Client
+	workspace      *workspace.Manager
+	sessionManager *code.SessionManager
 }
 
 func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
@@ -31,80 +29,12 @@ func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
 		return nil
 	}
 
-	// 初始化 Claude 执行器
-	claudeExecutor := claude.NewExecutor(cfg)
-
 	return &Agent{
-		config:    cfg,
-		github:    githubClient,
-		workspace: workspaceManager,
-		claude:    claudeExecutor,
+		config:         cfg,
+		github:         githubClient,
+		workspace:      workspaceManager,
+		sessionManager: code.NewSessionManager(cfg),
 	}
-}
-
-// mockFileModification 模拟文件修改，用于测试二次提交流程
-func (a *Agent) mockFileModification(workspace *models.Workspace) error {
-	log.Infof("Mocking file modification for testing...")
-
-	// 创建一个模拟的代码文件
-	codeFile := filepath.Join(workspace.Path, "main.go")
-	content := fmt.Sprintf(`package main
-
-import "fmt"
-
-// 这是由 XGo Agent 模拟生成的代码
-// Issue #%d: %s
-// 生成时间: %s
-
-func main() {
-	fmt.Println("Hello from XGo Agent!")
-	fmt.Println("This is a mock implementation for testing.")
-}
-
-// 模拟的功能实现
-func processData() {
-	fmt.Println("Processing data...")
-}
-
-func validateInput() bool {
-	return true
-}
-`, workspace.Issue.GetNumber(), workspace.Issue.GetTitle(), time.Now().Format("2006-01-02 15:04:05"))
-
-	if err := os.WriteFile(codeFile, []byte(content), 0644); err != nil {
-		return fmt.Errorf("failed to create mock file: %w", err)
-	}
-
-	// 创建一个 README 文件
-	readmeFile := filepath.Join(workspace.Path, "README.md")
-	readmeContent := fmt.Sprintf(`# 实现 Issue #%d
-
-## 问题描述
-%s
-
-## 实现方案
-这是一个由 XGo Agent 自动生成的实现方案。
-
-### 功能特性
-- 基础功能实现
-- 错误处理
-- 测试用例
-
-### 使用方法
-`+"`"+`bash
-go run main.go
-`+"`"+`
-
----
-*此文件由 XGo Agent 自动生成，用于测试二次提交流程*
-`, workspace.Issue.GetNumber(), workspace.Issue.GetBody())
-
-	if err := os.WriteFile(readmeFile, []byte(readmeContent), 0644); err != nil {
-		return fmt.Errorf("failed to create README file: %w", err)
-	}
-
-	log.Infof("Mock files created: %s, %s", codeFile, readmeFile)
-	return nil
 }
 
 // ProcessIssue 处理 Issue 事件，生成代码（保留向后兼容）
@@ -114,6 +44,14 @@ func (a *Agent) ProcessIssue(issue *github.Issue) error {
 	if ws.ID == "" {
 		return fmt.Errorf("failed to prepare workspace")
 	}
+
+	// 2. 初始化 code client
+	code, err := a.sessionManager.GetSession(&ws)
+	if err != nil {
+		log.Errorf("failed to get code client: %v", err)
+		return err
+	}
+	defer a.sessionManager.CloseSession(ws.ID)
 
 	// 确保处理完成后清理工作空间
 	defer func() {
@@ -134,13 +72,24 @@ func (a *Agent) ProcessIssue(issue *github.Issue) error {
 		return err
 	}
 
-	// 4. 执行 Claude Code
-	result := a.claude.Execute(&ws, issue)
-
-	// 4.5. Mock 文件修改（用于测试二次提交）
-	if err := a.mockFileModification(&ws); err != nil {
-		log.Errorf("Failed to mock file modification: %v", err)
+	// 4. 执行 code prompt
+	prompt := fmt.Sprintf("这是 Issue 内容 %s ，根据 Issue 内容，整理出修改计划", issue.GetURL())
+	resp, err := code.Prompt(prompt)
+	if err != nil {
+		log.Errorf("failed to prompt: %v", err)
 		return err
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		log.Errorf("failed to read output: %v", err)
+		return err
+	}
+
+	log.Infof("output: %s", string(output))
+
+	result := &models.ExecutionResult{
+		Output: string(output),
 	}
 
 	// 5. 提交变更并更新 PR
@@ -161,12 +110,6 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 		return fmt.Errorf("failed to prepare workspace")
 	}
 
-	// 确保处理完成后清理工作空间
-	defer func() {
-		a.workspace.Cleanup(ws)
-		log.Infof("Cleaned up workspace: %s", ws.ID)
-	}()
-
 	// 2. 创建分支并推送
 	if err := a.github.CreateBranch(&ws); err != nil {
 		log.Errorf("Failed to create branch: %v", err)
@@ -180,13 +123,31 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 		return err
 	}
 
-	// 4. 执行 Claude Code
-	result := a.claude.Execute(&ws, event.Issue)
-
-	// 4.5. Mock 文件修改（用于测试二次提交）
-	if err := a.mockFileModification(&ws); err != nil {
-		log.Errorf("Failed to mock file modification: %v", err)
+	// 4. 初始化 code client
+	code, err := a.sessionManager.GetSession(&ws)
+	if err != nil {
+		log.Errorf("failed to get code client: %v", err)
 		return err
+	}
+
+	// 5. 执行 code prompt
+	prompt := fmt.Sprintf("这是 Issue 内容 %s ，根据 Issue 内容，整理出修改计划", event.Issue.GetURL())
+	resp, err := code.Prompt(prompt)
+	if err != nil {
+		log.Errorf("failed to prompt: %v", err)
+		return err
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		log.Errorf("failed to read output: %v", err)
+		return err
+	}
+
+	log.Infof("output: %s", string(output))
+
+	result := &models.ExecutionResult{
+		Output: string(output),
 	}
 
 	// 5. 提交变更并更新 PR
@@ -213,6 +174,50 @@ func (a *Agent) FixPR(pr *github.PullRequest) error {
 
 // ReviewPR 审查 PR
 func (a *Agent) ReviewPR(pr *github.PullRequest) error {
-	// TODO: 实现 PR 审查逻辑
+	log.Infof("Reviewing PR #%d: %s", pr.GetNumber(), pr.GetHTMLURL())
+
+	// 1. 准备临时工作空间
+	ws := a.workspace.PrepareFromPR(pr)
+	if ws.ID == "" {
+		return fmt.Errorf("failed to prepare workspace for PR review")
+	}
+
+	// 2. 初始化 code client
+	code, err := a.sessionManager.GetSession(&ws)
+	if err != nil {
+		log.Errorf("failed to get code client for PR review: %v", err)
+		return err
+	}
+
+	// 3. 获取 PR 变更
+	changes, err := a.github.GetPullRequestChanges(pr)
+	if err != nil {
+		log.Errorf("failed to get PR changes: %v", err)
+		return err
+	}
+
+	// 4. 构建 prompt
+	prompt := fmt.Sprintf("请审查以下 PR 变更，并提供改进建议：\n\n%s", changes)
+	resp, err := code.Prompt(prompt)
+	if err != nil {
+		log.Errorf("failed to prompt for PR review: %v", err)
+		return err
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		log.Errorf("failed to read output for PR review: %v", err)
+		return err
+	}
+
+	log.Infof("PR Review Output: %s", string(output))
+
+	// 5. 评论到 PR
+	if err := a.github.CreatePullRequestComment(pr, string(output)); err != nil {
+		log.Errorf("failed to create PR comment: %v", err)
+		return err
+	}
+
+	log.Infof("Successfully reviewed PR #%d", pr.GetNumber())
 	return nil
 }

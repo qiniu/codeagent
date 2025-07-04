@@ -207,6 +207,41 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 	return nil
 }
 
+// GetPullRequestChanges 获取 PR 的变更内容 (diff)
+func (c *Client) GetPullRequestChanges(pr *github.PullRequest) (string, error) {
+	repoOwner, repoName := c.parseRepoURL(pr.GetHTMLURL())
+	if repoOwner == "" || repoName == "" {
+		return "", fmt.Errorf("invalid repository URL: %s", pr.GetHTMLURL())
+	}
+
+	diff, _, err := c.client.PullRequests.GetRaw(context.Background(), repoOwner, repoName, pr.GetNumber(), github.RawOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get PR diff: %w", err)
+	}
+
+	return diff, nil
+}
+
+// CreatePullRequestComment 在 PR 上创建评论
+func (c *Client) CreatePullRequestComment(pr *github.PullRequest, commentBody string) error {
+	repoOwner, repoName := c.parseRepoURL(pr.GetHTMLURL())
+	if repoOwner == "" || repoName == "" {
+		return fmt.Errorf("invalid repository URL: %s", pr.GetHTMLURL())
+	}
+
+	comment := &github.IssueComment{
+		Body: &commentBody,
+	}
+
+	_, _, err := c.client.Issues.CreateComment(context.Background(), repoOwner, repoName, pr.GetNumber(), comment)
+	if err != nil {
+		return fmt.Errorf("failed to create PR comment: %w", err)
+	}
+
+	log.Infof("Created comment on PR #%d", pr.GetNumber())
+	return nil
+}
+
 // parseRepoURL 解析仓库 URL 获取 owner 和 repo 名称
 func (c *Client) parseRepoURL(repoURL string) (owner, repo string) {
 	// 处理 HTTPS URL: https://github.com/owner/repo.git
