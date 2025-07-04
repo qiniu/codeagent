@@ -22,7 +22,7 @@ func NewClaude(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	args := []string{
 		"run",
 		"--rm",                                             // 容器运行完后自动删除
-		"-it",                                              // 容器运行完后自动删除
+		"-it",                                              // 交互式终端
 		"-v", fmt.Sprintf("%s:/workspace", workspace.Path), // 挂载工作空间
 		"-v", fmt.Sprintf("%s:%s", filepath.Join(os.Getenv("HOME"), ".claude"), "/root/.claude"), // 挂载 claude 认证信息
 		"-v", cfg.Claude.BinPath, ":/usr/local/bin/claude", // 挂载 claude-code 二进制
