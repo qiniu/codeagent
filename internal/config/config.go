@@ -21,7 +21,6 @@ type Config struct {
 
 type GeminiConfig struct {
 	APIKey         string        `yaml:"api_key"`
-	BinPath        string        `yaml:"bin_path"`
 	Timeout        time.Duration `yaml:"timeout"`
 	ContainerImage string        `yaml:"container_image"`
 }
@@ -45,7 +44,6 @@ type ClaudeConfig struct {
 	APIKey         string        `yaml:"api_key"`
 	ContainerImage string        `yaml:"container_image"`
 	Timeout        time.Duration `yaml:"timeout"`
-	BinPath        string        `yaml:"bin_path"`
 }
 
 type DockerConfig struct {
@@ -126,8 +124,9 @@ func loadFromEnv() *Config {
 			Timeout:        30 * time.Minute,
 		},
 		Gemini: GeminiConfig{
-			APIKey:  os.Getenv("GEMINI_API_KEY"),
-			Timeout: 30 * time.Minute,
+			APIKey:         os.Getenv("GEMINI_API_KEY"),
+			ContainerImage: getEnvOrDefault("GEMINI_IMAGE", "google-gemini/gemini-cli:latest"),
+			Timeout:        30 * time.Minute,
 		},
 		Docker: DockerConfig{
 			Socket:  getEnvOrDefault("DOCKER_SOCKET", "unix:///var/run/docker.sock"),

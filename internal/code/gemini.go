@@ -28,7 +28,6 @@ func NewGemini(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 		"-e", "GOOGLE_CLOUD_PROJECT=" + repo, // 设置 Google Cloud 项目环境变量
 		"-v", fmt.Sprintf("%s:/workspace", workspace.Path), // 挂载工作空间
 		"-v", fmt.Sprintf("%s:%s", filepath.Join(os.Getenv("HOME"), ".gemini"), "/root/.gemini"), // 挂载 gemini 认证信息
-		"-v", cfg.Gemini.BinPath + ":/usr/local/bin/gemini", // 挂载 gemini-cli 二进制
 		"-w", "/workspace", // 设置工作目录
 		cfg.Gemini.ContainerImage, // 使用配置的 Claude 镜像
 		"gemini",                  // 容器内执行的命令
