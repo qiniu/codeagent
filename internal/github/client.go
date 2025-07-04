@@ -298,5 +298,5 @@ func (c *Client) parseRepoURL(repoURL string) (owner, repo string) {
 			owner = parts[len(parts)-2]
 		}
 	}
-	return
+	return owner, repo
 }

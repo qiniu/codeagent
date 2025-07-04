@@ -83,7 +83,7 @@ func (a *Agent) ProcessIssue(issue *github.Issue) error {
 	log.Infof("Modification Plan: %s", string(planOutput))
 
 	// 5.5. 更新 PR Body 为修改计划
-	if err := a.github.UpdatePullRequest(pr, string(planOutput)); err != nil {
+	if err = a.github.UpdatePullRequest(pr, string(planOutput)); err != nil {
 		log.Errorf("failed to update PR body with plan: %v", err)
 		return err
 	}
@@ -106,7 +106,7 @@ func (a *Agent) ProcessIssue(issue *github.Issue) error {
 
 	// 6.5. 评论到 PR
 	commentBody := fmt.Sprintf("<details><summary>Code Modification Session</summary>%s</details>", string(codeOutput))
-	if err := a.github.CreatePullRequestComment(pr, commentBody); err != nil {
+	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
 		log.Errorf("failed to create PR comment for code modification: %v", err)
 		return err
 	}
@@ -175,7 +175,7 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 	log.Infof("Modification Plan: %s", string(planOutput))
 
 	// 5.5. 更新 PR Body 为修改计划
-	if err := a.github.UpdatePullRequest(pr, string(planOutput)); err != nil {
+	if err = a.github.UpdatePullRequest(pr, string(planOutput)); err != nil {
 		log.Errorf("failed to update PR body with plan: %v", err)
 		return err
 	}
@@ -198,7 +198,7 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 
 	// 6.5. 评论到 PR
 	commentBody := fmt.Sprintf("<details><summary>Code Modification Session</summary>%s</details>", string(codeOutput))
-	if err := a.github.CreatePullRequestComment(pr, commentBody); err != nil {
+	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
 		log.Errorf("failed to create PR comment for code modification: %v", err)
 		return err
 	}
@@ -278,7 +278,7 @@ func (a *Agent) ContinuePR(pr *github.PullRequest) error {
 
 	// 6. 评论到 PR
 	commentBody := fmt.Sprintf("<details><summary>PR Fix Session</summary>%s</details>", string(output))
-	if err := a.github.CreatePullRequestComment(pr, commentBody); err != nil {
+	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
 		log.Errorf("failed to create PR comment for continue: %v", err)
 		return err
 	}
@@ -343,7 +343,7 @@ func (a *Agent) FixPR(pr *github.PullRequest) error {
 
 	// 6. 评论到 PR
 	commentBody := fmt.Sprintf("<details><summary>PR Fix Session</summary>%s</details>", string(output))
-	if err := a.github.CreatePullRequestComment(pr, commentBody); err != nil {
+	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
 		log.Errorf("failed to create PR comment for fix: %v", err)
 		return err
 	}

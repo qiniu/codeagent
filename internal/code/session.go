@@ -35,8 +35,8 @@ func (sm *SessionManager) GetSession(workspace *models.Workspace) (Code, error) 
 	defer sm.mu.Unlock()
 
 	// Double-check if the code object was created by another goroutine while we were waiting for the write lock
-	if c, ok := sm.codes[workspace.PullRequest.GetNumber()]; ok {
-		return c, nil
+	if code, ok := sm.codes[workspace.PullRequest.GetNumber()]; ok {
+		return code, nil
 	}
 
 	c, err := New(workspace, sm.cfg)
