@@ -51,13 +51,6 @@ func (a *Agent) ProcessIssue(issue *github.Issue) error {
 		log.Errorf("failed to get code client: %v", err)
 		return err
 	}
-	defer a.sessionManager.CloseSession(ws.ID)
-
-	// 确保处理完成后清理工作空间
-	defer func() {
-		a.workspace.Cleanup(ws)
-		log.Infof("Cleaned up workspace: %s", ws.ID)
-	}()
 
 	// 2. 创建分支并推送
 	if err := a.github.CreateBranch(&ws); err != nil {
@@ -72,27 +65,56 @@ func (a *Agent) ProcessIssue(issue *github.Issue) error {
 		return err
 	}
 
-	// 4. 执行 code prompt
+	// 4. 执行 code prompt，获取修改计划
 	prompt := fmt.Sprintf("这是 Issue 内容 %s ，根据 Issue 内容，整理出修改计划", issue.GetURL())
 	resp, err := code.Prompt(prompt)
 	if err != nil {
-		log.Errorf("failed to prompt: %v", err)
+		log.Errorf("failed to prompt for plan: %v", err)
 		return err
 	}
 
-	output, err := io.ReadAll(resp.Out)
+	planOutput, err := io.ReadAll(resp.Out)
 	if err != nil {
-		log.Errorf("failed to read output: %v", err)
+		log.Errorf("failed to read plan output: %v", err)
 		return err
 	}
 
-	log.Infof("output: %s", string(output))
+	log.Infof("Modification Plan: %s", string(planOutput))
+
+	// 4.5. 更新 PR Body 为修改计划
+	if err := a.github.UpdatePullRequest(pr, string(planOutput)); err != nil {
+		log.Errorf("failed to update PR body with plan: %v", err)
+		return err
+	}
+
+	// 5. 执行 code prompt，修改代码
+	codePrompt := fmt.Sprintf("按 issue 内容修改代码: %s", issue.GetURL())
+	codeResp, err := code.Prompt(codePrompt)
+	if err != nil {
+		log.Errorf("failed to prompt for code modification: %v", err)
+		return err
+	}
+
+	codeOutput, err := io.ReadAll(codeResp.Out)
+	if err != nil {
+		log.Errorf("failed to read code modification output: %v", err)
+		return err
+	}
+
+	log.Infof("Code Modification Output: %s", string(codeOutput))
+
+	// 5.5. 评论到 PR
+	commentBody := fmt.Sprintf("<details><summary>Code Modification Session</summary>%s</details>", string(codeOutput))
+	if err := a.github.CreatePullRequestComment(pr, commentBody); err != nil {
+		log.Errorf("failed to create PR comment for code modification: %v", err)
+		return err
+	}
 
 	result := &models.ExecutionResult{
-		Output: string(output),
+		Output: string(codeOutput),
 	}
 
-	// 5. 提交变更并更新 PR
+	// 6. 提交变更并更新 PR
 	if err := a.github.CommitAndPush(&ws, result); err != nil {
 		log.Errorf("Failed to commit and push: %v", err)
 		return err

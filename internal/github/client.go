@@ -229,16 +229,33 @@ func (c *Client) CreatePullRequestComment(pr *github.PullRequest, commentBody st
 		return fmt.Errorf("invalid repository URL: %s", pr.GetHTMLURL())
 	}
 
-	comment := &github.IssueComment{
+	comment := &github.PullRequestComment{
 		Body: &commentBody,
 	}
 
-	_, _, err := c.client.Issues.CreateComment(context.Background(), repoOwner, repoName, pr.GetNumber(), comment)
+	_, _, err := c.client.PullRequests.CreateComment(context.Background(), repoOwner, repoName, pr.GetNumber(), comment)
 	if err != nil {
 		return fmt.Errorf("failed to create PR comment: %w", err)
 	}
 
 	log.Infof("Created comment on PR #%d", pr.GetNumber())
+	return nil
+}
+
+// UpdatePullRequest 更新 PR 的 Body
+func (c *Client) UpdatePullRequest(pr *github.PullRequest, newBody string) error {
+	repoOwner, repoName := c.parseRepoURL(pr.GetHTMLURL())
+	if repoOwner == "" || repoName == "" {
+		return fmt.Errorf("invalid repository URL: %s", pr.GetHTMLURL())
+	}
+
+	prRequest := &github.PullRequest{Body: &newBody}
+	_, _, err := c.client.PullRequests.Edit(context.Background(), repoOwner, repoName, pr.GetNumber(), prRequest)
+	if err != nil {
+		return fmt.Errorf("failed to update PR body: %w", err)
+	}
+
+	log.Infof("Updated PR #%d body", pr.GetNumber())
 	return nil
 }
 
