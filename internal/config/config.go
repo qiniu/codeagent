@@ -10,11 +10,19 @@ import (
 )
 
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	GitHub    GitHubConfig    `yaml:"github"`
-	Workspace WorkspaceConfig `yaml:"workspace"`
-	Claude    ClaudeConfig    `yaml:"claude"`
-	Docker    DockerConfig    `yaml:"docker"`
+	Server       ServerConfig    `yaml:"server"`
+	GitHub       GitHubConfig    `yaml:"github"`
+	Workspace    WorkspaceConfig `yaml:"workspace"`
+	Claude       ClaudeConfig    `yaml:"claude"`
+	Gemini       GeminiConfig    `yaml:"gemini"`
+	Docker       DockerConfig    `yaml:"docker"`
+	CodeProvider string          `yaml:"code_provider"`
+}
+
+type GeminiConfig struct {
+	APIKey         string        `yaml:"api_key"`
+	Timeout        time.Duration `yaml:"timeout"`
+	ContainerImage string        `yaml:"container_image"`
 }
 
 type ServerConfig struct {
@@ -73,6 +81,12 @@ func (c *Config) loadFromEnv() {
 	if apiKey := os.Getenv("CLAUDE_API_KEY"); apiKey != "" {
 		c.Claude.APIKey = apiKey
 	}
+	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
+		c.Gemini.APIKey = apiKey
+	}
+	if provider := os.Getenv("CODE_PROVIDER"); provider != "" {
+		c.CodeProvider = provider
+	}
 	if secret := os.Getenv("WEBHOOK_SECRET"); secret != "" {
 		c.Server.WebhookSecret = secret
 	}
@@ -109,10 +123,16 @@ func loadFromEnv() *Config {
 			ContainerImage: getEnvOrDefault("CLAUDE_IMAGE", "anthropic/claude-code:latest"),
 			Timeout:        30 * time.Minute,
 		},
+		Gemini: GeminiConfig{
+			APIKey:         os.Getenv("GEMINI_API_KEY"),
+			ContainerImage: getEnvOrDefault("GEMINI_IMAGE", "google-gemini/gemini-cli:latest"),
+			Timeout:        30 * time.Minute,
+		},
 		Docker: DockerConfig{
 			Socket:  getEnvOrDefault("DOCKER_SOCKET", "unix:///var/run/docker.sock"),
 			Network: getEnvOrDefault("DOCKER_NETWORK", "bridge"),
 		},
+		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
 	}
 }
 

@@ -18,7 +18,7 @@ import (
 
 type Manager struct {
 	baseDir    string
-	workspaces map[string]*models.Workspace
+	workspaces map[int]*models.Workspace
 	mutex      sync.RWMutex
 	config     *config.Config
 }
@@ -26,7 +26,7 @@ type Manager struct {
 func NewManager(cfg *config.Config) *Manager {
 	m := &Manager{
 		baseDir:    cfg.Workspace.BaseDir,
-		workspaces: make(map[string]*models.Workspace),
+		workspaces: make(map[int]*models.Workspace),
 		config:     cfg,
 	}
 
@@ -52,7 +52,7 @@ func (m *Manager) cleanupExpiredWorkspaces() {
 	defer m.mutex.Unlock()
 
 	now := time.Now()
-	expiredWorkspaces := []string{}
+	expiredWorkspaces := []int{}
 
 	for id, ws := range m.workspaces {
 		if now.Sub(ws.CreatedAt) > m.config.Workspace.CleanupAfter {
@@ -64,7 +64,7 @@ func (m *Manager) cleanupExpiredWorkspaces() {
 		ws := m.workspaces[id]
 		m.cleanupWorkspace(ws)
 		delete(m.workspaces, id)
-		log.Infof("Cleaned up expired workspace: %s", id)
+		log.Infof("Cleaned up expired workspace: %d", id)
 	}
 }
 
@@ -144,23 +144,18 @@ func (m *Manager) Prepare(issue *github.Issue) models.Workspace {
 		CreatedAt:  time.Now(),
 	}
 
-	// 注册工作空间
-	m.mutex.Lock()
-	m.workspaces[id] = &ws
-	m.mutex.Unlock()
-
 	return ws
 }
 
 // Cleanup 清理工作空间
 func (m *Manager) Cleanup(workspace models.Workspace) {
-	if workspace.ID == "" {
+	if workspace.PullRequest == nil {
 		return
 	}
 
 	// 从注册表中移除
 	m.mutex.Lock()
-	delete(m.workspaces, workspace.ID)
+	delete(m.workspaces, workspace.PullRequest.GetNumber())
 	m.mutex.Unlock()
 
 	// 清理文件系统
@@ -187,7 +182,7 @@ func (m *Manager) PrepareFromEvent(event *github.IssueCommentEvent) models.Works
 	// 构建克隆 URL
 	repoURL := repo.GetCloneURL()
 	if repoURL == "" {
-		log.Errorf("Failed to get repository URL")
+		log.Errorf("Failed to get repository")
 		return models.Workspace{}
 	}
 
@@ -231,12 +226,38 @@ func (m *Manager) PrepareFromEvent(event *github.IssueCommentEvent) models.Works
 		CreatedAt:  time.Now(),
 	}
 
-	// 注册工作空间
-	m.mutex.Lock()
-	m.workspaces[id] = &ws
-	m.mutex.Unlock()
-
 	return ws
+}
+
+// PrepareFromPR 从 PullRequest 准备工作空间
+func (m *Manager) Getworkspace(pr *github.PullRequest) *models.Workspace {
+	m.mutex.RLock()
+	if ws, ok := m.workspaces[pr.GetNumber()]; ok {
+		m.mutex.RUnlock()
+		return ws
+	}
+	m.mutex.RUnlock()
+	return nil
+}
+
+// RegisterWorkspace 注册工作空间
+func (m *Manager) RegisterWorkspace(ws *models.Workspace, pr *github.PullRequest) {
+	if ws == nil {
+		log.Errorf("Invalid workspace to register")
+		return
+	}
+
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	ws.PullRequest = pr
+	if _, exists := m.workspaces[ws.PullRequest.GetNumber()]; exists {
+		log.Warnf("Workspace %s already registered", ws.ID)
+		return
+	}
+
+	m.workspaces[ws.PullRequest.GetNumber()] = ws
+	log.Infof("Registered workspace: %s", ws.ID)
 }
 
 // GetWorkspaceCount 获取当前工作空间数量
