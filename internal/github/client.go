@@ -238,10 +238,15 @@ func (c *Client) GetPullRequestChanges(pr *github.PullRequest) (string, error) {
 
 // CreatePullRequestComment 在 PR 上创建评论
 func (c *Client) CreatePullRequestComment(pr *github.PullRequest, commentBody string) error {
-	repoOwner, repoName := c.parseRepoURL(pr.GetHTMLURL())
+	prURL := pr.GetHTMLURL()
+	log.Infof("Creating comment for PR URL: %s", prURL)
+
+	repoOwner, repoName := c.parseRepoURL(prURL)
 	if repoOwner == "" || repoName == "" {
-		return fmt.Errorf("invalid repository URL: %s", pr.GetHTMLURL())
+		return fmt.Errorf("invalid repository URL: %s", prURL)
 	}
+
+	log.Infof("Parsed repository: %s/%s, PR number: %d", repoOwner, repoName, pr.GetNumber())
 
 	comment := &github.PullRequestComment{
 		Body: &commentBody,
@@ -258,10 +263,15 @@ func (c *Client) CreatePullRequestComment(pr *github.PullRequest, commentBody st
 
 // UpdatePullRequest 更新 PR 的 Body
 func (c *Client) UpdatePullRequest(pr *github.PullRequest, newBody string) error {
-	repoOwner, repoName := c.parseRepoURL(pr.GetHTMLURL())
+	prURL := pr.GetHTMLURL()
+	log.Infof("Updating PR body for URL: %s", prURL)
+
+	repoOwner, repoName := c.parseRepoURL(prURL)
 	if repoOwner == "" || repoName == "" {
-		return fmt.Errorf("invalid repository URL: %s", pr.GetHTMLURL())
+		return fmt.Errorf("invalid repository URL: %s", prURL)
 	}
+
+	log.Infof("Parsed repository: %s/%s, PR number: %d", repoOwner, repoName, pr.GetNumber())
 
 	prRequest := &github.PullRequest{Body: &newBody}
 	_, _, err := c.client.PullRequests.Edit(context.Background(), repoOwner, repoName, pr.GetNumber(), prRequest)
@@ -275,10 +285,15 @@ func (c *Client) UpdatePullRequest(pr *github.PullRequest, newBody string) error
 
 // GetPullRequestComments 获取 PR 的评论
 func (c *Client) GetPullRequestComments(pr *github.PullRequest) ([]*github.PullRequestComment, error) {
-	repoOwner, repoName := c.parseRepoURL(pr.GetHTMLURL())
+	prURL := pr.GetHTMLURL()
+	log.Infof("Getting comments for PR URL: %s", prURL)
+
+	repoOwner, repoName := c.parseRepoURL(prURL)
 	if repoOwner == "" || repoName == "" {
-		return nil, fmt.Errorf("invalid repository URL: %s", pr.GetHTMLURL())
+		return nil, fmt.Errorf("invalid repository URL: %s", prURL)
 	}
+
+	log.Infof("Parsed repository: %s/%s, PR number: %d", repoOwner, repoName, pr.GetNumber())
 
 	comments, _, err := c.client.PullRequests.ListComments(context.Background(), repoOwner, repoName, pr.GetNumber(), nil)
 	if err != nil {
@@ -294,8 +309,15 @@ func (c *Client) parseRepoURL(repoURL string) (owner, repo string) {
 	if strings.Contains(repoURL, "github.com") {
 		parts := strings.Split(repoURL, "/")
 		if len(parts) >= 2 {
-			repo = strings.TrimSuffix(parts[len(parts)-1], ".git")
-			owner = parts[len(parts)-2]
+			// 处理 PR URL: https://github.com/owner/repo/pull/11
+			if len(parts) >= 4 && parts[len(parts)-2] == "pull" {
+				repo = parts[len(parts)-3]
+				owner = parts[len(parts)-4]
+			} else {
+				// 处理仓库 URL: https://github.com/owner/repo.git
+				repo = strings.TrimSuffix(parts[len(parts)-1], ".git")
+				owner = parts[len(parts)-2]
+			}
 		}
 	}
 	return owner, repo
