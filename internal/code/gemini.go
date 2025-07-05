@@ -1,73 +1,105 @@
 package code
 
 import (
+	"bytes"
+	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/qbox/codeagent/internal/config"
 	"github.com/qbox/codeagent/pkg/models"
+	"github.com/qiniu/x/log"
 )
 
-type geminiCode struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout io.ReadCloser
+// geminiLocal 本地 CLI 实现
+type geminiLocal struct {
+	workspace *models.Workspace
+	config    *config.Config
 }
 
-func NewGemini(workspace *models.Workspace, cfg *config.Config) (Code, error) {
-	// 构建 Docker 命令
-	_, repo := parseRepoURL(workspace.Repository)
-	args := []string{
-		"run",
-		"--rm", // 容器运行完后自动删除
-		"-it",
-		"-e", "GOOGLE_CLOUD_PROJECT=" + repo, // 设置 Google Cloud 项目环境变量
-		"-v", fmt.Sprintf("%s:/workspace", workspace.Path), // 挂载工作空间
-		"-v", fmt.Sprintf("%s:%s", filepath.Join(os.Getenv("HOME"), ".gemini"), "/root/.gemini"), // 挂载 gemini 认证信息
-		"-w", "/workspace", // 设置工作目录
-		cfg.Gemini.ContainerImage, // 使用配置的 Claude 镜像
-		"gemini",                  // 容器内执行的命令
+// NewGeminiLocal 创建本地 Gemini CLI 实现
+func NewGeminiLocal(workspace *models.Workspace, cfg *config.Config) (Code, error) {
+	// 检查 gemini CLI 是否可用
+	if err := checkGeminiCLI(); err != nil {
+		return nil, fmt.Errorf("gemini CLI not available: %w", err)
 	}
 
-	cmd := exec.Command("docker", args...)
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, err
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-
-	return &geminiCode{
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: stdout,
+	return &geminiLocal{
+		workspace: workspace,
+		config:    cfg,
 	}, nil
 }
 
-func (g *geminiCode) Prompt(message string) (*Response, error) {
-	if _, err := g.stdin.Write([]byte(message + "\n")); err != nil {
-		return nil, err
+// checkGeminiCLI 检查 gemini CLI 是否可用
+func checkGeminiCLI() error {
+	cmd := exec.Command("gemini", "--version")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("gemini CLI not found or not working: %w", err)
 	}
-	return &Response{Out: g.stdout}, nil
+	return nil
 }
 
-func (g *geminiCode) Close() error {
-	if err := g.stdin.Close(); err != nil {
-		return err
+// Prompt 实现 Code 接口 - 本地 CLI 版本
+func (g *geminiLocal) Prompt(message string) (*Response, error) {
+	// 执行本地 gemini CLI 调用
+	output, err := g.executeGeminiLocal(message)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute gemini prompt: %w", err)
 	}
-	return g.cmd.Wait()
+
+	// 返回结果
+	return &Response{
+		Out: bytes.NewReader(output),
+	}, nil
+}
+
+// executeGeminiLocal 执行本地 gemini CLI 调用
+func (g *geminiLocal) executeGeminiLocal(prompt string) ([]byte, error) {
+	// 构建 gemini CLI 命令
+	args := []string{
+		"--prompt", prompt,
+	}
+
+	// 设置超时
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "gemini", args...)
+	cmd.Dir = g.workspace.Path // 设置工作目录，Gemini CLI 会自动读取该目录的文件作为上下文
+
+	// 设置环境变量
+	cmd.Env = append(os.Environ())
+
+	log.Infof("Executing local gemini CLI in directory %s: gemini %s", g.workspace.Path, strings.Join(args, " "))
+
+	// 执行命令并获取输出
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("gemini CLI execution timed out: %w", err)
+		}
+
+		// 检查是否是 API 密钥相关错误
+		outputStr := string(output)
+		if strings.Contains(outputStr, "API Error") || strings.Contains(outputStr, "fetch failed") {
+			return nil, fmt.Errorf("gemini API error - please check GOOGLE_API_KEY: %w, output: %s", err, outputStr)
+		}
+
+		return nil, fmt.Errorf("gemini CLI execution failed: %w, output: %s", err, outputStr)
+	}
+
+	log.Infof("Local gemini CLI execution completed successfully")
+	return output, nil
+}
+
+// Close 实现 Code 接口
+func (g *geminiLocal) Close() error {
+	// 单次 prompt 模式不需要特殊的清理
+	// 每次调用都是独立的进程
+	return nil
 }
 
 func parseRepoURL(repoURL string) (owner, repo string) {

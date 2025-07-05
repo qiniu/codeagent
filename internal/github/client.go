@@ -248,11 +248,13 @@ func (c *Client) CreatePullRequestComment(pr *github.PullRequest, commentBody st
 
 	log.Infof("Parsed repository: %s/%s, PR number: %d", repoOwner, repoName, pr.GetNumber())
 
-	comment := &github.PullRequestComment{
+	// 使用 Issue Comments API 来创建 PR 评论
+	// PR 实际上也是一种 Issue，所以可以使用 Issue Comments API
+	comment := &github.IssueComment{
 		Body: &commentBody,
 	}
 
-	_, _, err := c.client.PullRequests.CreateComment(context.Background(), repoOwner, repoName, pr.GetNumber(), comment)
+	_, _, err := c.client.Issues.CreateComment(context.Background(), repoOwner, repoName, pr.GetNumber(), comment)
 	if err != nil {
 		return fmt.Errorf("failed to create PR comment: %w", err)
 	}

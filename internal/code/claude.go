@@ -17,7 +17,7 @@ type claudeCode struct {
 	stdout io.ReadCloser
 }
 
-func NewClaude(workspace *models.Workspace, cfg *config.Config) (Code, error) {
+func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	// 构建 Docker 命令
 	args := []string{
 		"run",

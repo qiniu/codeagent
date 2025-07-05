@@ -17,6 +17,7 @@ type Config struct {
 	Gemini       GeminiConfig    `yaml:"gemini"`
 	Docker       DockerConfig    `yaml:"docker"`
 	CodeProvider string          `yaml:"code_provider"`
+	UseDocker    bool            `yaml:"use_docker"`
 }
 
 type GeminiConfig struct {
@@ -86,6 +87,9 @@ func (c *Config) loadFromEnv() {
 	}
 	if provider := os.Getenv("CODE_PROVIDER"); provider != "" {
 		c.CodeProvider = provider
+	} else {
+		// 必须要存在一个 provider，这里默认使用 gemini
+		c.CodeProvider = "gemini"
 	}
 	if secret := os.Getenv("WEBHOOK_SECRET"); secret != "" {
 		c.Server.WebhookSecret = secret
@@ -93,6 +97,11 @@ func (c *Config) loadFromEnv() {
 	if portStr := os.Getenv("PORT"); portStr != "" {
 		if port, err := strconv.Atoi(portStr); err == nil {
 			c.Server.Port = port
+		}
+	}
+	if useDockerStr := os.Getenv("USE_DOCKER"); useDockerStr != "" {
+		if useDocker, err := strconv.ParseBool(useDockerStr); err == nil {
+			c.UseDocker = useDocker
 		}
 	}
 }
@@ -133,12 +142,22 @@ func loadFromEnv() *Config {
 			Network: getEnvOrDefault("DOCKER_NETWORK", "bridge"),
 		},
 		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
+		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", true),
 	}
 }
 
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+func getEnvBoolOrDefault(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		if b, err := strconv.ParseBool(value); err == nil {
+			return b
+		}
 	}
 	return defaultValue
 }

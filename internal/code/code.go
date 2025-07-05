@@ -23,11 +23,19 @@ type Code interface {
 }
 
 func New(workspace *models.Workspace, cfg *config.Config) (Code, error) {
+	// 根据 code provider 和 use_docker 配置创建相应的代码提供者
 	switch cfg.CodeProvider {
 	case ProviderClaude:
-		return NewClaude(workspace, cfg)
+		// Claude 目前只支持 Docker 模式
+		if !cfg.UseDocker {
+			return nil, fmt.Errorf("Claude only supports Docker mode currently")
+		}
+		return NewClaudeDocker(workspace, cfg)
 	case ProviderGemini:
-		return NewGemini(workspace, cfg)
+		if cfg.UseDocker {
+			return NewGeminiDocker(workspace, cfg)
+		}
+		return NewGeminiLocal(workspace, cfg)
 	default:
 		return nil, fmt.Errorf("unsupported code provider: %s", cfg.CodeProvider)
 	}
