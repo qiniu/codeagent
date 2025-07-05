@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/qbox/codeagent/internal/code"
 	"github.com/qbox/codeagent/internal/config"
@@ -67,7 +68,12 @@ func (a *Agent) ProcessIssue(issue *github.Issue) error {
 	}
 
 	// 5. 执行 code prompt，获取修改计划
-	prompt := fmt.Sprintf("这是 Issue 内容 %s ，根据 Issue 内容，整理出修改计划", issue.GetURL())
+	prompt := fmt.Sprintf(`这是 Issue 内容：
+
+标题：%s
+描述：%s
+
+请根据以上 Issue 内容，整理出修改计划。`, issue.GetTitle(), issue.GetBody())
 	resp, err := code.Prompt(prompt)
 	if err != nil {
 		log.Errorf("failed to prompt for plan: %v", err)
@@ -89,8 +95,13 @@ func (a *Agent) ProcessIssue(issue *github.Issue) error {
 	}
 
 	// 6. 执行 code prompt，修改代码
-	codePrompt := fmt.Sprintf("按 issue 内容修改代码: %s", issue.GetURL())
-	codeResp, err := code.Prompt(codePrompt)
+	codePrompt := fmt.Sprintf(`请根据以下 Issue 内容修改代码：
+
+标题：%s
+描述：%s
+
+请分析需求并实现相应的代码修改。`, issue.GetTitle(), issue.GetBody())
+	codeResp, err := a.promptWithRetry(code, codePrompt, 3)
 	if err != nil {
 		log.Errorf("failed to prompt for code modification: %v", err)
 		return err
@@ -113,9 +124,9 @@ func (a *Agent) ProcessIssue(issue *github.Issue) error {
 
 	// 7 commit 变更
 	prompt = "帮我把当前的变更，使用开源社区标准的英文 commit 一下, 但不 push"
-	_, err = code.Prompt(prompt)
+	_, err = a.promptWithRetry(code, prompt, 3)
 	if err != nil {
-		log.Errorf("failed to prompt for plan: %v", err)
+		log.Errorf("failed to prompt for commit: %v", err)
 		return err
 	}
 
@@ -159,7 +170,12 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 	}
 
 	// 5. 执行 code prompt，获取修改计划
-	prompt := fmt.Sprintf("这是 Issue 内容 %s ，根据 Issue 内容，整理出修改计划", event.Issue.GetURL())
+	prompt := fmt.Sprintf(`这是 Issue 内容：
+
+标题：%s
+描述：%s
+
+请根据以上 Issue 内容，整理出修改计划。`, event.Issue.GetTitle(), event.Issue.GetBody())
 	resp, err := code.Prompt(prompt)
 	if err != nil {
 		log.Errorf("failed to prompt for plan: %v", err)
@@ -181,8 +197,13 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 	}
 
 	// 6. 执行 code prompt，修改代码
-	codePrompt := fmt.Sprintf("按 issue 内容修改代码: %s", event.Issue.GetURL())
-	codeResp, err := code.Prompt(codePrompt)
+	codePrompt := fmt.Sprintf(`请根据以下 Issue 内容修改代码：
+
+标题：%s
+描述：%s
+
+请分析需求并实现相应的代码修改。`, event.Issue.GetTitle(), event.Issue.GetBody())
+	codeResp, err := a.promptWithRetry(code, codePrompt, 3)
 	if err != nil {
 		log.Errorf("failed to prompt for code modification: %v", err)
 		return err
@@ -205,9 +226,9 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 
 	// 7 commit 变更
 	prompt = "帮我把当前的变更，使用开源社区标准的英文 commit 一下, 但不 push"
-	_, err = code.Prompt(prompt)
+	_, err = a.promptWithRetry(code, prompt, 3)
 	if err != nil {
-		log.Errorf("failed to prompt for plan: %v", err)
+		log.Errorf("failed to prompt for commit: %v", err)
 		return err
 	}
 
@@ -355,4 +376,32 @@ func (a *Agent) FixPR(pr *github.PullRequest) error {
 // ReviewPR 审查 PR
 func (a *Agent) ReviewPR(pr *github.PullRequest) error {
 	return nil
+}
+
+// promptWithRetry 带重试机制的 prompt 调用
+func (a *Agent) promptWithRetry(code code.Code, prompt string, maxRetries int) (*code.Response, error) {
+	var lastErr error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		resp, err := code.Prompt(prompt)
+		if err == nil {
+			return resp, nil
+		}
+
+		lastErr = err
+		log.Warnf("Prompt attempt %d failed: %v", attempt, err)
+
+		// 如果是 broken pipe 错误，尝试重新创建 session
+		if strings.Contains(err.Error(), "broken pipe") ||
+			strings.Contains(err.Error(), "process has already exited") {
+			log.Infof("Detected broken pipe or process exit, will retry...")
+		}
+
+		if attempt < maxRetries {
+			// 等待一段时间后重试
+			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+		}
+	}
+
+	return nil, fmt.Errorf("failed after %d attempts, last error: %w", maxRetries, lastErr)
 }

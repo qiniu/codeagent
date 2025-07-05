@@ -1,0 +1,32 @@
+# XGo Agent 配置文件示例
+# 复制此文件为 config.yaml 并填入实际的值
+
+server:
+  port: 8888
+  webhook_secret: your-webhook-secret-here
+
+github:
+  token: your-github-token-here
+  webhook_url: https://your-domain.com/webhook
+
+workspace:
+  base_dir: /tmp/xgo-agent
+  cleanup_after: 24h
+
+claude:
+  api_key: your-claude-api-key-here
+  container_image: anthropic/claude-code:latest
+  timeout: 30m
+
+gemini:
+  api_key: your-gemini-api-key-here
+  container_image: google-gemini/gemini-cli:latest
+  timeout: 30m
+
+docker:
+  socket: unix:///var/run/docker.sock
+  network: bridge
+
+# 代码提供者配置
+code_provider: claude # 可选值: claude, gemini
+use_docker: true # 是否使用 Docker，false 表示使用本地 CLI

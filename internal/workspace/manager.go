@@ -257,7 +257,7 @@ func (m *Manager) RegisterWorkspace(ws *models.Workspace, pr *github.PullRequest
 	}
 
 	m.workspaces[ws.PullRequest.GetNumber()] = ws
-	log.Infof("Registered workspace: %s", ws.ID)
+	log.Infof("Registered workspace: %s, %s", ws.ID, ws.Path)
 }
 
 // GetWorkspaceCount 获取当前工作空间数量
