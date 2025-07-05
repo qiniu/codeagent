@@ -18,3 +18,5 @@ claude:
 docker:
   socket: "unix:///var/run/docker.sock"
   network: "bridge"
+
+code_provider: "gemini"

@@ -7,10 +7,10 @@ import (
 )
 
 type Workspace struct {
-	ID         string        `json:"id"`
-	Path       string        `json:"path"`
-	Repository string        `json:"repository"`
-	Branch     string        `json:"branch"`
+	ID          string              `json:"id"`
+	Path        string              `json:"path"`
+	Repository  string              `json:"repository"`
+	Branch      string              `json:"branch"`
 	Issue       *github.Issue       `json:"issue"`
 	PullRequest *github.PullRequest `json:"pull_request"`
 	CreatedAt   time.Time           `json:"created_at"`
