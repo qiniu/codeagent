@@ -3,6 +3,7 @@ package code
 import (
 	"bytes"
 	"io"
+	"os"
 	"strings"
 	"sync"
 )
@@ -13,15 +14,15 @@ type tempBuffer struct {
 	buffer       []byte                   // 存储所有输出
 	watchers     map[string]*roundWatcher // 存储每个 prompt 的观察者
 	enterableStr string                   // 标识可输入状态的字符串
+	f            *os.File
 }
 
 // roundWatcher 表示一个观察特定 prompt 输出的观察者
 type roundWatcher struct {
-	key        string        // prompt 的唯一标识
-	buffer     *bytes.Buffer // 存储针对此 prompt 的输出
-	startIndex int           // 开始索引位置
-	done       bool          // 是否已完成
-	mu         sync.Mutex    // 互斥锁
+	key    string        // prompt 的唯一标识
+	buffer *bytes.Buffer // 存储针对此 prompt 的输出
+	done   bool          // 是否已完成
+	mu     sync.Mutex    // 互斥锁
 }
 
 // newTempBuffer 创建一个新的 tempBuffer
@@ -29,7 +30,7 @@ func newTempBuffer() *tempBuffer {
 	return &tempBuffer{
 		buffer:       make([]byte, 0),
 		watchers:     make(map[string]*roundWatcher),
-		enterableStr: ">   Type your message", // Gemini 的提示符
+		enterableStr: ">   ", // Gemini 的提示符
 	}
 }
 
@@ -40,22 +41,28 @@ func (t *tempBuffer) Write(p []byte) (int, error) {
 
 	// 追加到主缓冲区
 	t.buffer = append(t.buffer, p...)
+	lastIndex := strings.LastIndex(string(t.buffer), "[2J[3J[H")
+	buffer := t.buffer
+	if lastIndex > 0 {
+		buffer = t.buffer[lastIndex:]
+	}
 
 	// 通知所有观察者
 	for _, watcher := range t.watchers {
 		watcher.mu.Lock()
 		if !watcher.done {
-			// 如果 watcher 的开始索引在 buffer 内
-			if watcher.startIndex < len(t.buffer) {
-				// 计算此 watcher 尚未接收的数据
-				newData := t.buffer[watcher.startIndex:]
-				watcher.buffer.Write(newData)
-				watcher.startIndex = len(t.buffer)
-
-				// 检查是否包含可输入状态标识
-				if strings.Contains(watcher.buffer.String(), t.enterableStr) {
-					watcher.done = true
+			endIdx := strings.LastIndex(string(buffer), t.enterableStr)
+			questionIdx := strings.LastIndex(string(buffer), watcher.key)
+			if endIdx > 0 && questionIdx > 0 && questionIdx < endIdx {
+				buf := buffer[questionIdx+len(watcher.key) : endIdx]
+				start := strings.Index(string(buf), "╯")
+				end := strings.LastIndex(string(buf), "Using 1 GEMINI.md file")
+				if start > 0 && end > 0 {
+					watcher.buffer.Write(buf[start+3 : end])
+				} else {
+					watcher.buffer.Write(buf)
 				}
+				watcher.done = true
 			}
 		}
 		watcher.mu.Unlock()
@@ -69,11 +76,17 @@ func (t *tempBuffer) Watch(key string) io.Reader {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	keyPrefix := key
+	if len(keyPrefix) > 10 {
+		keyPrefix = keyPrefix[:10]
+	}
+
+	searchKey := "> " + keyPrefix
+
 	watcher := &roundWatcher{
-		key:        key,
-		buffer:     new(bytes.Buffer),
-		startIndex: len(t.buffer), // 从当前缓冲区末尾开始观察
-		done:       false,
+		key:    searchKey,
+		buffer: new(bytes.Buffer),
+		done:   false,
 	}
 
 	t.watchers[key] = watcher
@@ -86,7 +99,7 @@ func (t *tempBuffer) Enterable() bool {
 	defer t.mu.Unlock()
 
 	// 检查最后 100 个字符，避免检查整个缓冲区
-	lastN := 100
+	lastN := 1000
 	if len(t.buffer) < lastN {
 		lastN = len(t.buffer)
 	}

@@ -12,15 +12,11 @@ import (
 	"github.com/qbox/codeagent/pkg/models"
 
 	"github.com/creack/pty"
-	"golang.org/x/term"
 )
 
 type geminiCode struct {
 	cmd    *exec.Cmd
-	term   *term.State // 用于保存终端的原始状态
 	ptmx   *os.File
-	pipr   *os.File // 用于读取输入
-	pipw   *os.File // 用于写入输入
 	buf    *tempBuffer
 	inited atomic.Bool
 }
@@ -44,26 +40,17 @@ func NewGemini(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	// cmd := exec.Command("docker", args...)
 	cmd := exec.Command("/usr/local/bin/node", "/usr/local/bin/gemini")
 
-	cmd.Env = append(cmd.Env, "GOOGLE_CLOUD_PROJECT=sb2xbp")
+	cmd.Env = append(cmd.Env, "GOOGLE_CLOUD_PROJECT=codeagent")
 	cmd.Dir = workspace.Path
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start Gemini container: %w", err)
 	}
 
-	pipr, pipw, err := os.Pipe()
-	if err != nil {
-		ptmx.Close()
-		return nil, fmt.Errorf("failed to create pipe: %w", err)
-	}
-	oldState, err := term.MakeRaw(int(pipr.Fd()))
-
 	code := &geminiCode{
 		cmd:  cmd,
-		pipr: pipr,
-		pipw: pipw,
-		term: oldState,
 		ptmx: ptmx,
+		buf:  newTempBuffer(),
 	}
 
 	go code.run()
@@ -73,10 +60,14 @@ func NewGemini(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 }
 
 func (g *geminiCode) Prompt(message string) (*Response, error) {
-	watch := g.buf.Watch(message)
-	if _, err := g.pipw.Write([]byte(message + "\n")); err != nil {
-		return nil, err
+	for _, char := range message {
+		g.ptmx.WriteString(string(char))
+		time.Sleep(10 * time.Millisecond) // 模拟打字速度，直接 append CRLF gemini 不会提交
 	}
+
+	g.ptmx.Write([]byte{13}) // CR
+	g.ptmx.Write([]byte{10}) // LF
+	watch := g.buf.Watch(message)
 	return &Response{Out: watch}, nil
 }
 
@@ -84,12 +75,11 @@ func (g *geminiCode) Close() error {
 	if err := g.ptmx.Close(); err != nil {
 		return err
 	}
-	term.Restore(int(g.pipr.Fd()), g.term)
 	return g.cmd.Wait()
 }
 
 func (g *geminiCode) run() {
-	io.Copy(g.buf, g.ptmx)
+	go io.Copy(g.buf, g.ptmx)
 }
 
 func (g *geminiCode) Wait() {
@@ -100,18 +90,3 @@ func (g *geminiCode) Wait() {
 		time.Sleep(100 * time.Millisecond)
 	}
 }
-
-// type tempBuffer struct {
-// }
-
-// func (t *tempBuffer) Write(p []byte) (int, error) {
-// 	return
-// }
-
-// func (t *tempBuffer) Watch(key string) io.Reader {
-// 	return nil
-// }
-
-// func (t *tempBuffer) Enterable() bool {
-// 	return false
-// }
