@@ -28,7 +28,7 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"run",
 		"--rm",                 // 容器运行完后自动删除
 		"-d",                   // 后台运行
-		"-name", containerName, // 设置容器名称
+		"--name", containerName, // 设置容器名称
 		"-e", "GOOGLE_CLOUD_PROJECT=" + repo, // 设置 Google Cloud 项目环境变量
 		"-e", "GEMINI_API_KEY=" + cfg.Gemini.APIKey,
 		"-v", fmt.Sprintf("%s:/workspace", workspace.Path), // 挂载工作空间
