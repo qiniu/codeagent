@@ -58,6 +58,13 @@ func main() {
 
 	log.Infof("Configuration validated successfully")
 
+	// 打印加载的配置信息
+	configJSON, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		log.Fatalf("Failed to marshal config to JSON: %v", err)
+	}
+	log.Infof("Loaded configuration:\n%s", string(configJSON))
+
 	// 初始化工作空间管理器
 	workspaceManager := workspace.NewManager(cfg)
 
