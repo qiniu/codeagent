@@ -165,9 +165,16 @@ func (m *Manager) Cleanup(workspace models.Workspace) {
 // PrepareFromEvent 从完整的 IssueCommentEvent 准备工作空间
 func (m *Manager) PrepareFromEvent(event *github.IssueCommentEvent) models.Workspace {
 	id := fmt.Sprintf("issue-%d-%d", event.Issue.GetNumber(), time.Now().UnixNano())
+	session := fmt.Sprintf("session-%d-%d", event.Issue.GetNumber(), time.Now().UnixNano())
 	path := filepath.Join(m.baseDir, id)
+	sessionPath := filepath.Join(m.baseDir, session)
 
-	if err := os.MkdirAll(path, 0o755); err != nil {
+	if err := os.MkdirAll(path, 0755); err != nil {
+		log.Errorf("Failed to create workspace directory: %v", err)
+		return models.Workspace{}
+	}
+
+	if err := os.MkdirAll(sessionPath, 0755); err != nil {
 		log.Errorf("Failed to create workspace directory: %v", err)
 		return models.Workspace{}
 	}
@@ -218,12 +225,13 @@ func (m *Manager) PrepareFromEvent(event *github.IssueCommentEvent) models.Works
 	}
 
 	ws := models.Workspace{
-		ID:         id,
-		Path:       path,
-		Repository: repoURL,
-		Branch:     branch,
-		Issue:      event.Issue,
-		CreatedAt:  time.Now(),
+		ID:          id,
+		Path:        path,
+		SessionPath: sessionPath,
+		Repository:  repoURL,
+		Branch:      branch,
+		Issue:       event.Issue,
+		CreatedAt:   time.Now(),
 	}
 
 	return ws
