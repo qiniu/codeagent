@@ -33,6 +33,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+	log.Infof("Loaded config: %+v", cfg)
 
 	// 命令行参数优先级高于环境变量和配置文件
 	if *githubToken != "" {
