@@ -56,6 +56,13 @@ func main() {
 		log.Fatalf("Webhook Secret is required. Please set it via --webhook-secret flag or WEBHOOK_SECRET environment variable")
 	}
 
+	// 打印加载的配置
+	configBytes, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		log.Fatalf("Failed to marshal config to JSON: %v", err)
+	}
+	log.Infof("Loaded configuration:\n%s", string(configBytes))
+
 	log.Infof("Configuration validated successfully")
 
 	// 初始化工作空间管理器
