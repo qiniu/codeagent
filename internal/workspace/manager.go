@@ -175,7 +175,7 @@ func (m *Manager) PrepareFromEvent(event *github.IssueCommentEvent) models.Works
 	}
 
 	if err := os.MkdirAll(sessionPath, 0755); err != nil {
-		log.Errorf("Failed to create workspace directory: %v", err)
+		log.Errorf("Failed to create session directory: %v", err)
 		return models.Workspace{}
 	}
 
