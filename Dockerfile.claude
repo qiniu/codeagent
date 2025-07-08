@@ -7,4 +7,4 @@ RUN npm install -g @anthropic-ai/claude-code
 WORKDIR /workspace
 
 # 默认命令
-CMD ["claude"]
+CMD ["tail", "-f", "/dev/null"]

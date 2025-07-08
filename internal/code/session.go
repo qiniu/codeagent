@@ -10,21 +10,22 @@ import (
 
 type SessionManager struct {
 	mu    sync.RWMutex
-	codes map[int]Code
+	codes map[string]Code
 	cfg   *config.Config
 }
 
 func NewSessionManager(cfg *config.Config) *SessionManager {
 	return &SessionManager{
-		codes: make(map[int]Code),
+		codes: make(map[string]Code),
 		cfg:   cfg,
 	}
 }
 
 // GetSession retrieves an existing Code session or creates a new one.
 func (sm *SessionManager) GetSession(workspace *models.Workspace) (Code, error) {
+	key := fmt.Sprintf("%s-%d", workspace.Repository, workspace.PullRequest.GetNumber())
 	sm.mu.RLock()
-	c, ok := sm.codes[workspace.PullRequest.GetNumber()]
+	c, ok := sm.codes[key]
 	sm.mu.RUnlock()
 
 	if ok {
@@ -35,7 +36,7 @@ func (sm *SessionManager) GetSession(workspace *models.Workspace) (Code, error) 
 	defer sm.mu.Unlock()
 
 	// Double-check if the code object was created by another goroutine while we were waiting for the write lock
-	if code, ok := sm.codes[workspace.PullRequest.GetNumber()]; ok {
+	if code, ok := sm.codes[key]; ok {
 		return code, nil
 	}
 
@@ -43,7 +44,7 @@ func (sm *SessionManager) GetSession(workspace *models.Workspace) (Code, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new code session: %w", err)
 	}
-	sm.codes[workspace.PullRequest.GetNumber()] = c
+	sm.codes[key] = c
 	return c, nil
 }
 
@@ -51,9 +52,10 @@ func (sm *SessionManager) GetSession(workspace *models.Workspace) (Code, error) 
 func (sm *SessionManager) CloseSession(workspace *models.Workspace) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+	key := fmt.Sprintf("%s-%d", workspace.Repository, workspace.PullRequest.GetNumber())
 
-	if c, ok := sm.codes[workspace.PullRequest.GetNumber()]; ok {
-		delete(sm.codes, workspace.PullRequest.GetNumber())
+	if c, ok := sm.codes[key]; ok {
+		delete(sm.codes, key)
 		return c.Close()
 	}
 	return nil
