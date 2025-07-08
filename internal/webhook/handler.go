@@ -149,7 +149,7 @@ func (h *Handler) handlePullRequest(w http.ResponseWriter, body []byte) {
 		return
 	}
 
-	log.Infof("pull request event: %+v", event)
+	log.Infof("pull request event, action: %s, number: %d, title: %s", event.GetAction(), event.PullRequest.GetNumber(), event.PullRequest.GetTitle())
 
 	// 根据 PR 动作类型处理
 	switch event.GetAction() {
