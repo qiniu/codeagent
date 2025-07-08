@@ -135,6 +135,16 @@ func (m *Manager) Prepare(issue *github.Issue) models.Workspace {
 		return models.Workspace{}
 	}
 
+	// 配置 Git 安全目录，解决 Docker 容器中的权限问题
+	// 使用 --local 配置，写入到仓库的 .git/config 文件
+	cmd = exec.Command("git", "config", "--local", "--add", "safe.directory", path)
+	cmd.Dir = path // 设置工作目录为仓库路径
+	configOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warnf("Failed to configure safe directory: %v\nCommand output: %s", err, string(configOutput))
+		// 不返回错误，继续执行
+	}
+
 	ws := models.Workspace{
 		ID:         id,
 		Path:       path,
@@ -222,6 +232,16 @@ func (m *Manager) PrepareFromEvent(event *github.IssueCommentEvent) models.Works
 		log.Errorf("Failed to create branch: %v\nCommand output: %s", err, string(checkoutOutput))
 		os.RemoveAll(path) // 清理失败的目录
 		return models.Workspace{}
+	}
+
+	// 配置 Git 安全目录，解决 Docker 容器中的权限问题
+	// 使用 --local 配置，写入到仓库的 .git/config 文件
+	cmd = exec.Command("git", "config", "--local", "--add", "safe.directory", path)
+	cmd.Dir = path // 设置工作目录为仓库路径
+	configOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warnf("Failed to configure safe directory: %v, err: %v\nCommand output: %s", path, err, string(configOutput))
+		// 不返回错误，继续执行
 	}
 
 	ws := models.Workspace{

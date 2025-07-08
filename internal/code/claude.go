@@ -17,6 +17,7 @@ import (
 type claudeCode struct {
 	cmd           *exec.Cmd
 	containerName string
+	config        *config.Config
 }
 
 func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
@@ -29,7 +30,9 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 
 	// 确定claude配置路径
 	var claudeConfigPath string
-	if home := os.Getenv("HOME"); home != "" {
+	if cfg.Claude.ConfigPath != "" {
+		claudeConfigPath = cfg.Claude.ConfigPath
+	} else if home := os.Getenv("HOME"); home != "" {
 		claudeConfigPath, _ = filepath.Abs(filepath.Join(home, ".claude"))
 	} else {
 		claudeConfigPath = "/root/.claude"
@@ -53,8 +56,9 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"--rm",                  // 容器运行完后自动删除
 		"-d",                    // 后台运行
 		"--name", containerName, // 设置容器名称
+		"-u", "1001:1001", // 使用非 root 用户 (UID:GID = 1001:1001)
 		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // 挂载工作空间
-		"-v", fmt.Sprintf("%s:/root/.claude", claudeConfigPath), // 挂载 claude 认证信息
+		"-v", fmt.Sprintf("%s:/home/claude/.claude:ro", claudeConfigPath), // 挂载整个 claude 配置目录（只读）
 		"-w", "/workspace", // 设置工作目录
 		cfg.Claude.ContainerImage, // 使用配置的 Claude 镜像
 	}
@@ -88,6 +92,7 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	return &claudeCode{
 		cmd:           cmd,
 		containerName: containerName,
+		config:        cfg,
 	}, nil
 }
 
@@ -96,12 +101,19 @@ func (c *claudeCode) Prompt(message string) (*Response, error) {
 		"exec",
 		c.containerName,
 		"claude",
-		"--dangerously-skip-permissions",
+		"--dangerously-skip-permissions", // 跳过权限检查（在非 root 用户下安全）
 		"-p",
 		message,
 	}
 
+	// 打印调试信息
+	log.Infof("Executing claude command: docker %s", strings.Join(args, " "))
+
 	cmd := exec.Command("docker", args...)
+
+	// 捕获stderr用于调试
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -110,8 +122,13 @@ func (c *claudeCode) Prompt(message string) (*Response, error) {
 
 	// 启动命令
 	if err := cmd.Start(); err != nil {
+		log.Errorf("Failed to start claude command: %v", err)
+		log.Errorf("Stderr: %s", stderr.String())
 		return nil, fmt.Errorf("failed to execute claude: %w", err)
 	}
+
+	// 不等待命令完成，让调用方处理输出流
+	// 错误处理将在调用方读取时进行
 	return &Response{Out: stdout}, nil
 }
 

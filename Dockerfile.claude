@@ -1,10 +1,24 @@
-FROM node:20-alpine
+FROM node:20
 
-# 安装全局 gemini CLI
+# 创建非 root 用户
+RUN groupadd -g 1001 claude && \
+    useradd -u 1001 -g claude -m -s /bin/bash claude
+
+# 安装全局 claude CLI
 RUN npm install -g @anthropic-ai/claude-code
+
+# 创建 claude 配置目录并设置权限
+RUN mkdir -p /home/claude/.claude/projects && \
+    chown -R claude:claude /home/claude/.claude
+
+# 设置SHELL环境变量
+ENV SHELL=/bin/bash
 
 # 设置工作目录
 WORKDIR /workspace
+
+# 切换到非 root 用户
+USER claude
 
 # 默认命令
 CMD ["tail", "-f", "/dev/null"]

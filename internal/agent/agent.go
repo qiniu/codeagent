@@ -157,7 +157,7 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 标题：%s
 描述：%s
 
-请按照以下格式输出你的分析和操作：
+请直接修改代码，并按照以下格式输出你的分析和操作：
 
 %s
 请总结本次代码改动的主要内容。
