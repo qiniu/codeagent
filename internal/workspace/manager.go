@@ -80,6 +80,54 @@ func (m *Manager) cleanupWorkspace(ws *models.Workspace) {
 	}
 }
 
+// buildSSHURL 构建SSH格式的仓库URL
+func buildSSHURL(repo *github.Repository) string {
+	if repo == nil {
+		return ""
+	}
+
+	// 获取仓库的SSH URL
+	if sshURL := repo.GetSSHURL(); sshURL != "" {
+		return sshURL
+	}
+
+	// 如果没有SSH URL，从HTTPS URL构建
+	httpsURL := repo.GetCloneURL()
+	if httpsURL == "" {
+		return ""
+	}
+
+	// 将 https://github.com/owner/repo.git 转换为 git@github.com:owner/repo.git
+	if strings.HasPrefix(httpsURL, "https://github.com/") {
+		sshURL := strings.Replace(httpsURL, "https://github.com/", "git@github.com:", 1)
+		return sshURL
+	}
+
+	return httpsURL // 如果不是GitHub，返回原始URL
+}
+
+// checkSSHConfig 检查SSH配置是否正确
+func checkSSHConfig() error {
+	// 检查SSH密钥是否存在
+	sshKeyPath := filepath.Join(os.Getenv("HOME"), ".ssh", "id_rsa")
+	if _, err := os.Stat(sshKeyPath); os.IsNotExist(err) {
+		// 尝试其他常见的SSH密钥
+		ed25519Path := filepath.Join(os.Getenv("HOME"), ".ssh", "id_ed25519")
+		if _, err := os.Stat(ed25519Path); os.IsNotExist(err) {
+			return fmt.Errorf("no SSH key found. Please ensure SSH key is configured")
+		}
+	}
+
+	// 测试SSH连接到GitHub
+	cmd := exec.Command("ssh", "-T", "git@github.com")
+	out, _ := cmd.CombinedOutput()
+	if !strings.Contains(string(out), "successfully authenticated") {
+		return fmt.Errorf("SSH connection to GitHub failed: %s", string(out))
+	}
+
+	return nil
+}
+
 // Prepare 准备工作空间（从 Issue）
 func (m *Manager) Prepare(issue *github.Issue) models.Workspace {
 	id := fmt.Sprintf("issue-%d-%d", issue.GetNumber(), time.Now().UnixNano())
@@ -97,16 +145,24 @@ func (m *Manager) Prepare(issue *github.Issue) models.Workspace {
 		return models.Workspace{}
 	}
 
-	// 构建 SSH 或 HTTPS URL
-	repoURL := repo.GetCloneURL() // 这会返回 HTTPS URL
+	// 构建 SSH URL
+	repoURL := buildSSHURL(repo)
 	if repoURL == "" {
-		log.Errorf("Failed to get repository URL")
+		log.Errorf("Failed to build repository SSH URL")
 		return models.Workspace{}
 	}
 
 	branch := fmt.Sprintf("xgo-agent/issue-%d-%d", issue.GetNumber(), time.Now().Unix())
 
+	// 检查SSH配置
+	if err := checkSSHConfig(); err != nil {
+		log.Errorf("SSH configuration check failed: %v", err)
+		os.RemoveAll(path) // 清理失败的目录
+		return models.Workspace{}
+	}
+
 	// 克隆仓库
+	log.Infof("Cloning repository using SSH URL: %s", repoURL)
 	cmd := exec.Command("git", "clone", repoURL, path)
 	cloneOutput, err := cmd.CombinedOutput()
 	if err != nil {
@@ -186,16 +242,24 @@ func (m *Manager) PrepareFromEvent(event *github.IssueCommentEvent) models.Works
 		return models.Workspace{}
 	}
 
-	// 构建克隆 URL
-	repoURL := repo.GetCloneURL()
+	// 构建 SSH URL
+	repoURL := buildSSHURL(repo)
 	if repoURL == "" {
-		log.Errorf("Failed to get repository")
+		log.Errorf("Failed to build repository SSH URL")
 		return models.Workspace{}
 	}
 
 	branch := fmt.Sprintf("xgo-agent/issue-%d-%d", event.Issue.GetNumber(), time.Now().Unix())
 
+	// 检查SSH配置
+	if err := checkSSHConfig(); err != nil {
+		log.Errorf("SSH configuration check failed: %v", err)
+		os.RemoveAll(path) // 清理失败的目录
+		return models.Workspace{}
+	}
+
 	// 克隆仓库
+	log.Infof("Cloning repository using SSH URL: %s", repoURL)
 	cmd := exec.Command("git", "clone", repoURL, path)
 	cloneOutput, err := cmd.CombinedOutput()
 	if err != nil {
