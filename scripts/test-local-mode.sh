@@ -12,8 +12,8 @@ if [ -z "$GITHUB_TOKEN" ]; then
     exit 1
 fi
 
-if [ -z "$CLAUDE_API_KEY" ] && [ -z "$GEMINI_API_KEY" ]; then
-    echo "❌ 错误: 请设置 CLAUDE_API_KEY 或 GEMINI_API_KEY 环境变量"
+if [ -z "$CLAUDE_API_KEY" ] && [ -z "$GOOGLE_API_KEY" ]; then
+    echo "❌ 错误: 请设置 CLAUDE_API_KEY 或 GOOGLE_API_KEY 环境变量"
     exit 1
 fi
 
@@ -38,7 +38,7 @@ fi
 if [ "$CODE_PROVIDER" = "claude" ] || [ -z "$CODE_PROVIDER" ]; then
     if ! command -v claude &> /dev/null; then
         echo "⚠️  警告: claude CLI 未找到，请先安装"
-        echo "   安装方法: https://github.com/anthropics/anthropic-claude-code"
+        echo "   安装方法: curl -fsSL https://claude.ai/cli/install.sh | sh"
     else
         echo "✅ claude CLI 已安装"
     fi

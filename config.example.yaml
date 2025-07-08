@@ -29,4 +29,4 @@ docker:
 
 # 代码提供者配置
 code_provider: claude # 可选值: claude, gemini
-use_docker: true # 是否使用 Docker，false 表示使用本地 CLI
+use_docker: false # 是否使用 Docker，false 表示使用本地 CLI

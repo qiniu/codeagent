@@ -142,7 +142,7 @@ func loadFromEnv() *Config {
 			Network: getEnvOrDefault("DOCKER_NETWORK", "bridge"),
 		},
 		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
-		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", true),
+		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", false),
 	}
 }
 

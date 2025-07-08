@@ -35,12 +35,12 @@ show_help() {
     echo "用法: $0 [选项]"
     echo ""
     echo "选项:"
-    echo "  -p, --provider PROVIDER    代码提供者 (claude|gemini) [默认: gemini]"
+    echo "  -p, --provider PROVIDER    代码提供者 (claude|gemini) [默认: claude]"
     echo "  -d, --docker               使用 Docker 模式 [默认: 本地 CLI 模式]"
     echo "  -h, --help                 显示此帮助信息"
     echo ""
     echo "示例:"
-    echo "  $0                          # Gemini + 本地 CLI 模式"
+    echo "  $0                          # Claude + 本地 CLI 模式"
     echo "  $0 -p claude -d             # Claude + Docker 模式"
     echo "  $0 -p gemini -d             # Gemini + Docker 模式"
     echo "  $0 -p claude                # Claude + 本地 CLI 模式"
@@ -48,7 +48,7 @@ show_help() {
 
 # 解析命令行参数
 parse_args() {
-    PROVIDER="gemini"
+    PROVIDER="claude"
     USE_DOCKER=false
     
     while [[ $# -gt 0 ]]; do
@@ -126,7 +126,7 @@ check_cli_tools() {
                 print_error "Claude CLI 未安装或不在 PATH 中"
                 echo ""
                 echo "请安装 Claude CLI:"
-                echo "npm install -g @anthropic-ai/claude"
+                echo "curl -fsSL https://claude.ai/cli/install.sh | sh"
                 exit 1
             fi
             print_success "Claude CLI 可用"
