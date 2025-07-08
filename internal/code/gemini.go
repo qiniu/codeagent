@@ -60,11 +60,16 @@ func (g *geminiLocal) Prompt(message string) (*Response, error) {
 func (g *geminiLocal) executeGeminiLocal(prompt string) ([]byte, error) {
 	// 构建 gemini CLI 命令
 	args := []string{
+		"-y",
 		"--prompt", prompt,
 	}
 
-	// 设置超时
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	// 设置超时 - 使用配置中的超时时间，默认为 5 分钟
+	timeout := g.config.Gemini.Timeout
+	if timeout == 0 {
+		timeout = 5 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "gemini", args...)
@@ -79,6 +84,7 @@ func (g *geminiLocal) executeGeminiLocal(prompt string) ([]byte, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
+			log.Warnf("Gemini CLI execution timed out after %s, this might be due to large codebase or complex task", timeout)
 			return nil, fmt.Errorf("gemini CLI execution timed out: %w", err)
 		}
 
@@ -86,6 +92,11 @@ func (g *geminiLocal) executeGeminiLocal(prompt string) ([]byte, error) {
 		outputStr := string(output)
 		if strings.Contains(outputStr, "API Error") || strings.Contains(outputStr, "fetch failed") {
 			return nil, fmt.Errorf("gemini API error - please check GOOGLE_API_KEY: %w, output: %s", err, outputStr)
+		}
+
+		// 检查是否是网络相关错误
+		if strings.Contains(outputStr, "timeout") || strings.Contains(outputStr, "connection") {
+			log.Warnf("Network-related error detected: %s", outputStr)
 		}
 
 		return nil, fmt.Errorf("gemini CLI execution failed: %w, output: %s", err, outputStr)

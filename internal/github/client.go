@@ -3,9 +3,11 @@ package github
 import (
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 
+	"github.com/qbox/codeagent/internal/code"
 	"github.com/qbox/codeagent/internal/config"
 	"github.com/qbox/codeagent/pkg/models"
 
@@ -160,7 +162,7 @@ func (c *Client) CreatePullRequest(workspace *models.Workspace) (*github.PullReq
 }
 
 // CommitAndPush 检测文件变更并提交推送
-func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.ExecutionResult) error {
+func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.ExecutionResult, codeClient code.Code) error {
 	// 检查是否有文件变更
 	cmd := exec.Command("git", "status", "--porcelain")
 	cmd.Dir = workspace.Path
@@ -182,11 +184,17 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 		return fmt.Errorf("failed to add changes: %w\nCommand output: %s", err, string(addOutput))
 	}
 
-	// 创建提交
-	commitMsg := fmt.Sprintf("实现 Issue #%d: %s\n\n%s",
-		workspace.Issue.GetNumber(),
-		workspace.Issue.GetTitle(),
-		result.Output)
+	// 使用AI生成标准的英文commit message
+	commitMsg, err := c.generateCommitMessage(workspace, result, codeClient)
+	if err != nil {
+		log.Warnf("Failed to generate commit message with AI, using fallback: %v", err)
+		// 使用fallback的commit message
+		summary := extractSummaryFromOutput(result.Output)
+		commitMsg = fmt.Sprintf("feat: implement Issue #%d - %s\n\n%s",
+			workspace.Issue.GetNumber(),
+			workspace.Issue.GetTitle(),
+			summary)
+	}
 
 	cmd = exec.Command("git", "commit", "-m", commitMsg)
 	cmd.Dir = workspace.Path
@@ -323,4 +331,127 @@ func (c *Client) parseRepoURL(repoURL string) (owner, repo string) {
 		}
 	}
 	return owner, repo
+}
+
+// extractSummaryFromOutput 从AI输出中提取摘要信息
+func extractSummaryFromOutput(output string) string {
+	lines := strings.Split(output, "\n")
+
+	// 查找改动摘要部分
+	var summaryLines []string
+	var inSummarySection bool
+
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		// 检测改动摘要章节开始
+		if strings.HasPrefix(trimmedLine, models.SectionSummary) {
+			inSummarySection = true
+			continue
+		}
+
+		// 检测其他章节开始，结束摘要部分
+		if inSummarySection && strings.HasPrefix(trimmedLine, "## ") {
+			break
+		}
+
+		// 收集摘要内容
+		if inSummarySection && trimmedLine != "" {
+			summaryLines = append(summaryLines, line)
+		}
+	}
+
+	summary := strings.TrimSpace(strings.Join(summaryLines, "\n"))
+
+	// 如果没有找到摘要，返回前几行作为fallback
+	if summary == "" && len(lines) > 0 {
+		// 取前3行非空内容
+		var fallbackLines []string
+		for _, line := range lines[:min(3, len(lines))] {
+			if strings.TrimSpace(line) != "" {
+				fallbackLines = append(fallbackLines, strings.TrimSpace(line))
+			}
+		}
+		summary = strings.Join(fallbackLines, "\n")
+	}
+
+	return summary
+}
+
+// generateCommitMessage 使用AI生成标准的英文commit message
+func (c *Client) generateCommitMessage(workspace *models.Workspace, result *models.ExecutionResult, codeClient code.Code) (string, error) {
+	// 获取git status和diff信息
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = workspace.Path
+	statusOutput, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get git status: %w", err)
+	}
+
+	cmd = exec.Command("git", "diff", "--cached")
+	cmd.Dir = workspace.Path
+	diffOutput, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get git diff: %w", err)
+	}
+
+	// 构建更详细的prompt
+	prompt := fmt.Sprintf(`Please help me generate a standard English commit message that follows open source community conventions.
+
+Issue Information:
+- Title: %s
+- Description: %s
+
+AI Execution Result:
+%s
+
+Git Status:
+%s
+
+Git Changes:
+%s
+
+Please follow this format for the commit message:
+1. Use conventional commits format (e.g., feat:, fix:, docs:, style:, refactor:, test:, chore:)
+2. Keep the title concise and clear, no more than 50 characters
+3. If necessary, add detailed description after an empty line
+4. Finally add "Closes #%d" to link the Issue
+
+Important: Please return only the plain text commit message content, do not include any formatting marks (such as markdown syntax, etc.), and do not include any explanatory text.`,
+		workspace.Issue.GetTitle(),
+		workspace.Issue.GetBody(),
+		result.Output,
+		string(statusOutput),
+		string(diffOutput),
+		workspace.Issue.GetNumber(),
+	)
+
+	// 调用AI生成commit message
+	resp, err := codeClient.Prompt(prompt)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate commit message: %w", err)
+	}
+
+	// 读取AI输出
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		return "", fmt.Errorf("failed to read AI output: %w", err)
+	}
+
+	commitMsg := strings.TrimSpace(string(output))
+
+	// 确保commit message不为空
+	if commitMsg == "" {
+		return "", fmt.Errorf("AI generated empty commit message")
+	}
+
+	return commitMsg, nil
+}
+
+// min 返回两个整数中的较小值
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

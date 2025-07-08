@@ -67,40 +67,21 @@ func (a *Agent) ProcessIssue(issue *github.Issue) error {
 		return err
 	}
 
-	// 5. 执行 code prompt，获取修改计划
-	prompt := fmt.Sprintf(`这是 Issue 内容：
+	// 5. 执行代码修改，使用更明确的 prompt
+	codePrompt := fmt.Sprintf(`请根据以下 Issue 内容直接修改代码：
 
 标题：%s
 描述：%s
 
-请根据以上 Issue 内容，整理出修改计划。`, issue.GetTitle(), issue.GetBody())
-	resp, err := code.Prompt(prompt)
-	if err != nil {
-		log.Errorf("failed to prompt for plan: %v", err)
-		return err
-	}
+要求：
+1. 仔细分析 Issue 需求，理解要解决的问题
+2. 查看现有代码结构，找到需要修改的文件
+3. 直接实现代码修改，确保功能完整
+4. 遵循项目的代码风格和最佳实践
+5. 添加必要的测试用例（如果需要）
+6. 确保代码能够正常运行
 
-	planOutput, err := io.ReadAll(resp.Out)
-	if err != nil {
-		log.Errorf("failed to read plan output: %v", err)
-		return err
-	}
-
-	log.Infof("Modification Plan: %s", string(planOutput))
-
-	// 5.5. 更新 PR Body 为修改计划
-	if err = a.github.UpdatePullRequest(pr, string(planOutput)); err != nil {
-		log.Errorf("failed to update PR body with plan: %v", err)
-		return err
-	}
-
-	// 6. 执行 code prompt，修改代码
-	codePrompt := fmt.Sprintf(`请根据以下 Issue 内容修改代码：
-
-标题：%s
-描述：%s
-
-请分析需求并实现相应的代码修改。`, issue.GetTitle(), issue.GetBody())
+请开始分析和修改代码。`, issue.GetTitle(), issue.GetBody())
 	codeResp, err := a.promptWithRetry(code, codePrompt, 3)
 	if err != nil {
 		log.Errorf("failed to prompt for code modification: %v", err)
@@ -115,23 +96,24 @@ func (a *Agent) ProcessIssue(issue *github.Issue) error {
 
 	log.Infof("Code Modification Output: %s", string(codeOutput))
 
-	// 6.5. 评论到 PR
+	// 6. 更新 PR Body 为执行结果
+	if err = a.github.UpdatePullRequest(pr, string(codeOutput)); err != nil {
+		log.Errorf("failed to update PR body with execution result: %v", err)
+		return err
+	}
+
+	// 7. 评论到 PR
 	commentBody := fmt.Sprintf("<details><summary>Code Modification Session</summary>%s</details>", string(codeOutput))
 	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
 		log.Errorf("failed to create PR comment for code modification: %v", err)
 		return err
 	}
 
-	// 7 commit 变更
-	prompt = "帮我把当前的变更，使用开源社区标准的英文 commit 一下, 但不 push"
-	_, err = a.promptWithRetry(code, prompt, 3)
-	if err != nil {
-		log.Errorf("failed to prompt for commit: %v", err)
-		return err
+	// 8. 提交变更并推送到远程
+	result := &models.ExecutionResult{
+		Output: string(codeOutput),
 	}
-
-	// 8. 提交变更并更新 PR
-	if err := a.github.Push(&ws); err != nil {
+	if err = a.github.CommitAndPush(&ws, result, code); err != nil {
 		log.Errorf("Failed to commit and push: %v", err)
 		return err
 	}
@@ -169,40 +151,23 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 		return err
 	}
 
-	// 5. 执行 code prompt，获取修改计划
-	prompt := fmt.Sprintf(`这是 Issue 内容：
-
-标题：%s
-描述：%s
-
-请根据以上 Issue 内容，整理出修改计划。`, event.Issue.GetTitle(), event.Issue.GetBody())
-	resp, err := code.Prompt(prompt)
-	if err != nil {
-		log.Errorf("failed to prompt for plan: %v", err)
-		return err
-	}
-
-	planOutput, err := io.ReadAll(resp.Out)
-	if err != nil {
-		log.Errorf("failed to read plan output: %v", err)
-		return err
-	}
-
-	log.Infof("Modification Plan: %s", string(planOutput))
-
-	// 5.5. 更新 PR Body 为修改计划
-	if err = a.github.UpdatePullRequest(pr, string(planOutput)); err != nil {
-		log.Errorf("failed to update PR body with plan: %v", err)
-		return err
-	}
-
-	// 6. 执行 code prompt，修改代码
+	// 5. 执行代码修改，规范 prompt，要求 AI 输出结构化摘要
 	codePrompt := fmt.Sprintf(`请根据以下 Issue 内容修改代码：
 
 标题：%s
 描述：%s
 
-请分析需求并实现相应的代码修改。`, event.Issue.GetTitle(), event.Issue.GetBody())
+请按照以下格式输出你的分析和操作：
+
+%s
+请总结本次代码改动的主要内容。
+
+%s
+请以简洁的列表形式列出具体改动：
+- 变动的文件（每个文件后面列出具体变动，如：xxx/xx.go 添加删除逻辑）
+
+请确保输出格式清晰，便于阅读和理解。`, event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
+
 	codeResp, err := a.promptWithRetry(code, codePrompt, 3)
 	if err != nil {
 		log.Errorf("failed to prompt for code modification: %v", err)
@@ -215,31 +180,116 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 		return err
 	}
 
-	log.Infof("Code Modification Output: %s", string(codeOutput))
+	log.Infof("LLM Output: %s", string(codeOutput))
 
-	// 6.5. 评论到 PR
-	commentBody := fmt.Sprintf("<details><summary>Code Modification Session</summary>%s</details>", string(codeOutput))
-	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
-		log.Errorf("failed to create PR comment for code modification: %v", err)
+	// 6. 组织结构化 PR Body（解析三段式输出）
+	aiStr := string(codeOutput)
+
+	// 解析三段式输出
+	summary, changes, testPlan := parseStructuredOutput(aiStr)
+
+	// 构建PR Body
+	prBody := ""
+	if summary != "" {
+		prBody += models.SectionSummary + "\n\n" + summary + "\n\n"
+	}
+
+	if changes != "" {
+		prBody += models.SectionChanges + "\n\n" + changes + "\n\n"
+	}
+
+	if testPlan != "" {
+		prBody += models.SectionTestPlan + "\n\n" + testPlan + "\n\n"
+	}
+
+	// 添加原始输出和错误信息
+	prBody += "---\n\n"
+	prBody += "<details><summary>AI 完整输出</summary>\n\n" + aiStr + "\n\n</details>\n\n"
+
+	// 错误信息判断
+	errorInfo := extractErrorInfo(aiStr)
+	if errorInfo != "" {
+		prBody += "## 错误信息\n\n```text\n" + errorInfo + "\n```\n\n"
+	}
+
+	prBody += "<details><summary>原始 Prompt</summary>\n\n" + codePrompt + "\n\n</details>"
+
+	if err = a.github.UpdatePullRequest(pr, prBody); err != nil {
+		log.Errorf("failed to update PR body with execution result: %v", err)
 		return err
 	}
 
-	// 7 commit 变更
-	prompt = "帮我把当前的变更，使用开源社区标准的英文 commit 一下, 但不 push"
-	_, err = a.promptWithRetry(code, prompt, 3)
-	if err != nil {
-		log.Errorf("failed to prompt for commit: %v", err)
-		return err
+	// 8. 提交变更并推送到远程
+	result := &models.ExecutionResult{
+		Output: string(codeOutput),
 	}
-
-	// 8. 提交变更并更新 PR
-	if err := a.github.Push(&ws); err != nil {
+	if err = a.github.CommitAndPush(&ws, result, code); err != nil {
 		log.Errorf("Failed to commit and push: %v", err)
 		return err
 	}
 
 	log.Infof("Successfully processed Issue #%d, PR: %s", event.Issue.GetNumber(), pr.GetHTMLURL())
 	return nil
+}
+
+// parseStructuredOutput 解析AI的三段式输出
+func parseStructuredOutput(output string) (summary, changes, testPlan string) {
+	lines := strings.Split(output, "\n")
+
+	var currentSection string
+	var summaryLines, changesLines, testPlanLines []string
+
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		// 检测章节标题
+		if strings.HasPrefix(trimmedLine, models.SectionSummary) {
+			currentSection = models.SectionSummaryID
+			continue
+		} else if strings.HasPrefix(trimmedLine, models.SectionChanges) {
+			currentSection = models.SectionChangesID
+			continue
+		} else if strings.HasPrefix(trimmedLine, models.SectionTestPlan) {
+			currentSection = models.SectionTestPlanID
+			continue
+		}
+
+		// 根据当前章节收集内容
+		switch currentSection {
+		case models.SectionSummaryID:
+			if trimmedLine != "" {
+				summaryLines = append(summaryLines, line)
+			}
+		case models.SectionChangesID:
+			changesLines = append(changesLines, line)
+		case models.SectionTestPlanID:
+			testPlanLines = append(testPlanLines, line)
+		}
+	}
+
+	summary = strings.TrimSpace(strings.Join(summaryLines, "\n"))
+	changes = strings.TrimSpace(strings.Join(changesLines, "\n"))
+	testPlan = strings.TrimSpace(strings.Join(testPlanLines, "\n"))
+
+	return summary, changes, testPlan
+}
+
+// extractErrorInfo 提取错误信息
+func extractErrorInfo(output string) string {
+	lines := strings.Split(output, "\n")
+
+	// 查找错误信息
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.ToLower(strings.TrimSpace(lines[i]))
+		if strings.HasPrefix(line, models.ErrorPrefixError) ||
+			strings.HasPrefix(line, models.ErrorPrefixException) ||
+			strings.HasPrefix(line, models.ErrorPrefixTraceback) ||
+			strings.HasPrefix(line, models.ErrorPrefixPanic) {
+			return strings.TrimSpace(lines[i])
+		}
+	}
+
+	return ""
 }
 
 // ContinuePR 继续处理 PR 中的任务
@@ -292,7 +342,7 @@ func (a *Agent) ContinuePR(pr *github.PullRequest) error {
 	result := &models.ExecutionResult{
 		Output: string(output),
 	}
-	if err := a.github.CommitAndPush(ws, result); err != nil {
+	if err := a.github.CommitAndPush(ws, result, code); err != nil {
 		log.Errorf("Failed to commit and push for PR continue: %v", err)
 		return err
 	}
@@ -357,7 +407,7 @@ func (a *Agent) FixPR(pr *github.PullRequest) error {
 	result := &models.ExecutionResult{
 		Output: string(output),
 	}
-	if err := a.github.CommitAndPush(ws, result); err != nil {
+	if err := a.github.CommitAndPush(ws, result, code); err != nil {
 		log.Errorf("Failed to commit and push for PR fix: %v", err)
 		return err
 	}
