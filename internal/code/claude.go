@@ -26,7 +26,14 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 
 	// 确保路径存在
 	workspacePath, _ := filepath.Abs(workspace.Path)
-	claudeConfigPath := filepath.Join(os.Getenv("HOME"), ".claude")
+
+	// 确定claude配置路径
+	var claudeConfigPath string
+	if home := os.Getenv("HOME"); home != "" {
+		claudeConfigPath, _ = filepath.Abs(filepath.Join(home, ".claude"))
+	} else {
+		claudeConfigPath = "/root/.claude"
+	}
 
 	// 检查是否使用了/tmp目录（在macOS上可能导致挂载问题）
 	if strings.HasPrefix(workspacePath, "/tmp/") {
