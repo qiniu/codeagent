@@ -12,8 +12,8 @@ if [ -z "$GITHUB_TOKEN" ]; then
     exit 1
 fi
 
-if [ -z "$CLAUDE_API_KEY" ] && [ -z "$GEMINI_API_KEY" ]; then
-    echo "❌ 错误: 请设置 CLAUDE_API_KEY 或 GEMINI_API_KEY 环境变量"
+if [ -z "$CLAUDE_API_KEY" ] && [ -z "$GEMINI_API_KEY" ] && [ -z "$GOOGLE_API_KEY" ]; then
+    echo "❌ 错误: 请设置 CLAUDE_API_KEY 或 GEMINI_API_KEY/GOOGLE_API_KEY 环境变量"
     exit 1
 fi
 
