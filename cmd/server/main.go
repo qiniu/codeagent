@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 	"github.com/qbox/codeagent/internal/config"
 	"github.com/qbox/codeagent/internal/webhook"
 	"github.com/qbox/codeagent/internal/workspace"
+	"gopkg.in/yaml.v3"
 
 	"github.com/qiniu/x/log"
 )
@@ -47,6 +49,15 @@ func main() {
 	if *port > 0 {
 		cfg.Server.Port = *port
 	}
+
+	// 打印加载的配置信息
+	configBytes, err := yaml.Marshal(cfg)
+	if err != nil {
+		log.Fatalf("Failed to marshal config to YAML: %v", err)
+	}
+	fmt.Println("--- Loaded Configuration ---")
+	fmt.Println(string(configBytes))
+	fmt.Println("--------------------------")
 
 	// 验证必需的配置
 	if cfg.GitHub.Token == "" {
