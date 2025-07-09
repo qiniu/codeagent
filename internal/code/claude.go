@@ -101,17 +101,31 @@ func (c *claudeCode) Prompt(message string) (*Response, error) {
 		message,
 	}
 
+	// 打印调试信息
+	log.Infof("Executing claude command: docker %s", strings.Join(args, " "))
+
 	cmd := exec.Command("docker", args...)
+
+	// 捕获stderr用于调试
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		log.Errorf("Failed to start claude command: %v", err)
+		log.Errorf("Stderr: %s", stderr.String())
 		return nil, err
 	}
 
 	// 启动命令
 	if err := cmd.Start(); err != nil {
+		log.Errorf("Failed to start claude command: %v", err)
+		log.Errorf("Stderr: %s", stderr.String())
 		return nil, fmt.Errorf("failed to execute claude: %w", err)
 	}
+
+	// 不等待命令完成，让调用方处理输出流
+	// 错误处理将在调用方读取时进行
 	return &Response{Out: stdout}, nil
 }
 
