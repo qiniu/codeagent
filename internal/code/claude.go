@@ -53,6 +53,7 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"--rm",                  // 容器运行完后自动删除
 		"-d",                    // 后台运行
 		"--name", containerName, // 设置容器名称
+		"--user", "2019:1002", // 使用宿主机 codeagent 的UID和GID
 		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // 挂载工作空间
 		"-v", fmt.Sprintf("%s:/home/codeagent/.claude", claudeConfigPath), // 挂载 claude 认证信息
 		"-w", "/workspace", // 设置工作目录
