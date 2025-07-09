@@ -32,7 +32,7 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	if home := os.Getenv("HOME"); home != "" {
 		claudeConfigPath, _ = filepath.Abs(filepath.Join(home, ".claude"))
 	} else {
-		claudeConfigPath = "/root/.claude"
+		claudeConfigPath = "/home/codeagent/.claude"
 	}
 
 	// 检查是否使用了/tmp目录（在macOS上可能导致挂载问题）
@@ -54,7 +54,7 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"-d",                    // 后台运行
 		"--name", containerName, // 设置容器名称
 		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // 挂载工作空间
-		"-v", fmt.Sprintf("%s:/root/.claude", claudeConfigPath), // 挂载 claude 认证信息
+		"-v", fmt.Sprintf("%s:/home/codeagent/.claude", claudeConfigPath), // 挂载 claude 认证信息
 		"-w", "/workspace", // 设置工作目录
 		cfg.Claude.ContainerImage, // 使用配置的 Claude 镜像
 	}
