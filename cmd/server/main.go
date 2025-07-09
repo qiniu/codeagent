@@ -48,8 +48,21 @@ func main() {
 		cfg.Server.Port = *port
 	}
 
-	// 打印最终配置用于调试
-	configJSON, err := json.MarshalIndent(cfg, "", "  ")
+	// 打印最终配置用于调试（已脱敏）
+	loggableConfig := *cfg
+	if loggableConfig.GitHub.Token != "" {
+		loggableConfig.GitHub.Token = "***REDACTED***"
+	}
+	if loggableConfig.Claude.APIKey != "" {
+		loggableConfig.Claude.APIKey = "***REDACTED***"
+	}
+	if loggableConfig.Gemini.APIKey != "" {
+		loggableConfig.Gemini.APIKey = "***REDACTED***"
+	}
+	if loggableConfig.Server.WebhookSecret != "" {
+		loggableConfig.Server.WebhookSecret = "***REDACTED***"
+	}
+	configJSON, err := json.MarshalIndent(loggableConfig, "", "  ")
 	if err != nil {
 		log.Warnf("Could not marshal config to JSON for logging: %v", err)
 	} else {
