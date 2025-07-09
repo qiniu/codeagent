@@ -48,8 +48,18 @@ func main() {
 		cfg.Server.Port = *port
 	}
 
-	// 打印最终配置用于调试
-	configJSON, err := json.MarshalIndent(cfg, "", "  ")
+	// 打印最终配置用于调试 (隐藏敏感信息)
+	redactedCfg := *cfg
+	if redactedCfg.GitHub.Token != "" {
+		redactedCfg.GitHub.Token = "[REDACTED]"
+	}
+	if redactedCfg.Claude.APIKey != "" {
+		redactedCfg.Claude.APIKey = "[REDACTED]"
+	}
+	if redactedCfg.Server.WebhookSecret != "" {
+		redactedCfg.Server.WebhookSecret = "[REDACTED]"
+	}
+	configJSON, err := json.MarshalIndent(redactedCfg, "", "  ")
 	if err != nil {
 		log.Warnf("无法将配置序列化为JSON进行打印: %v", err)
 	} else {
