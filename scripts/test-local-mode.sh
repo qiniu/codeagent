@@ -12,21 +12,18 @@ if [ -z "$GITHUB_TOKEN" ]; then
     exit 1
 fi
 
-if [ "$CODE_PROVIDER" = "gemini" ]; then
-    if [ -z "$GOOGLE_API_KEY" ]; then
-        echo "❌ 错误: CODE_PROVIDER 设置为 gemini, 请设置 GOOGLE_API_KEY 环境变量"
-        exit 1
-    fi
-elif [ "$CODE_PROVIDER" = "claude" ]; then
-    if [ -z "$CLAUDE_API_KEY" ]; then
-        echo "❌ 错误: CODE_PROVIDER 设置为 claude, 请设置 CLAUDE_API_KEY 环境变量"
-        exit 1
-    fi
-elif [ -z "$CODE_PROVIDER" ]; then
-    if [ -z "$CLAUDE_API_KEY" ] && [ -z "$GOOGLE_API_KEY" ]; then
-        echo "❌ 错误: 未指定 CODE_PROVIDER, 请设置 CLAUDE_API_KEY 或 GOOGLE_API_KEY 环境变量"
-        exit 1
-    fi
+if [ "$CODE_PROVIDER" = "gemini" ] && [ -z "$GOOGLE_API_KEY" ]; then
+    echo "❌ 错误: CODE_PROVIDER 设置为 gemini, 请设置 GOOGLE_API_KEY 环境变量"
+    exit 1
+elif [ "$CODE_PROVIDER" = "claude" ] && [ -z "$CLAUDE_API_KEY" ]; then
+    echo "❌ 错误: CODE_PROVIDER 设置为 claude, 请设置 CLAUDE_API_KEY 环境变量"
+    exit 1
+elif [ -z "$CODE_PROVIDER" ] && [ -z "$CLAUDE_API_KEY" ] && [ -z "$GOOGLE_API_KEY" ]; then
+    echo "❌ 错误: 未指定 CODE_PROVIDER, 请设置 CLAUDE_API_KEY 或 GOOGLE_API_KEY 环境变量"
+    exit 1
+elif [ -n "$CODE_PROVIDER" ] && [ "$CODE_PROVIDER" != "gemini" ] && [ "$CODE_PROVIDER" != "claude" ]; then
+    echo "❌ 错误: 不支持的 CODE_PROVIDER: '$CODE_PROVIDER'. 请设置为 'gemini' 或 'claude' 或留空."
+    exit 1
 fi
 
 if [ -z "$WEBHOOK_SECRET" ]; then
