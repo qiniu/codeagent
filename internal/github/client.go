@@ -271,6 +271,28 @@ func (c *Client) CreatePullRequestComment(pr *github.PullRequest, commentBody st
 	return nil
 }
 
+// ReplyToReviewComment 回复 PR 代码行评论
+func (c *Client) ReplyToReviewComment(pr *github.PullRequest, commentID int64, commentBody string) error {
+	prURL := pr.GetHTMLURL()
+	log.Infof("Replying to review comment %d for PR URL: %s", commentID, prURL)
+
+	repoOwner, repoName := c.parseRepoURL(prURL)
+	if repoOwner == "" || repoName == "" {
+		return fmt.Errorf("invalid repository URL: %s", prURL)
+	}
+
+	log.Infof("Parsed repository: %s/%s, PR number: %d, comment ID: %d", repoOwner, repoName, pr.GetNumber(), commentID)
+
+	// 使用 Pull Request Review Comments API 来回复评论
+	_, _, err := c.client.PullRequests.CreateCommentInReplyTo(context.Background(), repoOwner, repoName, pr.GetNumber(), commentBody, commentID)
+	if err != nil {
+		return fmt.Errorf("failed to reply to review comment: %w", err)
+	}
+
+	log.Infof("Replied to review comment %d on PR #%d", commentID, pr.GetNumber())
+	return nil
+}
+
 // UpdatePullRequest 更新 PR 的 Body
 func (c *Client) UpdatePullRequest(pr *github.PullRequest, newBody string) error {
 	prURL := pr.GetHTMLURL()
