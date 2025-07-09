@@ -24,6 +24,7 @@ func main() {
 	configPath := flag.String("config", "config.yaml", "配置文件路径")
 	githubToken := flag.String("github-token", "", "GitHub Token (也可以通过 GITHUB_TOKEN 环境变量设置)")
 	claudeAPIKey := flag.String("claude-api-key", "", "Claude API Key (也可以通过 CLAUDE_API_KEY 环境变量设置)")
+	geminiAPIKey := flag.String("gemini-api-key", "", "Gemini API Key (也可以通过 GEMINI_API_KEY 环境变量设置)")
 	webhookSecret := flag.String("webhook-secret", "", "Webhook Secret (也可以通过 WEBHOOK_SECRET 环境变量设置)")
 	port := flag.Int("port", 0, "服务器端口 (也可以通过 PORT 环境变量设置)")
 	flag.Parse()
@@ -40,6 +41,9 @@ func main() {
 	}
 	if *claudeAPIKey != "" {
 		cfg.Claude.APIKey = *claudeAPIKey
+	}
+	if *geminiAPIKey != "" {
+		cfg.Gemini.APIKey = *geminiAPIKey
 	}
 	if *webhookSecret != "" {
 		cfg.Server.WebhookSecret = *webhookSecret
@@ -75,6 +79,18 @@ func main() {
 	}
 	if cfg.Server.WebhookSecret == "" {
 		log.Fatalf("Webhook Secret is required. Please set it via --webhook-secret flag or WEBHOOK_SECRET environment variable")
+	}
+	switch cfg.CodeProvider {
+	case "claude":
+		if cfg.Claude.APIKey == "" {
+			log.Fatalf("Claude API Key is required when code_provider is 'claude'. Please set it via --claude-api-key flag, CLAUDE_API_KEY environment variable, or in the config file.")
+		}
+	case "gemini":
+		if cfg.Gemini.APIKey == "" {
+			log.Fatalf("Gemini API Key is required when code_provider is 'gemini'. Please set it via --gemini-api-key flag, GEMINI_API_KEY environment variable, or in the config file.")
+		}
+	default:
+		log.Fatalf("Invalid or missing code_provider: '%s'. Must be 'claude' or 'gemini'", cfg.CodeProvider)
 	}
 
 	log.Infof("Configuration validated successfully")
