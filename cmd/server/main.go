@@ -48,6 +48,14 @@ func main() {
 		cfg.Server.Port = *port
 	}
 
+	// 打印最终配置用于调试
+	configJSON, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		log.Warnf("Could not marshal config to JSON for logging: %v", err)
+	} else {
+		log.Infof("Final configuration:\n%s", string(configJSON))
+	}
+
 	// 验证必需的配置
 	if cfg.GitHub.Token == "" {
 		log.Fatalf("GitHub Token is required. Please set it via --github-token flag or GITHUB_TOKEN environment variable")
