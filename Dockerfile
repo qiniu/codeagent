@@ -1,7 +1,7 @@
 FROM node:24-bookworm
 
 # 添加用户
-RUN groupadd codeagent && useradd -g codeagent -m codeagent
+RUN groupadd -g 24368 codeagent && useradd -u 24368 -g 24368 -m codeagent
 
 # 安装 Claude Code 和 Gemini CLI
 RUN npm install -g @anthropic-ai/claude-code @google/gemini-cli
