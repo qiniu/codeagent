@@ -130,6 +130,8 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 		return fmt.Errorf("failed to prepare workspace")
 	}
 
+	log.Infof("Workspace: %s", ws.Path)
+
 	// 2. 创建分支并推送
 	if err := a.github.CreateBranch(&ws); err != nil {
 		log.Errorf("Failed to create branch: %v", err)
