@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,48 +15,39 @@ import (
 
 // RepoManager 仓库管理器，负责管理单个仓库的 worktree
 type RepoManager struct {
-	repoPath       string
-	repoURL        string
-	worktrees      map[int]*WorktreeInfo
-	mappingManager *MappingManager
-	mutex          sync.RWMutex
+	repoPath  string
+	repoURL   string
+	worktrees map[int]*WorktreeInfo
+	mutex     sync.RWMutex
 }
 
 // WorktreeInfo worktree 信息
+// 例子:
+// worktree /Users/jicarl/codeagent/qbox/codeagent
+// HEAD 6446817fba0a257f73b311c93126041b63ab6f78
+// branch refs/heads/main
+
+// worktree /Users/jicarl/codeagent/qbox/codeagent/issue-11-1752143989
+// HEAD 5c2df7724d26a27c154b90f519b6d4f4efdd1436
+// branch refs/heads/codeagent/issue-11-1752143989
 type WorktreeInfo struct {
-	PRNumber  int
-	Path      string
-	Branch    string
-	CreatedAt time.Time
+	Worktree string
+	Head     string
+	Branch   string
 }
 
 // NewRepoManager 创建新的仓库管理器
 func NewRepoManager(repoPath, repoURL string) *RepoManager {
 	return &RepoManager{
-		repoPath:       repoPath,
-		repoURL:        repoURL,
-		worktrees:      make(map[int]*WorktreeInfo),
-		mappingManager: NewMappingManager(repoPath),
+		repoPath:  repoPath,
+		repoURL:   repoURL,
+		worktrees: make(map[int]*WorktreeInfo),
 	}
 }
 
 // Initialize 初始化仓库（首次克隆）
 func (r *RepoManager) Initialize() error {
-	// 检查是否已经初始化
-	if r.isInitialized() {
-		log.Infof("Repository already initialized: %s", r.repoPath)
-		return nil
-	}
-
-	log.Infof("Starting repository initialization: %s -> %s", r.repoURL, r.repoPath)
-
-	// 如果目录已存在且不为空，先清理
-	if _, err := os.Stat(r.repoPath); err == nil {
-		log.Infof("Target directory already exists, cleaning: %s", r.repoPath)
-		if err := os.RemoveAll(r.repoPath); err != nil {
-			return fmt.Errorf("failed to clean existing directory: %w", err)
-		}
-	}
+	log.Infof("Starting repository initialization: %s", r.repoPath)
 
 	// 创建仓库目录
 	if err := os.MkdirAll(r.repoPath, 0755); err != nil {
@@ -65,7 +55,7 @@ func (r *RepoManager) Initialize() error {
 	}
 
 	// 克隆仓库（带超时）
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "git", "clone", r.repoURL, ".")
@@ -108,7 +98,7 @@ func (r *RepoManager) CreateWorktree(prNumber int, branch string, createNewBranc
 
 	// 检查是否已存在
 	if existing := r.worktrees[prNumber]; existing != nil {
-		log.Infof("Worktree for PR #%d already exists: %s", prNumber, existing.Path)
+		log.Infof("Worktree for PR #%d already exists: %s", prNumber, existing.Worktree)
 		return existing, nil
 	}
 
@@ -193,10 +183,8 @@ func (r *RepoManager) CreateWorktree(prNumber int, branch string, createNewBranc
 
 	// 创建 worktree 信息
 	worktree := &WorktreeInfo{
-		PRNumber:  prNumber,
-		Path:      worktreePath,
-		Branch:    branch,
-		CreatedAt: time.Now(),
+		Worktree: worktreePath,
+		Branch:   branch,
 	}
 
 	// 注册到映射
@@ -213,22 +201,34 @@ func (r *RepoManager) RemoveWorktree(prNumber int) error {
 
 	worktree := r.worktrees[prNumber]
 	if worktree == nil {
+		log.Infof("Worktree for PR #%d not found in memory, skipping removal", prNumber)
 		return nil // 已经不存在
 	}
 
+	// 检查 worktree 目录是否存在
+	if _, err := os.Stat(worktree.Worktree); os.IsNotExist(err) {
+		log.Infof("Worktree directory %s does not exist, removing from memory only", worktree.Worktree)
+		// 目录不存在，只从内存中移除
+		delete(r.worktrees, prNumber)
+		return nil
+	}
+
 	// 删除 worktree
-	cmd := exec.Command("git", "worktree", "remove", "--force", worktree.Path)
+	cmd := exec.Command("git", "worktree", "remove", "--force", worktree.Worktree)
 	cmd.Dir = r.repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Warnf("Failed to remove worktree: %v, output: %s", err, string(output))
-		// 即使删除失败，也从映射中移除
+		log.Errorf("Failed to remove worktree: %v, output: %s", err, string(output))
+		// 即使删除失败，也从映射中移除，避免内存状态不一致
+		log.Warnf("Removing worktree from memory despite removal failure")
+	} else {
+		log.Infof("Successfully removed worktree: %s", worktree.Worktree)
 	}
 
 	// 从映射中移除
 	delete(r.worktrees, prNumber)
 
-	log.Infof("Removed worktree for PR #%d", prNumber)
+	log.Infof("Removed worktree for PR #%d from memory", prNumber)
 	return nil
 }
 
@@ -236,10 +236,6 @@ func (r *RepoManager) RemoveWorktree(prNumber int) error {
 func (r *RepoManager) ListWorktrees() ([]*WorktreeInfo, error) {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
-
-	if !r.isInitialized() {
-		return []*WorktreeInfo{}, nil
-	}
 
 	// 获取 Git worktree 列表
 	cmd := exec.Command("git", "worktree", "list", "--porcelain")
@@ -279,7 +275,6 @@ func (r *RepoManager) parseWorktreeList(output string) ([]*WorktreeInfo, error) 
 			continue
 		}
 		path := strings.TrimPrefix(pathLine, "worktree ")
-		log.Infof("Found worktree path: %s", path)
 
 		// 跳过 HEAD 行（第二行）
 		headLine := strings.TrimSpace(filteredLines[i+1])
@@ -287,62 +282,28 @@ func (r *RepoManager) parseWorktreeList(output string) ([]*WorktreeInfo, error) 
 			log.Warnf("Invalid HEAD line: %s", headLine)
 			continue
 		}
+		head := strings.TrimPrefix(headLine, "HEAD ")
 
 		// 解析分支信息（第三行）
 		branchLine := strings.TrimSpace(filteredLines[i+2])
 		var branch string
-		if strings.HasPrefix(branchLine, "branch ") {
-			branch = strings.TrimPrefix(branchLine, "branch ")
-			// 移除 refs/heads/ 前缀
-			branch = strings.TrimPrefix(branch, "refs/heads/")
-		} else {
+		if !strings.HasPrefix(branchLine, "branch ") {
 			log.Warnf("Invalid branch line: %s", branchLine)
 			continue
 		}
-
-		log.Infof("Found branch: %s", branch)
-
-		// 从路径中提取 PR 号
-		prNumber := r.extractPRNumberFromPath(path)
-		if prNumber == 0 {
-			log.Infof("Skipping non-PR worktree: %s", path)
-			continue // 不是 PR worktree
-		}
-
-		log.Infof("Found PR worktree: PR #%d, path: %s, branch: %s", prNumber, path, branch)
+		branch = strings.TrimPrefix(branchLine, "branch ")
 
 		worktree := &WorktreeInfo{
-			PRNumber:  prNumber,
-			Path:      path,
-			Branch:    branch,
-			CreatedAt: time.Now(), // 恢复时无法获取准确时间，使用当前时间
+			Worktree: path,
+			Head:     head,
+			Branch:   branch,
 		}
-
+		log.Infof("Found worktree: %s, head: %s, branch: %s", path, head, branch)
 		worktrees = append(worktrees, worktree)
 	}
 
 	log.Infof("Parsed %d worktrees", len(worktrees))
 	return worktrees, nil
-}
-
-// extractPRNumberFromPath 从路径中提取 PR 号
-func (r *RepoManager) extractPRNumberFromPath(path string) int {
-	// 路径格式: /path/to/repo/pr-{number}
-	base := filepath.Base(path)
-	if strings.HasPrefix(base, "pr-") {
-		parts := strings.Split(base, "-")
-		if len(parts) >= 2 {
-			if number, err := strconv.Atoi(parts[1]); err == nil {
-				return number
-			}
-		}
-	}
-	return 0
-}
-
-// GetMappingManager 获取映射管理器
-func (r *RepoManager) GetMappingManager() *MappingManager {
-	return r.mappingManager
 }
 
 // CreateWorktreeWithName 使用指定名称创建 worktree
@@ -360,8 +321,9 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 		}
 	}
 
-	// 创建 worktree 路径
-	worktreePath := filepath.Join(r.repoPath, worktreeName)
+	// 创建 worktree 路径（与仓库目录同级）
+	orgDir := filepath.Dir(r.repoPath)
+	worktreePath := filepath.Join(orgDir, worktreeName)
 	log.Infof("Worktree path: %s", worktreePath)
 
 	// 创建 worktree
@@ -374,7 +336,7 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 		defaultBranchCmd.Dir = r.repoPath
 		defaultBranchOutput, err := defaultBranchCmd.Output()
 		if err != nil {
-			log.Warnf("Failed to get default branch, using 'main': %v", err)
+			log.Errorf("Failed to get default branch, using 'main': %v", err)
 			defaultBranchOutput = []byte("main")
 		}
 		defaultBranch := strings.TrimSpace(string(defaultBranchOutput))
@@ -392,9 +354,9 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 		checkCmd.Dir = r.repoPath
 		checkOutput, err := checkCmd.CombinedOutput()
 		if err != nil {
-			log.Warnf("Failed to check remote branch: %v, output: %s", err, string(checkOutput))
+			log.Errorf("Failed to check remote branch: %v, output: %s", err, string(checkOutput))
 		} else if strings.TrimSpace(string(checkOutput)) == "" {
-			log.Warnf("Remote branch origin/%s does not exist, will create new branch", branch)
+			log.Errorf("Remote branch origin/%s does not exist, will create new branch", branch)
 			// 如果远程分支不存在，创建新分支
 			defaultBranchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 			defaultBranchCmd.Dir = r.repoPath
@@ -431,38 +393,14 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 
 	log.Infof("Worktree creation output: %s", string(output))
 
-	// 从 worktree 名称中提取 PR 号（如果是 issue 格式）
-	prNumber := r.extractPRNumberFromIssueDir(worktreeName)
-
 	// 创建 worktree 信息
 	worktree := &WorktreeInfo{
-		PRNumber:  prNumber,
-		Path:      worktreePath,
-		Branch:    branch,
-		CreatedAt: time.Now(),
-	}
-
-	// 注册到映射（如果有 PR 号）
-	if prNumber > 0 {
-		r.worktrees[prNumber] = worktree
+		Worktree: worktreePath,
+		Branch:   branch,
 	}
 
 	log.Infof("Successfully created worktree: %s", worktreePath)
 	return worktree, nil
-}
-
-// extractPRNumberFromIssueDir 从 Issue 目录名提取 PR 号
-func (r *RepoManager) extractPRNumberFromIssueDir(issueDir string) int {
-	// Issue 目录格式: issue-{number}-{timestamp}
-	if strings.HasPrefix(issueDir, "issue-") {
-		parts := strings.Split(issueDir, "-")
-		if len(parts) >= 2 {
-			if number, err := strconv.Atoi(parts[1]); err == nil {
-				return number
-			}
-		}
-	}
-	return 0
 }
 
 // GetRepoPath 获取仓库路径

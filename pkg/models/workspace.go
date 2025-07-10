@@ -7,10 +7,19 @@ import (
 )
 
 type Workspace struct {
-	ID          string              `json:"id"`
-	Path        string              `json:"path"`
-	SessionPath string              `json:"session_path"`
-	Repository  string              `json:"repository"`
+	// github org name
+	Org string `json:"org"`
+	// github repo name
+	Repo string `json:"repo"`
+	// PR number
+	PRNumber int `json:"pr_number"`
+	// workspace path in local file system
+	Path string `json:"path"`
+	// session path in local file system
+	SessionPath string `json:"session_path"`
+	// github repo url
+	Repository string `json:"repository"`
+	// github branch name
 	Branch      string              `json:"branch"`
 	Issue       *github.Issue       `json:"issue"`
 	PullRequest *github.PullRequest `json:"pull_request"`

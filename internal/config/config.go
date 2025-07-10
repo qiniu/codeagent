@@ -39,7 +39,6 @@ type GitHubConfig struct {
 type WorkspaceConfig struct {
 	BaseDir      string        `yaml:"base_dir"`
 	CleanupAfter time.Duration `yaml:"cleanup_after"`
-	UseWorktree  bool          `yaml:"use_worktree"` // 是否使用 Git worktree
 }
 
 type ClaudeConfig struct {
@@ -105,14 +104,6 @@ func (c *Config) loadFromEnv() {
 			c.UseDocker = useDocker
 		}
 	}
-	if useWorktreeStr := os.Getenv("USE_WORKTREE"); useWorktreeStr != "" {
-		if useWorktree, err := strconv.ParseBool(useWorktreeStr); err == nil {
-			c.Workspace.UseWorktree = useWorktree
-		}
-	} else {
-		// 默认使用 worktree
-		c.Workspace.UseWorktree = true
-	}
 }
 
 func loadFromEnv() *Config {
@@ -135,7 +126,6 @@ func loadFromEnv() *Config {
 		Workspace: WorkspaceConfig{
 			BaseDir:      getEnvOrDefault("WORKSPACE_BASE_DIR", "/tmp/codeagent"),
 			CleanupAfter: 24 * time.Hour,
-			UseWorktree:  getEnvBoolOrDefault("USE_WORKTREE", true),
 		},
 		Claude: ClaudeConfig{
 			APIKey:         os.Getenv("CLAUDE_API_KEY"),

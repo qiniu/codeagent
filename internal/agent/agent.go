@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -39,95 +40,6 @@ func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
 	}
 }
 
-// ProcessIssue 处理 Issue 事件，生成代码（保留向后兼容）
-func (a *Agent) ProcessIssue(issue *github.Issue) error {
-	// 1. 准备临时工作空间（只获取 Issue 信息，不创建实际工作空间）
-	ws := a.workspace.Prepare(issue)
-	if ws.Issue == nil {
-		return fmt.Errorf("failed to prepare workspace")
-	}
-
-	// 2. 创建分支并推送
-	if err := a.github.CreateBranch(&ws); err != nil {
-		log.Errorf("Failed to create branch: %v", err)
-		return err
-	}
-
-	// 3. 创建初始 PR
-	pr, err := a.github.CreatePullRequest(&ws)
-	if err != nil {
-		log.Errorf("Failed to create PR: %v", err)
-		return err
-	}
-
-	// 4. 基于 PR 创建实际工作空间
-	ws = a.workspace.PrepareFromPR(pr)
-	if ws.ID == "" {
-		return fmt.Errorf("failed to prepare workspace from PR")
-	}
-
-	// 4. 初始化 code client
-	code, err := a.sessionManager.GetSession(&ws)
-	if err != nil {
-		log.Errorf("failed to get code client: %v", err)
-		return err
-	}
-
-	// 5. 执行代码修改，使用更明确的 prompt
-	codePrompt := fmt.Sprintf(`请根据以下 Issue 内容直接修改代码：
-
-标题：%s
-描述：%s
-
-要求：
-1. 仔细分析 Issue 需求，理解要解决的问题
-2. 查看现有代码结构，找到需要修改的文件
-3. 直接实现代码修改，确保功能完整
-4. 遵循项目的代码风格和最佳实践
-5. 添加必要的测试用例（如果需要）
-6. 确保代码能够正常运行
-
-请开始分析和修改代码。`, issue.GetTitle(), issue.GetBody())
-	codeResp, err := a.promptWithRetry(code, codePrompt, 3)
-	if err != nil {
-		log.Errorf("failed to prompt for code modification: %v", err)
-		return err
-	}
-
-	codeOutput, err := io.ReadAll(codeResp.Out)
-	if err != nil {
-		log.Errorf("failed to read code modification output: %v", err)
-		return err
-	}
-
-	log.Infof("Code Modification Output: %s", string(codeOutput))
-
-	// 6. 更新 PR Body 为执行结果
-	if err = a.github.UpdatePullRequest(pr, string(codeOutput)); err != nil {
-		log.Errorf("failed to update PR body with execution result: %v", err)
-		return err
-	}
-
-	// 7. 评论到 PR
-	commentBody := fmt.Sprintf("<details><summary>Code Modification Session</summary>%s</details>", string(codeOutput))
-	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
-		log.Errorf("failed to create PR comment for code modification: %v", err)
-		return err
-	}
-
-	// 8. 提交变更并推送到远程
-	result := &models.ExecutionResult{
-		Output: string(codeOutput),
-	}
-	if err = a.github.CommitAndPush(&ws, result, code); err != nil {
-		log.Errorf("Failed to commit and push: %v", err)
-		return err
-	}
-
-	log.Infof("Successfully processed Issue #%d, PR: %s", issue.GetNumber(), pr.GetHTMLURL())
-	return nil
-}
-
 // ProcessIssueComment 处理 Issue 评论事件，包含完整的仓库信息
 func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 	// 1. 创建 Issue 工作空间
@@ -149,25 +61,35 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 		return err
 	}
 
-	// 4. 更新映射关系
-	if err := a.workspace.UpdateIssueToPRMapping(ws, pr.GetNumber()); err != nil {
-		log.Errorf("Failed to update mapping: %v", err)
+	// 4. 移动工作空间从 Issue 到 PR
+	if err := a.workspace.MoveIssueToPR(ws, pr.GetNumber()); err != nil {
+		log.Errorf("Failed to move workspace: %v", err)
 	}
+	ws.PRNumber = pr.GetNumber()
 
-	// 5. 注册工作空间到 PR 映射
+	// 5. 创建 session 目录
+	suffix := strings.TrimPrefix(filepath.Base(ws.Path), fmt.Sprintf("%s-pr-%d-", ws.Repo, pr.GetNumber()))
+	sessionPath, err := a.workspace.CreateSessionPath(filepath.Dir(ws.Path), ws.Repo, pr.GetNumber(), suffix)
+	if err != nil {
+		log.Errorf("Failed to create session directory: %v", err)
+		return err
+	}
+	ws.SessionPath = sessionPath
+
+	// 6. 注册工作空间到 PR 映射
 	ws.PullRequest = pr
 	a.workspace.RegisterWorkspace(ws, pr)
 
-	log.Infof("Workspace: %s", ws.Path)
+	log.Infof("process issue #%d, workspace: %s, session: %s", event.Issue.GetNumber(), ws.Path, ws.SessionPath)
 
-	// 6. 初始化 code client
+	// 7. 初始化 code client
 	code, err := a.sessionManager.GetSession(ws)
 	if err != nil {
 		log.Errorf("failed to get code client: %v", err)
 		return err
 	}
 
-	// 7. 执行代码修改，规范 prompt，要求 AI 输出结构化摘要
+	// 8. 执行代码修改，规范 prompt，要求 AI 输出结构化摘要
 	codePrompt := fmt.Sprintf(`请根据以下 Issue 内容修改代码：
 
 标题：%s
@@ -198,7 +120,7 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 
 	log.Infof("LLM Output: %s", string(codeOutput))
 
-	// 8. 组织结构化 PR Body（解析三段式输出）
+	// 9. 组织结构化 PR Body（解析三段式输出）
 	aiStr := string(codeOutput)
 
 	// 解析三段式输出
@@ -235,7 +157,7 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 		return err
 	}
 
-	// 9. 提交变更并推送到远程
+	// 10. 提交变更并推送到远程
 	result := &models.ExecutionResult{
 		Output: string(codeOutput),
 	}
@@ -330,13 +252,19 @@ func (a *Agent) ContinuePRWithArgs(event *github.IssueCommentEvent, args string)
 		HTMLURL: event.Issue.HTMLURL,
 	}
 
-	// 2. 准备临时工作空间
-	ws := a.workspace.GetWorkspaceByPR(pr.GetNumber())
+	// 2. 获取或创建 PR 工作空间
+	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
 	if ws == nil {
-		return fmt.Errorf("failed to prepare workspace for PR continue")
+		return fmt.Errorf("failed to get or create workspace for PR continue")
 	}
 
-	// 3. 初始化 code client
+	// 3. 拉取远端最新代码
+	if err := a.github.PullLatestChanges(ws); err != nil {
+		log.Errorf("Failed to pull latest changes: %v", err)
+		// 不返回错误，继续执行，因为可能是网络问题
+	}
+
+	// 4. 初始化 code client
 	code, err := a.sessionManager.GetSession(ws)
 	if err != nil {
 		log.Errorf("failed to get code client for PR continue: %v", err)
@@ -406,13 +334,19 @@ func (a *Agent) FixPRWithArgs(event *github.IssueCommentEvent, args string) erro
 		HTMLURL: event.Issue.HTMLURL,
 	}
 
-	// 2. 准备临时工作空间
-	ws := a.workspace.GetWorkspaceByPR(pr.GetNumber())
+	// 2. 获取或创建 PR 工作空间
+	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
 	if ws == nil {
-		return fmt.Errorf("failed to prepare workspace for PR fix")
+		return fmt.Errorf("failed to get or create workspace for PR fix")
 	}
 
-	// 3. 初始化 code client
+	// 3. 拉取远端最新代码
+	if err := a.github.PullLatestChanges(ws); err != nil {
+		log.Errorf("Failed to pull latest changes: %v", err)
+		// 不返回错误，继续执行，因为可能是网络问题
+	}
+
+	// 4. 初始化 code client
 	code, err := a.sessionManager.GetSession(ws)
 	if err != nil {
 		log.Errorf("failed to get code client for PR fix: %v", err)
@@ -468,13 +402,19 @@ func (a *Agent) ContinuePRFromReviewComment(event *github.PullRequestReviewComme
 	// 1. 从工作空间管理器获取 PR 信息
 	pr := event.PullRequest
 
-	// 2. 准备临时工作空间
-	ws := a.workspace.GetWorkspaceByPR(pr.GetNumber())
+	// 2. 获取或创建 PR 工作空间
+	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
 	if ws == nil {
-		return fmt.Errorf("failed to prepare workspace for PR continue from review comment")
+		return fmt.Errorf("failed to get or create workspace for PR continue from review comment")
 	}
 
-	// 3. 初始化 code client
+	// 3. 拉取远端最新代码
+	if err := a.github.PullLatestChanges(ws); err != nil {
+		log.Errorf("Failed to pull latest changes: %v", err)
+		// 不返回错误，继续执行，因为可能是网络问题
+	}
+
+	// 4. 初始化 code client
 	code, err := a.sessionManager.GetSession(ws)
 	if err != nil {
 		log.Errorf("failed to get code client for PR continue from review comment: %v", err)
@@ -549,13 +489,19 @@ func (a *Agent) FixPRFromReviewComment(event *github.PullRequestReviewCommentEve
 	// 1. 从工作空间管理器获取 PR 信息
 	pr := event.PullRequest
 
-	// 2. 准备临时工作空间
-	ws := a.workspace.GetWorkspaceByPR(pr.GetNumber())
+	// 2. 获取或创建 PR 工作空间
+	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
 	if ws == nil {
-		return fmt.Errorf("failed to prepare workspace for PR fix from review comment")
+		return fmt.Errorf("failed to get or create workspace for PR fix from review comment")
 	}
 
-	// 3. 初始化 code client
+	// 3. 拉取远端最新代码
+	if err := a.github.PullLatestChanges(ws); err != nil {
+		log.Errorf("Failed to pull latest changes: %v", err)
+		// 不返回错误，继续执行，因为可能是网络问题
+	}
+
+	// 4. 初始化 code client
 	code, err := a.sessionManager.GetSession(ws)
 	if err != nil {
 		log.Errorf("failed to get code client for PR fix from review comment: %v", err)
