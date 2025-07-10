@@ -99,10 +99,6 @@ func (c *claudeLocal) executeClaudeLocal(prompt string) ([]byte, error) {
 			return nil, fmt.Errorf("claude authentication error - please check your API key: %w, output: %s", err, outputStr)
 		}
 
-		// 检查是否是网络相关错误
-		if strings.Contains(outputStr, "timeout") || strings.Contains(outputStr, "connection") {
-			log.Warnf("Network-related error detected: %s", outputStr)
-		}
 
 		return nil, fmt.Errorf("claude CLI execution failed: %w, output: %s", err, outputStr)
 	}
