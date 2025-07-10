@@ -68,76 +68,134 @@ func (h *Handler) handleIssueComment(w http.ResponseWriter, body []byte) {
 		return
 	}
 
-	// 检查是否包含 /code 命令
+	// 检查是否包含命令
 	if event.Comment == nil || event.Issue == nil {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
 	comment := event.Comment.GetBody()
-	if !strings.HasPrefix(comment, "/code") {
+
+	// 检查是否是 PR 评论（Issue 的 PullRequest 字段不为空）
+	if event.Issue.PullRequestLinks != nil {
+		// 这是 PR 评论，处理 /continue 和 /fix 命令
+		if strings.HasPrefix(comment, "/continue") {
+			log.Infof("Received /continue command for PR #%d: %s",
+				event.Issue.GetNumber(), event.Issue.GetTitle())
+
+			// 提取命令参数
+			commandArgs := strings.TrimSpace(strings.TrimPrefix(comment, "/continue"))
+
+			// 异步执行继续任务
+			go func(event *github.IssueCommentEvent, args string) {
+				if err := h.agent.ContinuePRWithArgs(event, args); err != nil {
+					log.Printf("agent continue pr error: %v", err)
+				}
+			}(&event, commandArgs)
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("pr continue started"))
+			return
+		} else if strings.HasPrefix(comment, "/fix") {
+			log.Infof("Received /fix command for PR #%d: %s",
+				event.Issue.GetNumber(), event.Issue.GetTitle())
+
+			// 提取命令参数
+			commandArgs := strings.TrimSpace(strings.TrimPrefix(comment, "/fix"))
+
+			// 异步执行修复任务
+			go func(event *github.IssueCommentEvent, args string) {
+				if err := h.agent.FixPRWithArgs(event, args); err != nil {
+					log.Printf("agent fix pr error: %v", err)
+				}
+			}(&event, commandArgs)
+
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("pr fix started"))
+			return
+		}
+	}
+
+	// 处理 Issue 的 /code 命令
+	if strings.HasPrefix(comment, "/code") {
+		log.Infof("Received /code command for Issue: %s, title: %s, body: %s",
+			event.Issue.GetHTMLURL(),
+			event.Issue.GetTitle(),
+			event.Issue.GetBody(),
+		)
+
+		// 异步执行 Agent 任务
+		go func(event *github.IssueCommentEvent) {
+			if err := h.agent.ProcessIssueComment(event); err != nil {
+				log.Printf("agent process issue error: %v", err)
+			}
+		}(&event)
+
 		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("issue processing started"))
 		return
 	}
 
-	log.Infof("Received /code command for Issue: %s, title: %s, body: %s",
-		event.Issue.GetHTMLURL(),
-		event.Issue.GetTitle(),
-		event.Issue.GetBody(),
-	)
-
-	// 异步执行 Agent 任务
-	go func(event *github.IssueCommentEvent) {
-		if err := h.agent.ProcessIssueComment(event); err != nil {
-			log.Printf("agent process issue error: %v", err)
-		}
-	}(&event)
-
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("issue processing started"))
 }
 
-// handlePRReviewComment 处理 PR 评论事件
+// handlePRReviewComment 处理 PR 代码行评论事件
 func (h *Handler) handlePRReviewComment(w http.ResponseWriter, body []byte) {
-	var event github.PullRequestReviewEvent
+	var event github.PullRequestReviewCommentEvent
 	if err := json.Unmarshal(body, &event); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("invalid pr review comment event"))
 		return
 	}
 
-	log.Infof("Received /continue or /fix command for PR #%d: %s",
+	log.Infof("Received PR review comment for PR #%d: %s",
 		event.PullRequest.GetNumber(),
 		event.PullRequest.GetTitle())
 
 	// 检查是否包含交互命令
-	if event.Review == nil || event.PullRequest == nil {
+	if event.Comment == nil || event.PullRequest == nil {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	comment := event.Review.GetBody()
+	comment := event.Comment.GetBody()
 	if strings.HasPrefix(comment, "/continue") {
-		// 继续之前的任务
-		go func(pr *github.PullRequest) {
-			if err := h.agent.ContinuePR(pr); err != nil {
-				log.Printf("agent continue pr error: %v", err)
+		log.Infof("Received /continue command in PR review comment for PR #%d: %s",
+			event.PullRequest.GetNumber(), event.PullRequest.GetTitle())
+
+		// 提取命令参数
+		commandArgs := strings.TrimSpace(strings.TrimPrefix(comment, "/continue"))
+
+		// 异步执行继续任务
+		go func(event *github.PullRequestReviewCommentEvent, args string) {
+			if err := h.agent.ContinuePRFromReviewComment(event, args); err != nil {
+				log.Errorf("agent continue pr from review comment error: %v", err)
 			}
-		}(event.PullRequest)
-	} else if strings.HasPrefix(comment, "/fix") {
-		// 修复代码
-		go func(pr *github.PullRequest) {
-			if err := h.agent.FixPR(pr); err != nil {
-				log.Printf("agent fix pr error: %v", err)
-			}
-		}(event.PullRequest)
-	} else {
+		}(&event, commandArgs)
+
 		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("pr continue from review comment started"))
+		return
+	} else if strings.HasPrefix(comment, "/fix") {
+		log.Infof("Received /fix command in PR review comment for PR #%d: %s",
+			event.PullRequest.GetNumber(), event.PullRequest.GetTitle())
+
+		// 提取命令参数
+		commandArgs := strings.TrimSpace(strings.TrimPrefix(comment, "/fix"))
+
+		// 异步执行修复任务
+		go func(event *github.PullRequestReviewCommentEvent, args string) {
+			if err := h.agent.FixPRFromReviewComment(event, args); err != nil {
+				log.Errorf("agent fix pr from review comment error: %v", err)
+			}
+		}(&event, commandArgs)
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("pr fix from review comment started"))
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("pr interaction started"))
 }
 
 // handlePullRequest 处理 PR 事件

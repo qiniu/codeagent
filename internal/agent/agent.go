@@ -157,7 +157,7 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 标题：%s
 描述：%s
 
-请按照以下格式输出你的分析和操作：
+请直接修改代码，并按照以下格式输出你的分析和操作：
 
 %s
 请总结本次代码改动的主要内容。
@@ -294,37 +294,48 @@ func extractErrorInfo(output string) string {
 
 // ContinuePR 继续处理 PR 中的任务
 func (a *Agent) ContinuePR(pr *github.PullRequest) error {
-	log.Infof("Continue PR #%d: %s", pr.GetNumber(), pr.GetHTMLURL())
+	return a.ContinuePRWithArgs(&github.IssueCommentEvent{
+		Issue: &github.Issue{
+			Number: github.Int(pr.GetNumber()),
+			Title:  github.String(pr.GetTitle()),
+		},
+	}, "")
+}
 
-	// 1. 准备临时工作空间
+// ContinuePRWithArgs 继续处理 PR 中的任务，支持命令参数
+func (a *Agent) ContinuePRWithArgs(event *github.IssueCommentEvent, args string) error {
+	log.Infof("Continue PR #%d with args: %s", event.Issue.GetNumber(), args)
+
+	// 1. 从工作空间管理器获取 PR 信息
+	// 由于 PR 评论事件中的 Issue 就是 PR，我们可以直接使用
+	pr := &github.PullRequest{
+		Number:  event.Issue.Number,
+		Title:   event.Issue.Title,
+		HTMLURL: event.Issue.HTMLURL,
+	}
+
+	// 2. 准备临时工作空间
 	ws := a.workspace.Getworkspace(pr)
 	if ws == nil {
-		return fmt.Errorf("failed to prepare workspace for PR fix")
+		return fmt.Errorf("failed to prepare workspace for PR continue")
 	}
 
-	// 2. 初始化 code client
+	// 3. 初始化 code client
 	code, err := a.sessionManager.GetSession(ws)
 	if err != nil {
-		log.Errorf("failed to get code client for PR fix: %v", err)
+		log.Errorf("failed to get code client for PR continue: %v", err)
 		return err
 	}
 
-	// 3. 获取 PR 评论
-	comments, err := a.github.GetPullRequestComments(pr)
-	if err != nil {
-		log.Errorf("failed to get PR comments: %v", err)
-		return err
+	// 4. 构建 prompt，包含命令参数
+	var prompt string
+	if args != "" {
+		prompt = fmt.Sprintf("请根据以下指令继续处理代码：\n\n指令：%s\n\n请直接进行相应的修改，回复要简洁明了。", args)
+	} else {
+		prompt = "请继续之前的任务，根据上下文进行相应的修改，回复要简洁明了。"
 	}
 
-	// 4. 构建 prompt
-	// TODO(wyvern): 这里需要替换为 /continue 命令的评论
-	// 暂时不区分 /continue 和 /fix 命令
-	commentBodies := []string{}
-	for _, comment := range comments {
-		commentBodies = append(commentBodies, comment.GetBody())
-	}
-	prompt := fmt.Sprintf("请根据以下评论修改代码：\n\n%s", strings.Join(commentBodies, "\n---\n"))
-	resp, err := code.Prompt(prompt)
+	resp, err := a.promptWithRetry(code, prompt, 3)
 	if err != nil {
 		log.Errorf("failed to prompt for PR continue: %v", err)
 		return err
@@ -336,7 +347,7 @@ func (a *Agent) ContinuePR(pr *github.PullRequest) error {
 		return err
 	}
 
-	log.Infof("PR Fix Output: %s", string(output))
+	log.Infof("PR Continue Output: %s", string(output))
 
 	// 5. 提交变更并更新 PR
 	result := &models.ExecutionResult{
@@ -348,7 +359,7 @@ func (a *Agent) ContinuePR(pr *github.PullRequest) error {
 	}
 
 	// 6. 评论到 PR
-	commentBody := fmt.Sprintf("<details><summary>PR Fix Session</summary>%s</details>", string(output))
+	commentBody := string(output)
 	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
 		log.Errorf("failed to create PR comment for continue: %v", err)
 		return err
@@ -360,36 +371,47 @@ func (a *Agent) ContinuePR(pr *github.PullRequest) error {
 
 // FixPR 修复 PR 中的问题
 func (a *Agent) FixPR(pr *github.PullRequest) error {
-	log.Infof("Fixing PR #%d: %s", pr.GetNumber(), pr.GetHTMLURL())
+	return a.FixPRWithArgs(&github.IssueCommentEvent{
+		Issue: &github.Issue{
+			Number: github.Int(pr.GetNumber()),
+			Title:  github.String(pr.GetTitle()),
+		},
+	}, "")
+}
 
-	// 1. 准备临时工作空间
+// FixPRWithArgs 修复 PR 中的问题，支持命令参数
+func (a *Agent) FixPRWithArgs(event *github.IssueCommentEvent, args string) error {
+	log.Infof("Fix PR #%d with args: %s", event.Issue.GetNumber(), args)
+
+	// 1. 从工作空间管理器获取 PR 信息
+	pr := &github.PullRequest{
+		Number:  event.Issue.Number,
+		Title:   event.Issue.Title,
+		HTMLURL: event.Issue.HTMLURL,
+	}
+
+	// 2. 准备临时工作空间
 	ws := a.workspace.Getworkspace(pr)
 	if ws == nil {
 		return fmt.Errorf("failed to prepare workspace for PR fix")
 	}
 
-	// 2. 初始化 code client
+	// 3. 初始化 code client
 	code, err := a.sessionManager.GetSession(ws)
 	if err != nil {
 		log.Errorf("failed to get code client for PR fix: %v", err)
 		return err
 	}
 
-	// 3. 获取 PR 评论
-	comments, err := a.github.GetPullRequestComments(pr)
-	if err != nil {
-		log.Errorf("failed to get PR comments: %v", err)
-		return err
+	// 4. 构建 prompt，包含命令参数
+	var prompt string
+	if args != "" {
+		prompt = fmt.Sprintf("请根据以下指令修复代码问题：\n\n指令：%s\n\n请直接进行修复，回复要简洁明了。", args)
+	} else {
+		prompt = "请分析当前代码中的问题并进行修复，回复要简洁明了。"
 	}
 
-	// 4. 构建 prompt
-	// TODO(wyvern): 这里需要替换为 /fix 命令的评论
-	commentBodies := []string{}
-	for _, comment := range comments {
-		commentBodies = append(commentBodies, comment.GetBody())
-	}
-	prompt := fmt.Sprintf("请根据以下评论修改代码：\n\n%s", strings.Join(commentBodies, "\n---\n"))
-	resp, err := code.Prompt(prompt)
+	resp, err := a.promptWithRetry(code, prompt, 3)
 	if err != nil {
 		log.Errorf("failed to prompt for PR fix: %v", err)
 		return err
@@ -413,13 +435,147 @@ func (a *Agent) FixPR(pr *github.PullRequest) error {
 	}
 
 	// 6. 评论到 PR
-	commentBody := fmt.Sprintf("<details><summary>PR Fix Session</summary>%s</details>", string(output))
+	commentBody := string(output)
 	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
 		log.Errorf("failed to create PR comment for fix: %v", err)
 		return err
 	}
 
 	log.Infof("Successfully fixed PR #%d", pr.GetNumber())
+	return nil
+}
+
+// ContinuePRFromReviewComment 从 PR 代码行评论继续处理任务
+func (a *Agent) ContinuePRFromReviewComment(event *github.PullRequestReviewCommentEvent, args string) error {
+	log.Infof("Continue PR #%d from review comment with args: %s", event.PullRequest.GetNumber(), args)
+
+	// 1. 从工作空间管理器获取 PR 信息
+	pr := event.PullRequest
+
+	// 2. 准备临时工作空间
+	ws := a.workspace.Getworkspace(pr)
+	if ws == nil {
+		return fmt.Errorf("failed to prepare workspace for PR continue from review comment")
+	}
+
+	// 3. 初始化 code client
+	code, err := a.sessionManager.GetSession(ws)
+	if err != nil {
+		log.Errorf("failed to get code client for PR continue from review comment: %v", err)
+		return err
+	}
+
+	// 4. 构建 prompt，包含评论上下文和命令参数
+	var prompt string
+	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n行号：%d",
+		event.Comment.GetBody(),
+		event.Comment.GetPath(),
+		event.Comment.GetLine())
+
+	if args != "" {
+		prompt = fmt.Sprintf("请根据以下代码行评论和指令继续处理代码：\n\n%s\n\n指令：%s\n\n请直接进行相应的修改，回复要简洁明了。", commentContext, args)
+	} else {
+		prompt = fmt.Sprintf("请根据以下代码行评论继续处理代码：\n\n%s\n\n请直接进行相应的修改，回复要简洁明了。", commentContext)
+	}
+
+	resp, err := a.promptWithRetry(code, prompt, 3)
+	if err != nil {
+		log.Errorf("failed to prompt for PR continue from review comment: %v", err)
+		return err
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		log.Errorf("failed to read output for PR continue from review comment: %v", err)
+		return err
+	}
+
+	log.Infof("PR Continue from Review Comment Output: %s", string(output))
+
+	// 5. 提交变更并更新 PR
+	result := &models.ExecutionResult{
+		Output: string(output),
+	}
+	if err := a.github.CommitAndPush(ws, result, code); err != nil {
+		log.Errorf("Failed to commit and push for PR continue from review comment: %v", err)
+		return err
+	}
+
+	// 6. 回复原始评论
+	commentBody := string(output)
+	if err = a.github.ReplyToReviewComment(pr, event.Comment.GetID(), commentBody); err != nil {
+		log.Errorf("failed to reply to review comment for continue: %v", err)
+		return err
+	}
+
+	log.Infof("Successfully continue PR #%d from review comment", pr.GetNumber())
+	return nil
+}
+
+// FixPRFromReviewComment 从 PR 代码行评论修复问题
+func (a *Agent) FixPRFromReviewComment(event *github.PullRequestReviewCommentEvent, args string) error {
+	log.Infof("Fix PR #%d from review comment with args: %s", event.PullRequest.GetNumber(), args)
+
+	// 1. 从工作空间管理器获取 PR 信息
+	pr := event.PullRequest
+
+	// 2. 准备临时工作空间
+	ws := a.workspace.Getworkspace(pr)
+	if ws == nil {
+		return fmt.Errorf("failed to prepare workspace for PR fix from review comment")
+	}
+
+	// 3. 初始化 code client
+	code, err := a.sessionManager.GetSession(ws)
+	if err != nil {
+		log.Errorf("failed to get code client for PR fix from review comment: %v", err)
+		return err
+	}
+
+	// 4. 构建 prompt，包含评论上下文和命令参数
+	var prompt string
+	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n行号：%d",
+		event.Comment.GetBody(),
+		event.Comment.GetPath(),
+		event.Comment.GetLine())
+
+	if args != "" {
+		prompt = fmt.Sprintf("请根据以下代码行评论和指令修复代码问题：\n\n%s\n\n指令：%s\n\n请直接进行修复，回复要简洁明了。", commentContext, args)
+	} else {
+		prompt = fmt.Sprintf("请根据以下代码行评论修复代码问题：\n\n%s\n\n请直接进行修复，回复要简洁明了。", commentContext)
+	}
+
+	resp, err := a.promptWithRetry(code, prompt, 3)
+	if err != nil {
+		log.Errorf("failed to prompt for PR fix from review comment: %v", err)
+		return err
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		log.Errorf("failed to read output for PR fix from review comment: %v", err)
+		return err
+	}
+
+	log.Infof("PR Fix from Review Comment Output: %s", string(output))
+
+	// 5. 提交变更并更新 PR
+	result := &models.ExecutionResult{
+		Output: string(output),
+	}
+	if err := a.github.CommitAndPush(ws, result, code); err != nil {
+		log.Errorf("Failed to commit and push for PR fix from review comment: %v", err)
+		return err
+	}
+
+	// 6. 回复原始评论
+	commentBody := string(output)
+	if err = a.github.ReplyToReviewComment(pr, event.Comment.GetID(), commentBody); err != nil {
+		log.Errorf("failed to reply to review comment for fix: %v", err)
+		return err
+	}
+
+	log.Infof("Successfully fixed PR #%d from review comment", pr.GetNumber())
 	return nil
 }
 
