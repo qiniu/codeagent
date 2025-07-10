@@ -110,7 +110,7 @@ docker:
 
 # 代码提供者配置
 code_provider: claude # 可选值: claude, gemini
-use_docker: true # 是否使用 Docker，false 表示使用本地 CLI
+use_docker: false # 是否使用 Docker，true 表示使用 Docker 容器，false 表示使用本地 CLI
 ```
 
 **配置说明：**
@@ -128,23 +128,7 @@ use_docker: true # 是否使用 Docker，false 表示使用本地 CLI
 
 #### 配置组合示例
 
-**1. Claude + Docker 模式（默认）**
-
-```bash
-# 使用环境变量
-export GITHUB_TOKEN="your-github-token"
-export CLAUDE_API_KEY="your-claude-api-key"
-export WEBHOOK_SECRET="your-webhook-secret"
-export CODE_PROVIDER=claude
-export USE_DOCKER=true
-go run ./cmd/server
-
-# 或使用配置文件
-# config.yaml 中设置: code_provider: claude, use_docker: true
-go run ./cmd/server --config config.yaml
-```
-
-**2. Claude + 本地 CLI 模式**
+**1. Claude + 本地 CLI 模式（默认）**
 
 ```bash
 # 使用环境变量
@@ -157,6 +141,22 @@ go run ./cmd/server
 
 # 或使用配置文件
 # config.yaml 中设置: code_provider: claude, use_docker: false
+go run ./cmd/server --config config.yaml
+```
+
+**2. Claude + Docker 模式**
+
+```bash
+# 使用环境变量
+export GITHUB_TOKEN="your-github-token"
+export CLAUDE_API_KEY="your-claude-api-key"
+export WEBHOOK_SECRET="your-webhook-secret"
+export CODE_PROVIDER=claude
+export USE_DOCKER=true
+go run ./cmd/server
+
+# 或使用配置文件
+# config.yaml 中设置: code_provider: claude, use_docker: true
 go run ./cmd/server --config config.yaml
 ```
 
@@ -204,9 +204,9 @@ export WEBHOOK_SECRET="your-webhook-secret"
 
 # 使用启动脚本
 ./scripts/start.sh                    # Gemini + 本地 CLI 模式（默认）
+./scripts/start.sh -p claude          # Claude + 本地 CLI 模式
 ./scripts/start.sh -p claude -d       # Claude + Docker 模式
 ./scripts/start.sh -p gemini -d       # Gemini + Docker 模式
-./scripts/start.sh -p claude          # Claude + 本地 CLI 模式
 
 # 查看帮助
 ./scripts/start.sh --help

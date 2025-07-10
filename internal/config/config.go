@@ -82,14 +82,16 @@ func (c *Config) loadFromEnv() {
 	if apiKey := os.Getenv("CLAUDE_API_KEY"); apiKey != "" {
 		c.Claude.APIKey = apiKey
 	}
-	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
+	if apiKey := os.Getenv("GOOGLE_API_KEY"); apiKey != "" {
+		c.Gemini.APIKey = apiKey
+	} else if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
 		c.Gemini.APIKey = apiKey
 	}
 	if provider := os.Getenv("CODE_PROVIDER"); provider != "" {
 		c.CodeProvider = provider
-	} else {
-		// 必须要存在一个 provider，这里默认使用 gemini
-		c.CodeProvider = "gemini"
+	} else if c.CodeProvider == "" {
+		// 必须要存在一个 provider，这里默认使用 claude
+		c.CodeProvider = "claude"
 	}
 	if secret := os.Getenv("WEBHOOK_SECRET"); secret != "" {
 		c.Server.WebhookSecret = secret
@@ -103,6 +105,9 @@ func (c *Config) loadFromEnv() {
 		if useDocker, err := strconv.ParseBool(useDockerStr); err == nil {
 			c.UseDocker = useDocker
 		}
+	} else if c.UseDocker == false && os.Getenv("USE_DOCKER") == "" {
+		// 如果配置文件中没有设置 UseDocker，且环境变量也没有设置，则默认为 false（本地模式）
+		c.UseDocker = false
 	}
 }
 
@@ -133,7 +138,7 @@ func loadFromEnv() *Config {
 			Timeout:        30 * time.Minute,
 		},
 		Gemini: GeminiConfig{
-			APIKey:         os.Getenv("GEMINI_API_KEY"),
+			APIKey:         getEnvOrDefault("GOOGLE_API_KEY", os.Getenv("GEMINI_API_KEY")),
 			ContainerImage: getEnvOrDefault("GEMINI_IMAGE", "google-gemini/gemini-cli:latest"),
 			Timeout:        30 * time.Minute,
 		},
@@ -142,7 +147,7 @@ func loadFromEnv() *Config {
 			Network: getEnvOrDefault("DOCKER_NETWORK", "bridge"),
 		},
 		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
-		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", true),
+		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", false),
 	}
 }
 

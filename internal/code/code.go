@@ -26,11 +26,10 @@ func New(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	// 根据 code provider 和 use_docker 配置创建相应的代码提供者
 	switch cfg.CodeProvider {
 	case ProviderClaude:
-		// Claude 目前只支持 Docker 模式
-		if !cfg.UseDocker {
-			return nil, fmt.Errorf("Claude only supports Docker mode currently")
+		if cfg.UseDocker {
+			return NewClaudeDocker(workspace, cfg)
 		}
-		return NewClaudeDocker(workspace, cfg)
+		return NewClaudeLocal(workspace, cfg)
 	case ProviderGemini:
 		if cfg.UseDocker {
 			return NewGeminiDocker(workspace, cfg)
