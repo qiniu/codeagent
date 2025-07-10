@@ -41,9 +41,9 @@ func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
 
 // ProcessIssue 处理 Issue 事件，生成代码（保留向后兼容）
 func (a *Agent) ProcessIssue(issue *github.Issue) error {
-	// 1. 准备临时工作空间
+	// 1. 准备临时工作空间（只获取 Issue 信息，不创建实际工作空间）
 	ws := a.workspace.Prepare(issue)
-	if ws.ID == "" {
+	if ws.Issue == nil {
 		return fmt.Errorf("failed to prepare workspace")
 	}
 
@@ -58,6 +58,12 @@ func (a *Agent) ProcessIssue(issue *github.Issue) error {
 	if err != nil {
 		log.Errorf("Failed to create PR: %v", err)
 		return err
+	}
+
+	// 4. 基于 PR 创建实际工作空间
+	ws = a.workspace.PrepareFromPR(pr)
+	if ws.ID == "" {
+		return fmt.Errorf("failed to prepare workspace from PR")
 	}
 
 	// 4. 初始化 code client
@@ -124,36 +130,44 @@ func (a *Agent) ProcessIssue(issue *github.Issue) error {
 
 // ProcessIssueComment 处理 Issue 评论事件，包含完整的仓库信息
 func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
-	// 1. 准备临时工作空间，传递完整事件
-	ws := a.workspace.PrepareFromEvent(event)
-	if ws.ID == "" {
-		return fmt.Errorf("failed to prepare workspace")
+	// 1. 创建 Issue 工作空间
+	ws := a.workspace.CreateWorkspaceFromIssue(event.Issue)
+	if ws == nil {
+		return fmt.Errorf("failed to create workspace from issue")
 	}
 
-	log.Infof("Workspace: %s", ws.Path)
-
 	// 2. 创建分支并推送
-	if err := a.github.CreateBranch(&ws); err != nil {
+	if err := a.github.CreateBranch(ws); err != nil {
 		log.Errorf("Failed to create branch: %v", err)
 		return err
 	}
 
 	// 3. 创建初始 PR
-	pr, err := a.github.CreatePullRequest(&ws)
+	pr, err := a.github.CreatePullRequest(ws)
 	if err != nil {
 		log.Errorf("Failed to create PR: %v", err)
 		return err
 	}
-	a.workspace.RegisterWorkspace(&ws, pr)
 
-	// 4. 初始化 code client
-	code, err := a.sessionManager.GetSession(&ws)
+	// 4. 更新映射关系
+	if err := a.workspace.UpdateIssueToPRMapping(ws, pr.GetNumber()); err != nil {
+		log.Errorf("Failed to update mapping: %v", err)
+	}
+
+	// 5. 注册工作空间到 PR 映射
+	ws.PullRequest = pr
+	a.workspace.RegisterWorkspace(ws, pr)
+
+	log.Infof("Workspace: %s", ws.Path)
+
+	// 6. 初始化 code client
+	code, err := a.sessionManager.GetSession(ws)
 	if err != nil {
 		log.Errorf("failed to get code client: %v", err)
 		return err
 	}
 
-	// 5. 执行代码修改，规范 prompt，要求 AI 输出结构化摘要
+	// 7. 执行代码修改，规范 prompt，要求 AI 输出结构化摘要
 	codePrompt := fmt.Sprintf(`请根据以下 Issue 内容修改代码：
 
 标题：%s
@@ -184,7 +198,7 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 
 	log.Infof("LLM Output: %s", string(codeOutput))
 
-	// 6. 组织结构化 PR Body（解析三段式输出）
+	// 8. 组织结构化 PR Body（解析三段式输出）
 	aiStr := string(codeOutput)
 
 	// 解析三段式输出
@@ -221,11 +235,11 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 		return err
 	}
 
-	// 8. 提交变更并推送到远程
+	// 9. 提交变更并推送到远程
 	result := &models.ExecutionResult{
 		Output: string(codeOutput),
 	}
-	if err = a.github.CommitAndPush(&ws, result, code); err != nil {
+	if err = a.github.CommitAndPush(ws, result, code); err != nil {
 		log.Errorf("Failed to commit and push: %v", err)
 		return err
 	}
@@ -317,7 +331,7 @@ func (a *Agent) ContinuePRWithArgs(event *github.IssueCommentEvent, args string)
 	}
 
 	// 2. 准备临时工作空间
-	ws := a.workspace.Getworkspace(pr)
+	ws := a.workspace.GetWorkspaceByPR(pr.GetNumber())
 	if ws == nil {
 		return fmt.Errorf("failed to prepare workspace for PR continue")
 	}
@@ -393,7 +407,7 @@ func (a *Agent) FixPRWithArgs(event *github.IssueCommentEvent, args string) erro
 	}
 
 	// 2. 准备临时工作空间
-	ws := a.workspace.Getworkspace(pr)
+	ws := a.workspace.GetWorkspaceByPR(pr.GetNumber())
 	if ws == nil {
 		return fmt.Errorf("failed to prepare workspace for PR fix")
 	}
@@ -455,7 +469,7 @@ func (a *Agent) ContinuePRFromReviewComment(event *github.PullRequestReviewComme
 	pr := event.PullRequest
 
 	// 2. 准备临时工作空间
-	ws := a.workspace.Getworkspace(pr)
+	ws := a.workspace.GetWorkspaceByPR(pr.GetNumber())
 	if ws == nil {
 		return fmt.Errorf("failed to prepare workspace for PR continue from review comment")
 	}
@@ -536,7 +550,7 @@ func (a *Agent) FixPRFromReviewComment(event *github.PullRequestReviewCommentEve
 	pr := event.PullRequest
 
 	// 2. 准备临时工作空间
-	ws := a.workspace.Getworkspace(pr)
+	ws := a.workspace.GetWorkspaceByPR(pr.GetNumber())
 	if ws == nil {
 		return fmt.Errorf("failed to prepare workspace for PR fix from review comment")
 	}

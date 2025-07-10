@@ -16,10 +16,11 @@ import (
 
 // RepoManager 仓库管理器，负责管理单个仓库的 worktree
 type RepoManager struct {
-	repoPath  string
-	repoURL   string
-	worktrees map[int]*WorktreeInfo
-	mutex     sync.RWMutex
+	repoPath       string
+	repoURL        string
+	worktrees      map[int]*WorktreeInfo
+	mappingManager *MappingManager
+	mutex          sync.RWMutex
 }
 
 // WorktreeInfo worktree 信息
@@ -33,9 +34,10 @@ type WorktreeInfo struct {
 // NewRepoManager 创建新的仓库管理器
 func NewRepoManager(repoPath, repoURL string) *RepoManager {
 	return &RepoManager{
-		repoPath:  repoPath,
-		repoURL:   repoURL,
-		worktrees: make(map[int]*WorktreeInfo),
+		repoPath:       repoPath,
+		repoURL:        repoURL,
+		worktrees:      make(map[int]*WorktreeInfo),
+		mappingManager: NewMappingManager(repoPath),
 	}
 }
 
@@ -329,6 +331,131 @@ func (r *RepoManager) extractPRNumberFromPath(path string) int {
 	base := filepath.Base(path)
 	if strings.HasPrefix(base, "pr-") {
 		parts := strings.Split(base, "-")
+		if len(parts) >= 2 {
+			if number, err := strconv.Atoi(parts[1]); err == nil {
+				return number
+			}
+		}
+	}
+	return 0
+}
+
+// GetMappingManager 获取映射管理器
+func (r *RepoManager) GetMappingManager() *MappingManager {
+	return r.mappingManager
+}
+
+// CreateWorktreeWithName 使用指定名称创建 worktree
+func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string, createNewBranch bool) (*WorktreeInfo, error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	log.Infof("Creating worktree with name: %s, branch: %s, createNewBranch: %v", worktreeName, branch, createNewBranch)
+
+	// 确保仓库已初始化
+	if !r.isInitialized() {
+		log.Infof("Repository not initialized, initializing: %s", r.repoPath)
+		if err := r.Initialize(); err != nil {
+			return nil, err
+		}
+	}
+
+	// 创建 worktree 路径
+	worktreePath := filepath.Join(r.repoPath, worktreeName)
+	log.Infof("Worktree path: %s", worktreePath)
+
+	// 创建 worktree
+	var cmd *exec.Cmd
+	if createNewBranch {
+		// 创建新分支的 worktree
+		// 首先检查默认分支是什么
+		log.Infof("Checking default branch for new branch creation")
+		defaultBranchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+		defaultBranchCmd.Dir = r.repoPath
+		defaultBranchOutput, err := defaultBranchCmd.Output()
+		if err != nil {
+			log.Warnf("Failed to get default branch, using 'main': %v", err)
+			defaultBranchOutput = []byte("main")
+		}
+		defaultBranch := strings.TrimSpace(string(defaultBranchOutput))
+		if defaultBranch == "" {
+			defaultBranch = "main"
+		}
+
+		log.Infof("Creating new branch worktree: git worktree add -b %s %s %s", branch, worktreePath, defaultBranch)
+		cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, defaultBranch)
+	} else {
+		// 创建现有分支的 worktree
+		// 首先检查远程分支是否存在
+		log.Infof("Checking if remote branch exists: origin/%s", branch)
+		checkCmd := exec.Command("git", "ls-remote", "--heads", "origin", branch)
+		checkCmd.Dir = r.repoPath
+		checkOutput, err := checkCmd.CombinedOutput()
+		if err != nil {
+			log.Warnf("Failed to check remote branch: %v, output: %s", err, string(checkOutput))
+		} else if strings.TrimSpace(string(checkOutput)) == "" {
+			log.Warnf("Remote branch origin/%s does not exist, will create new branch", branch)
+			// 如果远程分支不存在，创建新分支
+			defaultBranchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+			defaultBranchCmd.Dir = r.repoPath
+			defaultBranchOutput, err := defaultBranchCmd.Output()
+			if err != nil {
+				log.Warnf("Failed to get default branch, using 'main': %v", err)
+				defaultBranchOutput = []byte("main")
+			}
+			defaultBranch := strings.TrimSpace(string(defaultBranchOutput))
+			if defaultBranch == "" {
+				defaultBranch = "main"
+			}
+			cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, defaultBranch)
+		} else {
+			log.Infof("Remote branch exists, creating worktree: git worktree add %s origin/%s", worktreePath, branch)
+			cmd = exec.Command("git", "worktree", "add", worktreePath, fmt.Sprintf("origin/%s", branch))
+		}
+	}
+
+	if cmd == nil {
+		// 如果还没有设置命令，使用默认的创建新分支方式
+		log.Infof("Using default new branch creation: git worktree add -b %s %s main", branch, worktreePath)
+		cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, "main")
+	}
+
+	cmd.Dir = r.repoPath
+
+	log.Infof("Executing command: %s", strings.Join(cmd.Args, " "))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Errorf("Failed to create worktree: %v, output: %s", err, string(output))
+		return nil, fmt.Errorf("failed to create worktree: %w, output: %s", err, string(output))
+	}
+
+	log.Infof("Worktree creation output: %s", string(output))
+
+	// 从 worktree 名称中提取 PR 号（如果是 issue 格式）
+	prNumber := r.extractPRNumberFromIssueDir(worktreeName)
+
+	// 创建 worktree 信息
+	worktree := &WorktreeInfo{
+		PRNumber:  prNumber,
+		Path:      worktreePath,
+		Branch:    branch,
+		CreatedAt: time.Now(),
+	}
+
+	// 注册到映射（如果有 PR 号）
+	if prNumber > 0 {
+		r.worktrees[prNumber] = worktree
+	}
+
+	log.Infof("Successfully created worktree: %s", worktreePath)
+	return worktree, nil
+}
+
+// extractPRNumberFromIssueDir 从 Issue 目录名提取 PR 号
+func (r *RepoManager) extractPRNumberFromIssueDir(issueDir string) int {
+	// Issue 目录格式: issue-{number}-{timestamp}
+	if strings.HasPrefix(issueDir, "issue-") {
+		parts := strings.Split(issueDir, "-")
 		if len(parts) >= 2 {
 			if number, err := strconv.Atoi(parts[1]); err == nil {
 				return number
