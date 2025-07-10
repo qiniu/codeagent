@@ -549,14 +549,27 @@ func (m *Manager) recoverExistingWorkspacesWithWorktree() {
 
 		repoPath := filepath.Join(m.baseDir, repoEntry.Name())
 
+		log.Infof("repoPath: %s", repoPath)
+
 		// 检查是否有 .git 目录
 		gitDir := filepath.Join(repoPath, ".git")
 		if _, err := os.Stat(gitDir); os.IsNotExist(err) {
 			continue
 		}
 
+		// 获取远程仓库 URL
+		cmd := exec.Command("git", "remote", "get-url", "origin")
+		cmd.Dir = repoPath
+		remoteOutput, err := cmd.Output()
+		if err != nil {
+			log.Warnf("Failed to get remote URL for %s: %v", repoPath, err)
+			continue
+		}
+		remoteURL := strings.TrimSpace(string(remoteOutput))
+
+		log.Infof("remoteURL: %s", remoteURL)
 		// 创建仓库管理器
-		repoManager := NewRepoManager(repoPath, "")
+		repoManager := NewRepoManager(repoPath, remoteURL)
 		m.repoManagers[repoEntry.Name()] = repoManager
 
 		// 获取所有 worktree
@@ -568,19 +581,10 @@ func (m *Manager) recoverExistingWorkspacesWithWorktree() {
 
 		// 恢复每个 worktree
 		for _, worktree := range worktrees {
-			// 获取远程仓库 URL
-			cmd := exec.Command("git", "remote", "get-url", "origin")
-			cmd.Dir = repoPath
-			remoteOutput, err := cmd.Output()
-			if err != nil {
-				log.Warnf("Failed to get remote URL for %s: %v", repoPath, err)
-				continue
-			}
-
-			remoteURL := strings.TrimSpace(string(remoteOutput))
-
+			log.Infof("worktree: %s", worktree.Path)
 			// 创建 session 路径
 			sessionPath := filepath.Join(repoPath, fmt.Sprintf("session-%d", worktree.PRNumber))
+			log.Infof("sessionPath: %s", sessionPath)
 			if err := os.MkdirAll(sessionPath, 0755); err != nil {
 				log.Warnf("Failed to create session directory: %v", err)
 			}

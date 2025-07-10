@@ -49,6 +49,14 @@ func (r *RepoManager) Initialize() error {
 
 	log.Infof("Starting repository initialization: %s -> %s", r.repoURL, r.repoPath)
 
+	// 如果目录已存在且不为空，先清理
+	if _, err := os.Stat(r.repoPath); err == nil {
+		log.Infof("Target directory already exists, cleaning: %s", r.repoPath)
+		if err := os.RemoveAll(r.repoPath); err != nil {
+			return fmt.Errorf("failed to clean existing directory: %w", err)
+		}
+	}
+
 	// 创建仓库目录
 	if err := os.MkdirAll(r.repoPath, 0755); err != nil {
 		return fmt.Errorf("failed to create repo directory: %w", err)
@@ -247,30 +255,59 @@ func (r *RepoManager) parseWorktreeList(output string) ([]*WorktreeInfo, error) 
 	var worktrees []*WorktreeInfo
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 
-	for i := 0; i < len(lines); i += 3 {
-		if i+2 >= len(lines) {
+	log.Infof("Parsing worktree list output: %s", output)
+
+	// 过滤掉空行
+	var filteredLines []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			filteredLines = append(filteredLines, line)
+		}
+	}
+
+	for i := 0; i < len(filteredLines); i += 3 {
+		if i+2 >= len(filteredLines) {
 			break
 		}
 
-		// 解析 worktree 路径
-		pathLine := strings.TrimSpace(lines[i])
+		// 解析 worktree 路径（第一行）
+		pathLine := strings.TrimSpace(filteredLines[i])
 		if !strings.HasPrefix(pathLine, "worktree ") {
+			log.Warnf("Invalid worktree line: %s", pathLine)
 			continue
 		}
 		path := strings.TrimPrefix(pathLine, "worktree ")
+		log.Infof("Found worktree path: %s", path)
 
-		// 解析分支信息
-		branchLine := strings.TrimSpace(lines[i+1])
-		if !strings.HasPrefix(branchLine, "branch ") {
+		// 跳过 HEAD 行（第二行）
+		headLine := strings.TrimSpace(filteredLines[i+1])
+		if !strings.HasPrefix(headLine, "HEAD ") {
+			log.Warnf("Invalid HEAD line: %s", headLine)
 			continue
 		}
-		branch := strings.TrimPrefix(branchLine, "branch ")
+
+		// 解析分支信息（第三行）
+		branchLine := strings.TrimSpace(filteredLines[i+2])
+		var branch string
+		if strings.HasPrefix(branchLine, "branch ") {
+			branch = strings.TrimPrefix(branchLine, "branch ")
+			// 移除 refs/heads/ 前缀
+			branch = strings.TrimPrefix(branch, "refs/heads/")
+		} else {
+			log.Warnf("Invalid branch line: %s", branchLine)
+			continue
+		}
+
+		log.Infof("Found branch: %s", branch)
 
 		// 从路径中提取 PR 号
 		prNumber := r.extractPRNumberFromPath(path)
 		if prNumber == 0 {
+			log.Infof("Skipping non-PR worktree: %s", path)
 			continue // 不是 PR worktree
 		}
+
+		log.Infof("Found PR worktree: PR #%d, path: %s, branch: %s", prNumber, path, branch)
 
 		worktree := &WorktreeInfo{
 			PRNumber:  prNumber,
@@ -282,6 +319,7 @@ func (r *RepoManager) parseWorktreeList(output string) ([]*WorktreeInfo, error) 
 		worktrees = append(worktrees, worktree)
 	}
 
+	log.Infof("Parsed %d worktrees", len(worktrees))
 	return worktrees, nil
 }
 
