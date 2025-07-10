@@ -467,10 +467,24 @@ func (a *Agent) ContinuePRFromReviewComment(event *github.PullRequestReviewComme
 
 	// 4. 构建 prompt，包含评论上下文和命令参数
 	var prompt string
-	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n行号：%d",
+
+	// 获取行范围信息
+	startLine := event.Comment.GetStartLine()
+	endLine := event.Comment.GetLine()
+
+	var lineRangeInfo string
+	if startLine != 0 && endLine != 0 && startLine != endLine {
+		// 多行选择
+		lineRangeInfo = fmt.Sprintf("行号范围：%d-%d", startLine, endLine)
+	} else {
+		// 单行
+		lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
+	}
+
+	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n%s",
 		event.Comment.GetBody(),
 		event.Comment.GetPath(),
-		event.Comment.GetLine())
+		lineRangeInfo)
 
 	if args != "" {
 		prompt = fmt.Sprintf("请根据以下代码行评论和指令继续处理代码：\n\n%s\n\n指令：%s\n\n请直接进行相应的修改，回复要简洁明了。", commentContext, args)
@@ -534,10 +548,24 @@ func (a *Agent) FixPRFromReviewComment(event *github.PullRequestReviewCommentEve
 
 	// 4. 构建 prompt，包含评论上下文和命令参数
 	var prompt string
-	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n行号：%d",
+
+	// 获取行范围信息
+	startLine := event.Comment.GetStartLine()
+	endLine := event.Comment.GetLine()
+
+	var lineRangeInfo string
+	if startLine != 0 && endLine != 0 && startLine != endLine {
+		// 多行选择
+		lineRangeInfo = fmt.Sprintf("行号范围：%d-%d", startLine, endLine)
+	} else {
+		// 单行
+		lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
+	}
+
+	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n%s",
 		event.Comment.GetBody(),
 		event.Comment.GetPath(),
-		event.Comment.GetLine())
+		lineRangeInfo)
 
 	if args != "" {
 		prompt = fmt.Sprintf("请根据以下代码行评论和指令修复代码问题：\n\n%s\n\n指令：%s\n\n请直接进行修复，回复要简洁明了。", commentContext, args)
