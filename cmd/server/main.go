@@ -58,6 +58,14 @@ func main() {
 
 	log.Infof("Configuration validated successfully")
 
+	// 打印加载的配置 (for debugging)
+	configBytes, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		log.Warnf("Could not marshal config to JSON for printing: %v", err)
+	} else {
+		log.Infof("Loaded configuration:\n%s", string(configBytes))
+	}
+
 	// 初始化工作空间管理器
 	workspaceManager := workspace.NewManager(cfg)
 
