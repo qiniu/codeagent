@@ -40,7 +40,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 
 // CreateBranch 在本地创建分支并推送到远程
 func (c *Client) CreateBranch(workspace *models.Workspace) error {
-	log.Infof("Creating branch for workspace: %s, path: %s", workspace.ID, workspace.Path)
+	log.Infof("Creating branch for workspace: %s, path: %s", workspace.Branch, workspace.Path)
 
 	// 检查 Git 配置
 	c.checkGitConfig(workspace.Path)
@@ -129,7 +129,7 @@ func (c *Client) CreatePullRequest(workspace *models.Workspace) (*github.PullReq
 	prTitle := fmt.Sprintf("实现 Issue #%d: %s", workspace.Issue.GetNumber(), workspace.Issue.GetTitle())
 	prBody := fmt.Sprintf(`## 实现计划
 
-这是由 XGo Agent 自动生成的 PR，用于实现 Issue #%d。
+这是由 Code Agent 自动生成的 PR，用于实现 Issue #%d。
 
 ### Issue 描述
 %s
@@ -187,7 +187,7 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 	// 使用AI生成标准的英文commit message
 	commitMsg, err := c.generateCommitMessage(workspace, result, codeClient)
 	if err != nil {
-		log.Warnf("Failed to generate commit message with AI, using fallback: %v", err)
+		log.Errorf("Failed to generate commit message with AI, using fallback: %v", err)
 		// 使用fallback的commit message
 		summary := extractSummaryFromOutput(result.Output)
 		commitMsg = fmt.Sprintf("feat: implement Issue #%d - %s\n\n%s",
@@ -203,11 +203,48 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 		return fmt.Errorf("failed to commit changes: %w\nCommand output: %s", err, string(commitOutput))
 	}
 
-	// 推送到远程
+	// 推送到远程（带冲突处理）
 	cmd = exec.Command("git", "push")
 	cmd.Dir = workspace.Path
 	pushOutput, err := cmd.CombinedOutput()
 	if err != nil {
+		pushOutputStr := string(pushOutput)
+		log.Infof("Push failed, output: %s", pushOutputStr)
+
+		// 检查是否是推送冲突（更宽松的检测）
+		if strings.Contains(pushOutputStr, "non-fast-forward") {
+
+			log.Infof("Push failed due to remote changes, attempting to resolve conflict")
+
+			// 先尝试拉取并合并远程更改
+			if pullErr := c.PullLatestChanges(workspace); pullErr != nil {
+				log.Errorf("Failed to pull latest changes: %v", pullErr)
+				return pullErr
+			}
+
+			// 拉取成功后，再次尝试推送
+			cmd = exec.Command("git", "push")
+			cmd.Dir = workspace.Path
+			pushOutput2, err2 := cmd.CombinedOutput()
+			if err2 != nil {
+				log.Errorf("Push still failed after pull, attempting force push")
+
+				// 如果普通推送仍然失败，尝试强制推送
+				cmd = exec.Command("git", "push", "-f")
+				cmd.Dir = workspace.Path
+				forcePushOutput2, forcePushErr2 := cmd.CombinedOutput()
+				if forcePushErr2 != nil {
+					return fmt.Errorf("failed to push changes after pull: %w\nCommand output: %s\nForce push error: %s", err2, string(pushOutput2), string(forcePushOutput2))
+				}
+
+				log.Infof("Successfully force pushed changes after pull")
+				return nil
+			}
+
+			log.Infof("Successfully pushed changes after pulling remote updates")
+			return nil
+		}
+
 		return fmt.Errorf("failed to push changes: %w\nCommand output: %s", err, string(pushOutput))
 	}
 
@@ -215,7 +252,31 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 	return nil
 }
 
-// CommitAndPush 检测文件变更并提交推送
+// PullLatestChanges 拉取远端最新代码
+func (c *Client) PullLatestChanges(workspace *models.Workspace) error {
+	log.Infof("Pulling latest changes for workspace: %s", workspace.Path)
+
+	// 先获取远端更新信息
+	cmd := exec.Command("git", "fetch", "origin")
+	cmd.Dir = workspace.Path
+	fetchOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to fetch latest changes: %w\nCommand output: %s", err, string(fetchOutput))
+	}
+
+	// 拉取当前分支的最新代码
+	cmd = exec.Command("git", "pull", "origin", workspace.Branch)
+	cmd.Dir = workspace.Path
+	pullOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to pull latest changes: %w\nCommand output: %s", err, string(pullOutput))
+	}
+
+	log.Infof("Successfully pulled latest changes")
+	return nil
+}
+
+// Push 推送当前分支到远程
 func (c *Client) Push(workspace *models.Workspace) error {
 	// 推送到远程
 	cmd := exec.Command("git", "push")

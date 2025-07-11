@@ -124,7 +124,7 @@ func loadFromEnv() *Config {
 			WebhookURL: os.Getenv("WEBHOOK_URL"),
 		},
 		Workspace: WorkspaceConfig{
-			BaseDir:      getEnvOrDefault("WORKSPACE_BASE_DIR", "/tmp/xgo-agent"),
+			BaseDir:      getEnvOrDefault("WORKSPACE_BASE_DIR", "/tmp/codeagent"),
 			CleanupAfter: 24 * time.Hour,
 		},
 		Claude: ClaudeConfig{

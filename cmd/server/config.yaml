@@ -7,14 +7,18 @@ github:
   webhook_url: "http://localhost:8888/hook"
 
 workspace:
-  base_dir: "/tmp/codeagent"
+  base_dir: "/codeagent"
   cleanup_after: "24h"
 
 claude:
   # api_key: 通过 --claude-api-key 参数或 CLAUDE_API_KEY 环境变量设置
-  container_image: "anthropic/claude-code:latest"
+  container_image: "goplusorg/codeagent:v0.4"
   timeout: "30m"
 
 docker:
   socket: "unix:///var/run/docker.sock"
   network: "bridge"
+
+gemini:
+  container_image: "goplusorg/codeagent:v0.4"
+  timeout: "30m"

@@ -15,14 +15,21 @@ import (
 
 // claudeCode Docker 实现
 type claudeCode struct {
-	cmd           *exec.Cmd
 	containerName string
 }
 
 func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	// 解析仓库信息，只获取仓库名，不包含完整URL
 	repoName := extractRepoName(workspace.Repository)
-	containerName := fmt.Sprintf("claude-%s-%d", repoName, workspace.PullRequest.GetNumber())
+	containerName := fmt.Sprintf("claude-%s-%d", repoName, workspace.PRNumber)
+
+	// 检查是否已经有对应的容器在运行
+	if isContainerRunning(containerName) {
+		log.Infof("Found existing container: %s, reusing it", containerName)
+		return &claudeCode{
+			containerName: containerName,
+		}, nil
+	}
 
 	// 确保路径存在
 	workspacePath, _ := filepath.Abs(workspace.Path)
@@ -86,7 +93,6 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	log.Infof("docker container started successfully")
 
 	return &claudeCode{
-		cmd:           cmd,
 		containerName: containerName,
 	}, nil
 }

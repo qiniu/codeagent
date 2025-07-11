@@ -15,8 +15,20 @@ import (
 
 // geminiDocker Docker 实现（交互式模式）
 type geminiDocker struct {
-	cmd           *exec.Cmd
 	containerName string
+}
+
+// isContainerRunning 检查指定名称的容器是否在运行
+func isContainerRunning(containerName string) bool {
+	cmd := exec.Command("docker", "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}")
+	output, err := cmd.Output()
+	if err != nil {
+		log.Warnf("Failed to check container status: %v", err)
+		return false
+	}
+
+	// 检查输出是否包含容器名称
+	return strings.TrimSpace(string(output)) == containerName
 }
 
 // extractRepoName 从仓库URL中提取仓库名
@@ -38,7 +50,15 @@ func extractRepoName(repoURL string) string {
 func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	// 解析仓库信息，只获取仓库名，不包含完整URL
 	repoName := extractRepoName(workspace.Repository)
-	containerName := fmt.Sprintf("gemini-%s-%d", repoName, workspace.PullRequest.GetNumber())
+	containerName := fmt.Sprintf("gemini-%s-%d", repoName, workspace.PRNumber)
+
+	// 检查是否已经有对应的容器在运行
+	if isContainerRunning(containerName) {
+		log.Infof("Found existing container: %s, reusing it", containerName)
+		return &geminiDocker{
+			containerName: containerName,
+		}, nil
+	}
 
 	// 确保路径存在
 	workspacePath, _ := filepath.Abs(workspace.Path)
@@ -76,8 +96,8 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"-e", "GOOGLE_CLOUD_PROJECT=" + repoName, // 设置 Google Cloud 项目环境变量
 		"-e", "GEMINI_API_KEY=" + cfg.Gemini.APIKey,
 		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // 挂载工作空间
-		"-v", fmt.Sprintf("%s:/root/.gemini", geminiConfigPath), // 挂载 gemini 认证信息
-		"-v", fmt.Sprintf("%s:/root/.gemini/tmp", sessionPath), // 挂载临时目录
+		"-v", fmt.Sprintf("%s:/home/codeagent/.gemini", geminiConfigPath), // 挂载 gemini 认证信息
+		"-v", fmt.Sprintf("%s:/home/codeagent/.gemini/tmp", sessionPath), // 挂载临时目录
 		"-w", "/workspace", // 设置工作目录
 		cfg.Gemini.ContainerImage, // 使用配置的 Gemini 镜像
 	}
@@ -109,7 +129,6 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	log.Infof("docker container started successfully")
 
 	return &geminiDocker{
-		cmd:           cmd,
 		containerName: containerName,
 	}, nil
 }
@@ -126,6 +145,8 @@ func (g *geminiDocker) Prompt(message string) (*Response, error) {
 	}
 
 	cmd := exec.Command("docker", args...)
+
+	log.Infof("Executing gemini CLI with docker: %s", strings.Join(args, " "))
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

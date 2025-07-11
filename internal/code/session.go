@@ -23,7 +23,7 @@ func NewSessionManager(cfg *config.Config) *SessionManager {
 
 // GetSession retrieves an existing Code session or creates a new one.
 func (sm *SessionManager) GetSession(workspace *models.Workspace) (Code, error) {
-	key := fmt.Sprintf("%s-%d", workspace.Repository, workspace.PullRequest.GetNumber())
+	key := fmt.Sprintf("%s-%d", workspace.Repository, workspace.PRNumber)
 	sm.mu.RLock()
 	c, ok := sm.codes[key]
 	sm.mu.RUnlock()
