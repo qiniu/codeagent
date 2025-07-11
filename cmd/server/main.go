@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"net/http"
 	"os"
@@ -47,13 +46,6 @@ func main() {
 	if *port > 0 {
 		cfg.Server.Port = *port
 	}
-
-	// 打印脱敏后的配置用于调试
-	configJSON, err := json.MarshalIndent(cfg.Redacted(), "", "  ")
-	if err != nil {
-		log.Fatalf("Failed to marshal config to JSON: %v", err)
-	}
-	log.Infof("Loaded configuration for debugging:\n%s", string(configJSON))
 
 	// 验证必需的配置
 	if cfg.GitHub.Token == "" {
