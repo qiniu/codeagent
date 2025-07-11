@@ -110,7 +110,7 @@ docker:
 
 # 代码提供者配置
 code_provider: claude # 可选值: claude, gemini
-use_docker: true # 是否使用 Docker，false 表示使用本地 CLI
+use_docker: false # 是否使用 Docker，false 表示使用本地 CLI
 ```
 
 **配置说明：**
@@ -123,6 +123,25 @@ use_docker: true # 是否使用 Docker，false 表示使用本地 CLI
   - `false`: 使用本地 CLI（推荐用于开发环境）
 
 **注意**: 敏感信息（如 token、api_key）应该通过命令行参数或环境变量设置，而不是写在配置文件中。
+
+### 本地 CLI 安装
+
+#### 安装 Claude CLI
+
+```bash
+# 使用 npm 安装 Claude CLI
+npm install -g @anthropic-ai/claude-code
+
+# 验证安装
+claude --version
+```
+
+#### 安装 Gemini CLI
+
+```bash
+# 根据官方文档安装 Gemini CLI
+# 请参考：https://github.com/google-gemini/gemini-cli
+```
 
 ### 本地运行
 

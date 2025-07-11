@@ -88,8 +88,8 @@ func (c *Config) loadFromEnv() {
 	if provider := os.Getenv("CODE_PROVIDER"); provider != "" {
 		c.CodeProvider = provider
 	} else {
-		// 必须要存在一个 provider，这里默认使用 gemini
-		c.CodeProvider = "gemini"
+		// 必须要存在一个 provider，这里默认使用 claude
+		c.CodeProvider = "claude"
 	}
 	if secret := os.Getenv("WEBHOOK_SECRET"); secret != "" {
 		c.Server.WebhookSecret = secret
@@ -142,7 +142,7 @@ func loadFromEnv() *Config {
 			Network: getEnvOrDefault("DOCKER_NETWORK", "bridge"),
 		},
 		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
-		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", true),
+		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", false),
 	}
 }
 
