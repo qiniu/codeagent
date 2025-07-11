@@ -71,6 +71,14 @@ func (r *RepoManager) Initialize() error {
 		return fmt.Errorf("failed to clone repository: %w, output: %s", err, string(output))
 	}
 
+	// 配置 Git 安全目录
+	cmd = exec.Command("git", "config", "--local", "--add", "safe.directory", r.repoPath)
+	cmd.Dir = r.repoPath
+	configOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warnf("Failed to configure safe directory: %v\nCommand output: %s", err, string(configOutput))
+	}
+
 	log.Infof("Successfully initialized repository: %s", r.repoPath)
 	return nil
 }
@@ -389,6 +397,16 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 	if err != nil {
 		log.Errorf("Failed to create worktree: %v, output: %s", err, string(output))
 		return nil, fmt.Errorf("failed to create worktree: %w, output: %s", err, string(output))
+	}
+
+	// 配置 Git 安全目录
+	cmd = exec.Command("git", "config", "--local", "--add", "safe.directory", worktreePath)
+	cmd.Dir = worktreePath // 在 worktree 目录下配置安全目录
+	configOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warnf("Failed to configure safe directory: %v\nCommand output: %s", err, string(configOutput))
+	} else {
+		log.Infof("Successfully configured safe directory: %s", worktreePath)
 	}
 
 	log.Infof("Worktree creation output: %s", string(output))
