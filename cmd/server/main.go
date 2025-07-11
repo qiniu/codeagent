@@ -33,7 +33,23 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// 命令行参数优先级高于环境变量和配置文件
+	// 环境变量会覆盖配置文件中的设置
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		cfg.GitHub.Token = token
+	}
+	if key := os.Getenv("CLAUDE_API_KEY"); key != "" {
+		cfg.Claude.APIKey = key
+	}
+	if secret := os.Getenv("WEBHOOK_SECRET"); secret != "" {
+		cfg.Server.WebhookSecret = secret
+	}
+	if portStr := os.Getenv("PORT"); portStr != "" {
+		if p, err := strconv.Atoi(portStr); err == nil {
+			cfg.Server.Port = p
+		}
+	}
+
+	// 命令行参数优先级最高
 	if *githubToken != "" {
 		cfg.GitHub.Token = *githubToken
 	}
