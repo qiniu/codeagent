@@ -29,7 +29,7 @@ export USE_DOCKER=false
 if [ "$CODE_PROVIDER" = "gemini" ] || [ -z "$CODE_PROVIDER" ]; then
     if ! command -v gemini &> /dev/null; then
         echo "⚠️  警告: gemini CLI 未找到，请先安装"
-        echo "   安装方法: https://github.com/google-gemini/gemini-cli"
+        echo "   安装方法: npm install -g @google/gemini-cli"
     else
         echo "✅ gemini CLI 已安装"
     fi
@@ -38,7 +38,7 @@ fi
 if [ "$CODE_PROVIDER" = "claude" ] || [ -z "$CODE_PROVIDER" ]; then
     if ! command -v claude &> /dev/null; then
         echo "⚠️  警告: claude CLI 未找到，请先安装"
-        echo "   安装方法: https://github.com/anthropics/anthropic-claude-code"
+        echo "   安装方法: npm install -g @anthropic-ai/claude-code"
     else
         echo "✅ claude CLI 已安装"
     fi

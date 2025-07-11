@@ -126,7 +126,7 @@ check_cli_tools() {
                 print_error "Claude CLI 未安装或不在 PATH 中"
                 echo ""
                 echo "请安装 Claude CLI:"
-                echo "npm install -g @anthropic-ai/claude"
+                echo "npm install -g @anthropic-ai/claude-code"
                 exit 1
             fi
             print_success "Claude CLI 可用"
@@ -136,7 +136,7 @@ check_cli_tools() {
                 print_error "Gemini CLI 未安装或不在 PATH 中"
                 echo ""
                 echo "请安装 Gemini CLI:"
-                echo "npm install -g @google/generative-ai-cli"
+                echo "npm install -g @google/gemini-cli"
                 exit 1
             fi
             print_success "Gemini CLI 可用"

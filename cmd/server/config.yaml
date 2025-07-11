@@ -20,5 +20,10 @@ docker:
   network: "bridge"
 
 gemini:
+  # api_key: 通过 --gemini-api-key 参数或 GEMINI_API_KEY/GOOGLE_API_KEY 环境变量设置
   container_image: "goplusorg/codeagent:v0.4"
   timeout: "30m"
+
+# 代码提供者配置
+code_provider: claude # 可选值: claude, gemini
+use_docker: false # 是否使用 Docker，false 表示使用本地 CLI（推荐）

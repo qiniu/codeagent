@@ -85,6 +85,9 @@ func (c *Config) loadFromEnv() {
 	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
 		c.Gemini.APIKey = apiKey
 	}
+	if apiKey := os.Getenv("GOOGLE_API_KEY"); apiKey != "" {
+		c.Gemini.APIKey = apiKey
+	}
 	if provider := os.Getenv("CODE_PROVIDER"); provider != "" {
 		c.CodeProvider = provider
 	} else {
@@ -133,7 +136,7 @@ func loadFromEnv() *Config {
 			Timeout:        30 * time.Minute,
 		},
 		Gemini: GeminiConfig{
-			APIKey:         os.Getenv("GEMINI_API_KEY"),
+			APIKey:         getEnvOrDefault("GEMINI_API_KEY", os.Getenv("GOOGLE_API_KEY")),
 			ContainerImage: getEnvOrDefault("GEMINI_IMAGE", "google-gemini/gemini-cli:latest"),
 			Timeout:        30 * time.Minute,
 		},
@@ -142,7 +145,7 @@ func loadFromEnv() *Config {
 			Network: getEnvOrDefault("DOCKER_NETWORK", "bridge"),
 		},
 		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
-		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", true),
+		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", false),
 	}
 }
 

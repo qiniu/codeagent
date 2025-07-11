@@ -31,6 +31,34 @@ GitHub Issue (/code) → Webhook → CodeAgent → 创建分支和空PR → Clau
 
 ## 快速开始
 
+### 本地模式快速开始（推荐）
+
+本地模式无需 Docker，启动更快，资源消耗更少：
+
+```bash
+# 1. 克隆项目
+git clone <your-repo-url>
+cd codeagent
+
+# 2. 安装依赖
+go mod tidy
+
+# 3. 安装 CLI 工具（选择其一）
+npm install -g @anthropic-ai/claude-code  # Claude CLI
+npm install -g @google/gemini-cli         # Gemini CLI
+
+# 4. 设置环境变量
+export GITHUB_TOKEN="your-github-token"
+export CLAUDE_API_KEY="your-claude-api-key"  # 或 GOOGLE_API_KEY
+export WEBHOOK_SECRET="your-webhook-secret"
+
+# 5. 验证环境（可选但推荐）
+./scripts/verify-local-setup.sh
+
+# 6. 启动服务
+./scripts/start.sh
+```
+
 ### 环境要求
 
 - Go 1.21+
@@ -144,9 +172,12 @@ go run ./cmd/server
 go run ./cmd/server --config config.yaml
 ```
 
-**2. Claude + 本地 CLI 模式**
+**2. Claude + 本地 CLI 模式（推荐）**
 
 ```bash
+# 首先安装 Claude CLI
+npm install -g @anthropic-ai/claude-code
+
 # 使用环境变量
 export GITHUB_TOKEN="your-github-token"
 export CLAUDE_API_KEY="your-claude-api-key"
@@ -179,6 +210,9 @@ go run ./cmd/server --config config.yaml
 **4. Gemini + 本地 CLI 模式（推荐开发环境）**
 
 ```bash
+# 首先安装 Gemini CLI
+npm install -g @google/gemini-cli
+
 # 使用环境变量
 export GITHUB_TOKEN="your-github-token"
 export GOOGLE_API_KEY="your-google-api-key"
@@ -213,6 +247,21 @@ export WEBHOOK_SECRET="your-webhook-secret"
 ```
 
 启动脚本会自动检查环境依赖并设置相应的环境变量。
+
+#### 验证本地环境（推荐）
+
+在首次使用本地模式之前，建议运行验证脚本检查环境配置：
+
+```bash
+./scripts/verify-local-setup.sh
+```
+
+该脚本会检查：
+- Go 环境是否正确安装
+- CLI 工具是否已安装
+- 环境变量是否设置正确
+- 配置文件是否存在
+- 代码是否能正常构建
 
 **注意**:
 
