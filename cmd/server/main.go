@@ -93,8 +93,11 @@ func main() {
 
 	// 创建 HTTP 服务器
 	server := &http.Server{
-		Addr:    ":" + strconv.Itoa(cfg.Server.Port),
-		Handler: mux,
+		Addr:         ":" + strconv.Itoa(cfg.Server.Port),
+		Handler:      mux,
+		ReadTimeout:  15 * time.Second, // 防止慢速客户端攻击
+		WriteTimeout: 15 * time.Second, // 防止慢速客户端攻击
+		IdleTimeout:  60 * time.Second, // 释放空闲连接
 	}
 
 	// 启动服务器
