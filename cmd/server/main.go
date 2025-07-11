@@ -58,8 +58,30 @@ func main() {
 
 	log.Infof("Configuration validated successfully")
 
-	// 打印加载的配置
-	configBytes, err := json.MarshalIndent(cfg, "", "  ")
+	// 打印加载的配置（过滤敏感信息）
+	safeCfg := struct {
+		Server struct {
+			Port int `json:"port"`
+		} `json:"server"`
+		GitHub struct {
+			Token string `json:"token"`
+		} `json:"github"`
+		Claude struct {
+			APIKey string `json:"api_key"`
+		} `json:"claude"`
+	}{
+		Server: struct {
+			Port int `json:"port"`
+		}{Port: cfg.Server.Port},
+		GitHub: struct {
+			Token string `json:"token"`
+		}{Token: "[REDACTED]"},
+		Claude: struct {
+			APIKey string `json:"api_key"`
+		}{APIKey: "[REDACTED]"},
+	}
+	
+	configBytes, err := json.MarshalIndent(safeCfg, "", "  ")
 	if err != nil {
 		log.Warnf("failed to marshal config to json: %v", err)
 	} else {
