@@ -161,3 +161,20 @@ func getEnvBoolOrDefault(key string, defaultValue bool) bool {
 	}
 	return defaultValue
 }
+
+func (c *Config) Redacted() Config {
+	redacted := *c
+	if redacted.GitHub.Token != "" {
+		redacted.GitHub.Token = "***REDACTED***"
+	}
+	if redacted.Claude.APIKey != "" {
+		redacted.Claude.APIKey = "***REDACTED***"
+	}
+	if redacted.Gemini.APIKey != "" {
+		redacted.Gemini.APIKey = "***REDACTED***"
+	}
+	if redacted.Server.WebhookSecret != "" {
+		redacted.Server.WebhookSecret = "***REDACTED***"
+	}
+	return redacted
+}
