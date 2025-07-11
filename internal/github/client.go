@@ -213,14 +213,7 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 
 		// 检查是否是推送冲突（更宽松的检测）
 		if strings.Contains(pushOutputStr, "non-fast-forward") {
-
 			log.Infof("Push failed due to remote changes, attempting to resolve conflict")
-
-			// 先尝试拉取并合并远程更改
-			if pullErr := c.PullLatestChanges(workspace); pullErr != nil {
-				log.Errorf("Failed to pull latest changes: %v", pullErr)
-				return pullErr
-			}
 
 			// 拉取成功后，再次尝试推送
 			cmd = exec.Command("git", "push")
@@ -228,17 +221,7 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 			pushOutput2, err2 := cmd.CombinedOutput()
 			if err2 != nil {
 				log.Errorf("Push still failed after pull, attempting force push")
-
-				// 如果普通推送仍然失败，尝试强制推送
-				cmd = exec.Command("git", "push", "-f")
-				cmd.Dir = workspace.Path
-				forcePushOutput2, forcePushErr2 := cmd.CombinedOutput()
-				if forcePushErr2 != nil {
-					return fmt.Errorf("failed to push changes after pull: %w\nCommand output: %s\nForce push error: %s", err2, string(pushOutput2), string(forcePushOutput2))
-				}
-
-				log.Infof("Successfully force pushed changes after pull")
-				return nil
+				return fmt.Errorf("failed to push changes: %w\nCommand output: %s", err2, string(pushOutput2))
 			}
 
 			log.Infof("Successfully pushed changes after pulling remote updates")
@@ -253,26 +236,109 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 }
 
 // PullLatestChanges 拉取远端最新代码
-func (c *Client) PullLatestChanges(workspace *models.Workspace) error {
-	log.Infof("Pulling latest changes for workspace: %s", workspace.Path)
+func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullRequest) error {
+	log.Infof("Pulling latest changes for workspace: %s (PR #%d)", workspace.Path, pr.GetNumber())
 
-	// 先获取远端更新信息
-	cmd := exec.Command("git", "fetch", "origin")
-	cmd.Dir = workspace.Path
-	fetchOutput, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to fetch latest changes: %w\nCommand output: %s", err, string(fetchOutput))
+	// 获取 PR 的目标分支（base branch）
+	baseBranch := pr.GetBase().GetRef()
+	if baseBranch == "" {
+		log.Errorf("PR base branch is empty for PR #%d", pr.GetNumber())
+		return fmt.Errorf("PR base branch is empty for PR #%d", pr.GetNumber())
 	}
 
-	// 拉取当前分支的最新代码
-	cmd = exec.Command("git", "pull", "origin", workspace.Branch)
-	cmd.Dir = workspace.Path
-	pullOutput, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to pull latest changes: %w\nCommand output: %s", err, string(pullOutput))
+	// 获取 PR 的源分支（head branch）
+	headBranch := pr.GetHead().GetRef()
+	if headBranch == "" {
+		log.Errorf("PR head branch is empty for PR #%d", pr.GetNumber())
+		return fmt.Errorf("PR head branch is empty for PR #%d", pr.GetNumber())
 	}
 
-	log.Infof("Successfully pulled latest changes")
+	log.Infof("PR #%d: %s -> %s", pr.GetNumber(), headBranch, baseBranch)
+
+	// 1. 先尝试直接获取 PR 内容
+	prNumber := pr.GetNumber()
+	log.Infof("Attempting to fetch PR #%d content directly", prNumber)
+
+	cmd := exec.Command("git", "fetch", "origin", fmt.Sprintf("pull/%d/head", prNumber))
+	cmd.Dir = workspace.Path
+	prFetchOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warnf("Failed to fetch PR #%d directly: %v, output: %s", prNumber, err, string(prFetchOutput))
+
+		// 2. 如果直接获取失败，fallback 到 rebase 方式
+		log.Infof("Falling back to rebase approach for PR #%d", prNumber)
+
+		// 获取所有远程仓库的最新代码
+		cmd = exec.Command("git", "fetch", "--all")
+		cmd.Dir = workspace.Path
+		fetchOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to fetch latest changes: %w\nCommand output: %s", err, string(fetchOutput))
+		}
+
+		// 尝试 rebase 到目标分支的最新代码
+		cmd = exec.Command("git", "rebase", fmt.Sprintf("origin/%s", baseBranch))
+		cmd.Dir = workspace.Path
+		rebaseOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Errorf("Rebase failed: %v, output: %s", err, string(rebaseOutput))
+			return fmt.Errorf("both direct fetch and rebase failed for PR #%d", prNumber)
+		}
+
+		log.Infof("Successfully rebased PR #%d onto %s", pr.GetNumber(), baseBranch)
+	} else {
+		// 3. 直接获取成功，尝试合并 PR 内容
+		log.Infof("Successfully fetched PR #%d content, attempting to merge", prNumber)
+
+		// 检查当前是否有未提交的变更
+		cmd = exec.Command("git", "status", "--porcelain")
+		cmd.Dir = workspace.Path
+		statusOutput, err := cmd.Output()
+		if err != nil {
+			log.Warnf("Failed to check git status: %v", err)
+		}
+
+		if strings.TrimSpace(string(statusOutput)) != "" {
+			// 有未提交的变更，先 stash
+			log.Infof("Found uncommitted changes, stashing them")
+			cmd = exec.Command("git", "stash", "push", "-m", fmt.Sprintf("Auto stash before syncing PR #%d", prNumber))
+			cmd.Dir = workspace.Path
+			stashOutput, err := cmd.CombinedOutput()
+			if err != nil {
+				log.Warnf("Failed to stash changes: %v, output: %s", err, string(stashOutput))
+			}
+		}
+
+		// 尝试合并 PR 内容，而不是强制覆盖
+		cmd = exec.Command("git", "merge", "FETCH_HEAD", "--no-edit")
+		cmd.Dir = workspace.Path
+		mergeOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Warnf("Merge failed, trying reset: %v, output: %s", err, string(mergeOutput))
+
+			// 合并失败，回退到强制切换（但先备份）
+			cmd = exec.Command("git", "reset", "--hard", "HEAD")
+			cmd.Dir = workspace.Path
+			resetOutput, err := cmd.CombinedOutput()
+			if err != nil {
+				log.Warnf("Failed to reset: %v, output: %s", err, string(resetOutput))
+			}
+
+			// 强制切换到 PR 内容
+			cmd = exec.Command("git", "checkout", "-B", headBranch, "FETCH_HEAD", "--force")
+			cmd.Dir = workspace.Path
+			checkoutOutput, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("failed to checkout PR #%d: %w\nCommand output: %s", prNumber, err, string(checkoutOutput))
+			}
+
+			log.Infof("Successfully force synced to PR #%d content (after merge failure)", prNumber)
+		} else {
+			log.Infof("Successfully merged PR #%d content", prNumber)
+		}
+	}
+
+	log.Infof("Successfully pulled latest changes for PR #%d from remote repo: %s", pr.GetNumber(), workspace.Repository)
 	return nil
 }
 
@@ -288,6 +354,15 @@ func (c *Client) Push(workspace *models.Workspace) error {
 
 	log.Infof("Committed and pushed changes for Issue #%d", workspace.Issue.GetNumber())
 	return nil
+}
+
+// GetPullRequest 获取 PR 的完整信息
+func (c *Client) GetPullRequest(owner, repo string, prNumber int) (*github.PullRequest, error) {
+	pr, _, err := c.client.PullRequests.Get(context.Background(), owner, repo, prNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PR #%d: %w", prNumber, err)
+	}
+	return pr, nil
 }
 
 // GetPullRequestChanges 获取 PR 的变更内容 (diff)
