@@ -22,9 +22,6 @@ import (
 func main() {
 	// 定义命令行参数
 	configPath := flag.String("config", "config.yaml", "配置文件路径")
-	githubToken := flag.String("github-token", "", "GitHub Token (也可以通过 GITHUB_TOKEN 环境变量设置)")
-	claudeAPIKey := flag.String("claude-api-key", "", "Claude API Key (也可以通过 CLAUDE_API_KEY 环境变量设置)")
-	webhookSecret := flag.String("webhook-secret", "", "Webhook Secret (也可以通过 WEBHOOK_SECRET 环境变量设置)")
 	port := flag.Int("port", 0, "服务器端口 (也可以通过 PORT 环境变量设置)")
 	flag.Parse()
 
@@ -51,28 +48,27 @@ func main() {
 	}
 
 	// 命令行参数优先级最高
-	if *githubToken != "" {
-		cfg.GitHub.Token = *githubToken
-	}
-	if *claudeAPIKey != "" {
-		cfg.Claude.APIKey = *claudeAPIKey
-	}
-	if *webhookSecret != "" {
-		cfg.Server.WebhookSecret = *webhookSecret
-	}
 	if *port > 0 {
 		cfg.Server.Port = *port
 	}
 
 	// 验证必需的配置
 	if cfg.GitHub.Token == "" {
-		log.Fatalf("GitHub Token is required. Please set it via --github-token flag or GITHUB_TOKEN environment variable")
+		log.Fatalf("GitHub Token is required. Please set it via config file or GITHUB_TOKEN environment variable")
 	}
 	if cfg.Server.WebhookSecret == "" {
-		log.Fatalf("Webhook Secret is required. Please set it via --webhook-secret flag or WEBHOOK_SECRET environment variable")
+		log.Fatalf("Webhook Secret is required. Please set it via config file or WEBHOOK_SECRET environment variable")
 	}
 
 	log.Infof("Configuration validated successfully")
+
+	// 打印加载的配置 (for debugging)
+	configJSON, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		log.Warnf("Could not marshal config to JSON for printing: %v", err)
+	} else {
+		log.Infof("Loaded configuration:\n%s", string(configJSON))
+	}
 
 	// 初始化工作空间管理器
 	workspaceManager := workspace.NewManager(cfg)
