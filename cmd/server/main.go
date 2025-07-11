@@ -48,8 +48,20 @@ func main() {
 		cfg.Server.Port = *port
 	}
 
-	// 打印最终配置用于调试
-	configJSON, err := json.MarshalIndent(cfg, "", "  ")
+	// 创建一个用于打印的配置副本，并对敏感字段进行脱敏
+	debugCfg := *cfg
+	if debugCfg.GitHub.Token != "" {
+		debugCfg.GitHub.Token = "***REDACTED***"
+	}
+	if debugCfg.Claude.APIKey != "" {
+		debugCfg.Claude.APIKey = "***REDACTED***"
+	}
+	if debugCfg.Server.WebhookSecret != "" {
+		debugCfg.Server.WebhookSecret = "***REDACTED***"
+	}
+
+	// 打印脱敏后的配置用于调试
+	configJSON, err := json.MarshalIndent(debugCfg, "", "  ")
 	if err != nil {
 		log.Fatalf("Failed to marshal config to JSON: %v", err)
 	}
