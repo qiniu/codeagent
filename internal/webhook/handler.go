@@ -215,14 +215,14 @@ func (h *Handler) handlePullRequest(w http.ResponseWriter, body []byte) {
 		// PR 被创建，可以自动审查
 		go func(pr *github.PullRequest) {
 			if err := h.agent.ReviewPR(pr); err != nil {
-				log.Printf("agent review pr error: %v", err)
+				log.Errorf("agent review pr error: %v", err)
 			}
 		}(event.PullRequest)
 	case "synchronize":
 		// PR 有新的提交，可以重新审查
 		go func(pr *github.PullRequest) {
 			if err := h.agent.ReviewPR(pr); err != nil {
-				log.Printf("agent review pr error: %v", err)
+				log.Errorf("agent review pr error: %v", err)
 			}
 		}(event.PullRequest)
 	case "closed":
@@ -230,7 +230,7 @@ func (h *Handler) handlePullRequest(w http.ResponseWriter, body []byte) {
 		if event.PullRequest.GetMerged() {
 			go func(pr *github.PullRequest) {
 				if err := h.agent.CleanupAfterPRMerged(pr); err != nil {
-					log.Printf("agent cleanup after pr merged error: %v", err)
+					log.Errorf("agent cleanup after pr merged error: %v", err)
 				}
 			}(event.PullRequest)
 		}
