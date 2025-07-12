@@ -623,11 +623,11 @@ func (a *Agent) ReviewPR(pr *github.PullRequest) error {
 
 // CleanupAfterPRMerged PR 合并后清理工作区、映射和执行的code session
 func (a *Agent) CleanupAfterPRMerged(pr *github.PullRequest) error {
-
 	// 获取 workspace
 	ws := a.workspace.GetWorkspaceByPR(pr)
 	if ws == nil {
-		return fmt.Errorf("failed to get workspace for PR #%d", pr.GetNumber())
+		log.Infof("No workspace found for PR: %s, skip cleanup", pr.GetHTMLURL())
+		return nil
 	}
 
 	// 清理执行的 code session
