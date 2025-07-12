@@ -45,74 +45,24 @@ func NewManager(cfg *config.Config) *Manager {
 		config:       cfg,
 	}
 
-	// 启动定期清理协程
-	go m.startCleanupRoutine()
-
 	// 启动时恢复现有工作空间
 	m.recoverExistingWorkspaces()
 
 	return m
 }
 
-// startCleanupRoutine 启动定期清理协程
-func (m *Manager) startCleanupRoutine() {
-	ticker := time.NewTicker(1 * time.Hour) // 每小时检查一次
-	defer ticker.Stop()
-
-	for range ticker.C {
-		m.cleanupExpiredWorkspaces()
-	}
-}
-
-// cleanupExpiredWorkspaces 清理过期的工作空间
-func (m *Manager) cleanupExpiredWorkspaces() {
-	// 先收集过期的工作空间，避免在持有锁时调用可能获取锁的方法
-	now := time.Now()
-	expiredWorkspaces := []*models.Workspace{}
-
-	m.mutex.RLock()
-	for _, ws := range m.workspaces {
-		if now.Sub(ws.CreatedAt) > m.config.Workspace.CleanupAfter {
-			expiredWorkspaces = append(expiredWorkspaces, ws)
-		}
-	}
-	m.mutex.RUnlock()
-
-	// 如果没有过期的工作空间，直接返回
-	if len(expiredWorkspaces) == 0 {
-		return
-	}
-
-	log.Infof("Found %d expired workspaces to clean up", len(expiredWorkspaces))
-
-	// 清理过期的工作空间
-	cleanedKeys := []string{}
-	for _, ws := range expiredWorkspaces {
-		if m.cleanupWorkspace(ws) {
-			// 只有清理成功才记录要删除的 key
-			key := key(fmt.Sprintf("%s/%s", ws.Org, ws.Repo), ws.PRNumber)
-			cleanedKeys = append(cleanedKeys, key)
-			log.Infof("Cleaned up expired workspace: %s", ws.Path)
-		}
-	}
-
-	// 批量从内存映射中删除已清理的工作空间
-	if len(cleanedKeys) > 0 {
-		m.mutex.Lock()
-		for _, key := range cleanedKeys {
-			delete(m.workspaces, key)
-		}
-		m.mutex.Unlock()
-		log.Infof("Removed %d expired workspaces from memory", len(cleanedKeys))
-	}
-}
-
 // cleanupWorkspace 清理单个工作空间，返回是否清理成功
-func (m *Manager) cleanupWorkspace(ws *models.Workspace) bool {
+func (m *Manager) CleanupWorkspace(ws *models.Workspace) bool {
 	if ws == nil || ws.Path == "" {
 		return false
 	}
 
+	// 清理内存中映射
+	m.mutex.Lock()
+	delete(m.workspaces, key(fmt.Sprintf("%s/%s", ws.Org, ws.Repo), ws.PRNumber))
+	m.mutex.Unlock()
+
+	// 清理物理工作空间
 	return m.cleanupWorkspaceWithWorktree(ws)
 }
 
@@ -179,22 +129,6 @@ func (m *Manager) cleanupWorkspaceWithWorktree(ws *models.Workspace) bool {
 
 	// 只有 worktree 和 session 都清理成功才返回 true
 	return worktreeRemoved && sessionRemoved
-}
-
-// Cleanup 清理工作空间
-func (m *Manager) Cleanup(workspace models.Workspace) {
-	if workspace.PullRequest == nil {
-		return
-	}
-
-	// 从注册表中移除
-
-	m.mutex.Lock()
-	delete(m.workspaces, key(fmt.Sprintf("%s/%s", workspace.Org, workspace.Repo), workspace.PRNumber))
-	m.mutex.Unlock()
-
-	// 清理文件系统
-	m.cleanupWorkspace(&workspace)
 }
 
 // PrepareFromEvent 从完整的 IssueCommentEvent 准备工作空间
@@ -580,6 +514,19 @@ func (m *Manager) MoveIssueToPR(ws *models.Workspace, prNumber int) error {
 	return nil
 }
 
+func (m *Manager) GetWorkspaceByPR(pr *github.PullRequest) *models.Workspace {
+	orgRepoPath := fmt.Sprintf("%s/%s", pr.GetBase().GetRepo().GetOwner().GetLogin(), pr.GetBase().GetRepo().GetName())
+	prKey := key(orgRepoPath, pr.GetNumber())
+	m.mutex.RLock()
+	if ws, exists := m.workspaces[prKey]; exists {
+		m.mutex.RUnlock()
+		log.Infof("Found existing workspace for PR #%d: %s", pr.GetNumber(), ws.Path)
+		return ws
+	}
+	m.mutex.RUnlock()
+	return nil
+}
+
 // CreateWorkspaceFromPR 从 PR 创建工作空间（直接包含 PR 号）
 func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest) *models.Workspace {
 	log.Infof("Creating workspace from PR #%d", pr.GetNumber())
@@ -643,15 +590,10 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest) *models.Workspac
 // GetOrCreateWorkspaceForPR 获取或创建 PR 的工作空间
 func (m *Manager) GetOrCreateWorkspaceForPR(pr *github.PullRequest) *models.Workspace {
 	// 1. 先尝试从内存中获取
-	orgRepoPath := fmt.Sprintf("%s/%s", pr.GetBase().GetRepo().GetOwner().GetLogin(), pr.GetBase().GetRepo().GetName())
-	prKey := key(orgRepoPath, pr.GetNumber())
-	m.mutex.RLock()
-	if ws, exists := m.workspaces[prKey]; exists {
-		m.mutex.RUnlock()
-		log.Infof("Found existing workspace for PR #%d: %s", pr.GetNumber(), ws.Path)
+	ws := m.GetWorkspaceByPR(pr)
+	if ws != nil {
 		return ws
 	}
-	m.mutex.RUnlock()
 
 	// 2. 如果都没有，创建新的工作空间
 	log.Infof("No existing workspace found for PR #%d, creating new workspace", pr.GetNumber())
@@ -690,4 +632,18 @@ func (m *Manager) extractIssueNumberFromIssueDir(issueDir string) int {
 		}
 	}
 	return 0
+}
+
+func (m *Manager) GetExpiredWorkspaces() []*models.Workspace {
+	expiredWorkspaces := []*models.Workspace{}
+	now := time.Now()
+	m.mutex.RLock()
+	for _, ws := range m.workspaces {
+		if now.Sub(ws.CreatedAt) > m.config.Workspace.CleanupAfter {
+			expiredWorkspaces = append(expiredWorkspaces, ws)
+		}
+	}
+	m.mutex.RUnlock()
+
+	return expiredWorkspaces
 }

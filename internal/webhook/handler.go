@@ -225,6 +225,15 @@ func (h *Handler) handlePullRequest(w http.ResponseWriter, body []byte) {
 				log.Printf("agent review pr error: %v", err)
 			}
 		}(event.PullRequest)
+	case "closed":
+		// PR 被关闭，若已合并则清理
+		if event.PullRequest.GetMerged() {
+			go func(pr *github.PullRequest) {
+				if err := h.agent.CleanupAfterPRMerged(pr); err != nil {
+					log.Printf("agent cleanup after pr merged error: %v", err)
+				}
+			}(event.PullRequest)
+		}
 	default:
 		w.WriteHeader(http.StatusOK)
 		return

@@ -32,12 +32,59 @@ func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
 		return nil
 	}
 
-	return &Agent{
+	a := &Agent{
 		config:         cfg,
 		github:         githubClient,
 		workspace:      workspaceManager,
 		sessionManager: code.NewSessionManager(cfg),
 	}
+
+	go a.StartCleanupRoutine()
+
+	return a
+}
+
+// startCleanupRoutine 启动定期清理协程
+func (a *Agent) StartCleanupRoutine() {
+	ticker := time.NewTicker(1 * time.Hour) // 每小时检查一次
+	defer ticker.Stop()
+
+	for range ticker.C {
+		a.cleanupExpiredResouces()
+	}
+}
+
+// cleanupExpiredResouces 清理过期的工作空间
+func (a *Agent) cleanupExpiredResouces() {
+	m := a.workspace
+
+	// 先收集过期的工作空间，避免在持有锁时调用可能获取锁的方法
+	expiredWorkspaces := a.workspace.GetExpiredWorkspaces()
+
+	// 如果没有过期的工作空间，直接返回
+	if len(expiredWorkspaces) == 0 {
+		return
+	}
+
+	log.Infof("Found %d expired workspaces to clean up", len(expiredWorkspaces))
+
+	// 清理过期的工作空间 和 code session
+	for _, ws := range expiredWorkspaces {
+		// 关闭 code session
+		err := a.sessionManager.CloseSession(ws)
+		if err != nil {
+			log.Errorf("Failed to close session for workspace: %s", ws.Path)
+		}
+
+		// 清理工作空间
+		b := m.CleanupWorkspace(ws)
+		if !b {
+			log.Errorf("Failed to clean up expired workspace : %s", ws.Path)
+			continue
+		}
+		log.Infof("Cleaned up expired workspace: %s", ws.Path)
+	}
+
 }
 
 // ProcessIssueComment 处理 Issue 评论事件，包含完整的仓库信息
@@ -571,6 +618,31 @@ func (a *Agent) FixPRFromReviewComment(event *github.PullRequestReviewCommentEve
 
 // ReviewPR 审查 PR
 func (a *Agent) ReviewPR(pr *github.PullRequest) error {
+	return nil
+}
+
+// CleanupAfterPRMerged PR 合并后清理工作区、映射和执行的code session
+func (a *Agent) CleanupAfterPRMerged(pr *github.PullRequest) error {
+
+	// 获取 workspace
+	ws := a.workspace.GetWorkspaceByPR(pr)
+	if ws == nil {
+		return fmt.Errorf("failed to get workspace for PR #%d", pr.GetNumber())
+	}
+
+	// 清理执行的 code session
+	err := a.sessionManager.CloseSession(ws)
+	if err != nil {
+		return fmt.Errorf("failed to close code session for PR #%d: %v", pr.GetNumber(), err)
+	}
+
+	// 清理 worktree,session 目录 和 对应的内存映射
+	b := a.workspace.CleanupWorkspace(ws)
+	if !b {
+		return fmt.Errorf("failed to cleanup workspace for PR #%d", pr.GetNumber())
+	}
+
+	log.Infof("Cleanup after PR merged: PR #%d, workspace: %s", pr.GetNumber(), ws.Path)
 	return nil
 }
 
