@@ -379,8 +379,8 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 			}
 			cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, defaultBranch)
 		} else {
-			log.Infof("Remote branch exists, creating worktree: git worktree add %s origin/%s", worktreePath, branch)
-			cmd = exec.Command("git", "worktree", "add", worktreePath, fmt.Sprintf("origin/%s", branch))
+			log.Infof("Remote branch exists, creating worktree: git worktree add -b %s %s origin/%s", branch, worktreePath, branch)
+			cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, fmt.Sprintf("origin/%s", branch))
 		}
 	}
 

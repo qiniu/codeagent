@@ -277,86 +277,112 @@ func extractErrorInfo(output string) string {
 	return ""
 }
 
-// ContinuePR 继续处理 PR 中的任务
-func (a *Agent) ContinuePR(pr *github.PullRequest) error {
-	return a.ContinuePRWithArgs(&github.IssueCommentEvent{
-		Issue: &github.Issue{
-			Number: github.Int(pr.GetNumber()),
-			Title:  github.String(pr.GetTitle()),
-		},
-	}, "")
-}
-
 // ContinuePRWithArgs 继续处理 PR 中的任务，支持命令参数
 func (a *Agent) ContinuePRWithArgs(event *github.IssueCommentEvent, args string) error {
 	log.Infof("Continue PR #%d with args: %s", event.Issue.GetNumber(), args)
 
-	// 1. 从工作空间管理器获取 PR 信息
-	// 由于 PR 评论事件中的 Issue 就是 PR，我们可以直接使用
-	pr := &github.PullRequest{
-		Number:  event.Issue.Number,
-		Title:   event.Issue.Title,
-		HTMLURL: event.Issue.HTMLURL,
+	// 1. 验证这是一个 PR 评论（而不是 Issue 评论）
+	if event.Issue.PullRequestLinks == nil {
+		return fmt.Errorf("this is not a PR comment, cannot continue")
 	}
 
-	// 2. 获取或创建 PR 工作空间
+	// 2. 从 IssueCommentEvent 中提取仓库信息
+	repoURL := ""
+	repoOwner := ""
+	repoName := ""
+
+	// 优先使用 repository 字段（如果存在）
+	if event.Repo != nil {
+		repoOwner = event.Repo.GetOwner().GetLogin()
+		repoName = event.Repo.GetName()
+		repoURL = event.Repo.GetCloneURL()
+	}
+
+	// 如果 repository 字段不存在，从 Issue 的 HTML URL 中提取
+	if repoURL == "" {
+		htmlURL := event.Issue.GetHTMLURL()
+		if strings.Contains(htmlURL, "github.com") {
+			parts := strings.Split(htmlURL, "/")
+			if len(parts) >= 5 {
+				repoOwner = parts[len(parts)-4] // owner
+				repoName = parts[len(parts)-3]  // repo
+				repoURL = fmt.Sprintf("https://github.com/%s/%s.git", repoOwner, repoName)
+			}
+		}
+	}
+
+	if repoURL == "" {
+		return fmt.Errorf("failed to extract repository URL from event")
+	}
+
+	// 3. 从 GitHub API 获取完整的 PR 信息
+	pr, err := a.github.GetPullRequest(repoOwner, repoName, event.Issue.GetNumber())
+	if err != nil {
+		log.Errorf("Failed to get PR #%d: %v", event.Issue.GetNumber(), err)
+		return fmt.Errorf("failed to get PR information: %w", err)
+	}
+
+	// 4. 获取或创建 PR 工作空间
 	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR continue")
 	}
 
-	// 3. 拉取远端最新代码
-	if err := a.github.PullLatestChanges(ws); err != nil {
+	// 5. 拉取远端最新代码
+	if err := a.github.PullLatestChanges(ws, pr); err != nil {
 		log.Errorf("Failed to pull latest changes: %v", err)
 		// 不返回错误，继续执行，因为可能是网络问题
 	}
 
-	// 4. 初始化 code client
-	code, err := a.sessionManager.GetSession(ws)
+	// 6. 初始化 code client
+	codeClient, err := a.sessionManager.GetSession(ws)
 	if err != nil {
-		log.Errorf("failed to get code client for PR continue: %v", err)
-		return err
+		log.Errorf("Failed to create code session: %v", err)
+		return fmt.Errorf("failed to create code session: %w", err)
 	}
 
-	// 4. 构建 prompt，包含命令参数
+	// 7. 构建 prompt，包含命令参数
 	var prompt string
 	if args != "" {
-		prompt = fmt.Sprintf("请根据以下指令继续处理代码：\n\n指令：%s\n\n请直接进行相应的修改，回复要简洁明了。", args)
+		prompt = fmt.Sprintf("请根据以下指令继续处理这个 PR：\n\n%s\n\n请分析当前的代码变更，并根据指令执行相应的操作。", args)
 	} else {
-		prompt = "请继续之前的任务，根据上下文进行相应的修改，回复要简洁明了。"
+		prompt = "请继续处理这个 PR，分析代码变更并提供改进建议。"
 	}
 
-	resp, err := a.promptWithRetry(code, prompt, 3)
+	// 8. 执行 AI 处理
+	resp, err := a.promptWithRetry(codeClient, prompt, 3)
 	if err != nil {
-		log.Errorf("failed to prompt for PR continue: %v", err)
-		return err
+		log.Errorf("Failed to process PR continue: %v", err)
+		return fmt.Errorf("failed to process PR continue: %w", err)
 	}
 
 	output, err := io.ReadAll(resp.Out)
 	if err != nil {
-		log.Errorf("failed to read output for PR continue: %v", err)
-		return err
+		log.Errorf("Failed to read output for PR continue: %v", err)
+		return fmt.Errorf("failed to read output for PR continue: %w", err)
 	}
 
 	log.Infof("PR Continue Output: %s", string(output))
 
-	// 5. 提交变更并更新 PR
+	// 9. 提交变更并更新 PR
 	result := &models.ExecutionResult{
 		Output: string(output),
-	}
-	if err := a.github.CommitAndPush(ws, result, code); err != nil {
-		log.Errorf("Failed to commit and push for PR continue: %v", err)
-		return err
+		Error:  "",
 	}
 
-	// 6. 评论到 PR
+	if err := a.github.CommitAndPush(ws, result, codeClient); err != nil {
+		log.Errorf("Failed to commit and push changes: %v", err)
+		// 不返回错误，继续执行评论
+	}
+
+	// 10. 评论到 PR
 	commentBody := string(output)
 	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
-		log.Errorf("failed to create PR comment for continue: %v", err)
-		return err
+		log.Errorf("Failed to create PR comment: %v", err)
+		return fmt.Errorf("failed to create PR comment: %w", err)
 	}
 
-	log.Infof("Successfully continue PR #%d", pr.GetNumber())
+	log.Infof("Successfully continued PR #%d", event.Issue.GetNumber())
 	return nil
 }
 
@@ -374,11 +400,40 @@ func (a *Agent) FixPR(pr *github.PullRequest) error {
 func (a *Agent) FixPRWithArgs(event *github.IssueCommentEvent, args string) error {
 	log.Infof("Fix PR #%d with args: %s", event.Issue.GetNumber(), args)
 
-	// 1. 从工作空间管理器获取 PR 信息
-	pr := &github.PullRequest{
-		Number:  event.Issue.Number,
-		Title:   event.Issue.Title,
-		HTMLURL: event.Issue.HTMLURL,
+	// 1. 从 IssueCommentEvent 中提取仓库信息
+	repoURL := ""
+	repoOwner := ""
+	repoName := ""
+
+	// 优先使用 repository 字段（如果存在）
+	if event.Repo != nil {
+		repoOwner = event.Repo.GetOwner().GetLogin()
+		repoName = event.Repo.GetName()
+		repoURL = event.Repo.GetCloneURL()
+	}
+
+	// 如果 repository 字段不存在，从 Issue 的 HTML URL 中提取
+	if repoURL == "" {
+		htmlURL := event.Issue.GetHTMLURL()
+		if strings.Contains(htmlURL, "github.com") {
+			parts := strings.Split(htmlURL, "/")
+			if len(parts) >= 5 {
+				repoOwner = parts[len(parts)-4] // owner
+				repoName = parts[len(parts)-3]  // repo
+				repoURL = fmt.Sprintf("https://github.com/%s/%s.git", repoOwner, repoName)
+			}
+		}
+	}
+
+	if repoURL == "" {
+		return fmt.Errorf("failed to extract repository URL from event")
+	}
+
+	// 2. 从 GitHub API 获取完整的 PR 信息
+	pr, err := a.github.GetPullRequest(repoOwner, repoName, event.Issue.GetNumber())
+	if err != nil {
+		log.Errorf("Failed to get PR #%d: %v", event.Issue.GetNumber(), err)
+		return fmt.Errorf("failed to get PR information: %w", err)
 	}
 
 	// 2. 获取或创建 PR 工作空间
@@ -388,7 +443,7 @@ func (a *Agent) FixPRWithArgs(event *github.IssueCommentEvent, args string) erro
 	}
 
 	// 3. 拉取远端最新代码
-	if err := a.github.PullLatestChanges(ws); err != nil {
+	if err := a.github.PullLatestChanges(ws, pr); err != nil {
 		log.Errorf("Failed to pull latest changes: %v", err)
 		// 不返回错误，继续执行，因为可能是网络问题
 	}
@@ -456,7 +511,7 @@ func (a *Agent) ContinuePRFromReviewComment(event *github.PullRequestReviewComme
 	}
 
 	// 3. 拉取远端最新代码
-	if err := a.github.PullLatestChanges(ws); err != nil {
+	if err := a.github.PullLatestChanges(ws, pr); err != nil {
 		log.Errorf("Failed to pull latest changes: %v", err)
 		// 不返回错误，继续执行，因为可能是网络问题
 	}
@@ -543,7 +598,7 @@ func (a *Agent) FixPRFromReviewComment(event *github.PullRequestReviewCommentEve
 	}
 
 	// 3. 拉取远端最新代码
-	if err := a.github.PullLatestChanges(ws); err != nil {
+	if err := a.github.PullLatestChanges(ws, pr); err != nil {
 		log.Errorf("Failed to pull latest changes: %v", err)
 		// 不返回错误，继续执行，因为可能是网络问题
 	}

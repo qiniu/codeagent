@@ -574,6 +574,7 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest) *models.Workspac
 		SessionPath: sessionPath,
 		Repository:  repoURL,
 		Branch:      worktree.Branch,
+		PullRequest: pr,
 		CreatedAt:   time.Now(),
 	}
 
@@ -592,12 +593,74 @@ func (m *Manager) GetOrCreateWorkspaceForPR(pr *github.PullRequest) *models.Work
 	// 1. 先尝试从内存中获取
 	ws := m.GetWorkspaceByPR(pr)
 	if ws != nil {
-		return ws
+		// 验证工作空间是否对应正确的 PR 分支
+		if m.validateWorkspaceForPR(ws, pr) {
+			return ws
+		}
+		// 如果验证失败，清理旧的工作空间
+		log.Infof("Workspace validation failed for PR #%d, cleaning up old workspace", pr.GetNumber())
+		m.CleanupWorkspace(ws)
 	}
 
-	// 2. 如果都没有，创建新的工作空间
-	log.Infof("No existing workspace found for PR #%d, creating new workspace", pr.GetNumber())
+	// 2. 创建新的工作空间
+	log.Infof("Creating new workspace for PR #%d", pr.GetNumber())
 	return m.CreateWorkspaceFromPR(pr)
+}
+
+// validateWorkspaceForPR 验证工作空间是否对应正确的 PR 分支
+func (m *Manager) validateWorkspaceForPR(ws *models.Workspace, pr *github.PullRequest) bool {
+	// 检查工作空间路径是否存在
+	if _, err := os.Stat(ws.Path); os.IsNotExist(err) {
+		log.Infof("Workspace path does not exist: %s", ws.Path)
+		return false
+	}
+
+	// 检查工作空间是否在正确的分支上
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = ws.Path
+	output, err := cmd.Output()
+	if err != nil {
+		log.Infof("Failed to get current branch for workspace: %v", err)
+		return false
+	}
+
+	currentBranch := strings.TrimSpace(string(output))
+	expectedBranch := pr.GetHead().GetRef()
+
+	log.Infof("Workspace branch validation: current=%s, expected=%s", currentBranch, expectedBranch)
+
+	// 检查是否在正确的分支上，或者是否在 detached HEAD 状态
+	if currentBranch == expectedBranch {
+		return true
+	}
+
+	// 如果是 detached HEAD，检查是否指向正确的 commit
+	if currentBranch == "HEAD" {
+		// 获取当前 commit
+		cmd = exec.Command("git", "rev-parse", "HEAD")
+		cmd.Dir = ws.Path
+		output, err = cmd.Output()
+		if err != nil {
+			log.Infof("Failed to get current commit for workspace: %v", err)
+			return false
+		}
+		currentCommit := strings.TrimSpace(string(output))
+
+		// 获取期望分支的最新 commit
+		cmd = exec.Command("git", "rev-parse", fmt.Sprintf("origin/%s", expectedBranch))
+		cmd.Dir = ws.Path
+		output, err = cmd.Output()
+		if err != nil {
+			log.Infof("Failed to get expected branch commit: %v", err)
+			return false
+		}
+		expectedCommit := strings.TrimSpace(string(output))
+
+		log.Infof("Commit validation: current=%s, expected=%s", currentCommit, expectedCommit)
+		return currentCommit == expectedCommit
+	}
+
+	return false
 }
 
 // extractPRNumberFromPRDir 从 PR 目录名提取 PR 号
