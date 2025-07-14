@@ -421,6 +421,12 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 	return worktree, nil
 }
 
+func (r *RepoManager) RegisterWorktree(prNumber int, worktree *WorktreeInfo) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.worktrees[prNumber] = worktree
+}
+
 // GetRepoPath 获取仓库路径
 func (r *RepoManager) GetRepoPath() string {
 	return r.repoPath
