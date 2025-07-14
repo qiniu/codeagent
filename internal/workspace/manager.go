@@ -511,6 +511,13 @@ func (m *Manager) MoveIssueToPR(ws *models.Workspace, prNumber int) error {
 
 	// 更新工作空间路径
 	ws.Path = newWorktreePath
+
+	// 移动之后，注册worktree到内存中
+	worktree := &WorktreeInfo{
+		Worktree: ws.Path,
+		Branch:   ws.Branch,
+	}
+	repoManager.RegisterWorktree(prNumber, worktree)
 	return nil
 }
 
@@ -557,6 +564,9 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest) *models.Workspac
 		log.Errorf("Failed to create worktree for PR #%d: %v", pr.GetNumber(), err)
 		return nil
 	}
+
+	// 注册worktree 到内存中
+	repoManager.RegisterWorktree(pr.GetNumber(), worktree)
 
 	// 创建 session 目录
 	suffix := strings.TrimPrefix(filepath.Base(worktree.Worktree), fmt.Sprintf("%s-pr-%d-", repo, pr.GetNumber()))
