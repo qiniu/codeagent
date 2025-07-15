@@ -499,7 +499,7 @@ func (r *RepoManager) updateMainRepository() error {
 		// 主仓库不应该有未提交的变更，这违反了最佳实践
 		log.Warnf("Main repository has uncommitted changes, this violates best practices")
 		log.Warnf("Uncommitted changes:\n%s", string(statusOutput))
-		
+
 		// 为了安全，暂存这些变更
 		cmd = exec.Command("git", "stash", "push", "-m", "Auto-stash from updateMainRepository")
 		cmd.Dir = r.repoPath
@@ -519,7 +519,7 @@ func (r *RepoManager) updateMainRepository() error {
 	if err != nil {
 		// rebase 失败，尝试 reset 到远程分支
 		log.Warnf("Rebase failed, attempting hard reset: %v, output: %s", err, string(rebaseOutput))
-		
+
 		cmd = exec.Command("git", "reset", "--hard", remoteBranch)
 		cmd.Dir = r.repoPath
 		resetOutput, err := cmd.CombinedOutput()
