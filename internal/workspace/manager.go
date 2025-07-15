@@ -721,29 +721,3 @@ func (m *Manager) GetExpiredWorkspaces() []*models.Workspace {
 	return expiredWorkspaces
 }
 
-// EnsureAllMainRepositoriesUpToDate 确保所有主仓库都是最新的
-func (m *Manager) EnsureAllMainRepositoriesUpToDate() {
-	m.mutex.RLock()
-	repoManagers := make([]*RepoManager, 0, len(m.repoManagers))
-	orgRepoPaths := make([]string, 0, len(m.repoManagers))
-	
-	for orgRepoPath, repoManager := range m.repoManagers {
-		repoManagers = append(repoManagers, repoManager)
-		orgRepoPaths = append(orgRepoPaths, orgRepoPath)
-	}
-	m.mutex.RUnlock()
-
-	// 并发更新所有主仓库
-	log.Infof("Starting to update %d main repositories", len(repoManagers))
-	
-	for i, repoManager := range repoManagers {
-		orgRepoPath := orgRepoPaths[i]
-		go func(rm *RepoManager, path string) {
-			if err := rm.EnsureMainRepositoryUpToDate(); err != nil {
-				log.Errorf("Failed to update main repository %s: %v", path, err)
-			} else {
-				log.Infof("Successfully updated main repository %s", path)
-			}
-		}(repoManager, orgRepoPath)
-	}
-}
