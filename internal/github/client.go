@@ -235,7 +235,7 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 	return nil
 }
 
-// PullLatestChanges 拉取远端最新代码
+// PullLatestChanges 拉取远端最新代码（优先使用rebase策略）
 func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullRequest) error {
 	log.Infof("Pulling latest changes for workspace: %s (PR #%d)", workspace.Path, pr.GetNumber())
 
@@ -255,90 +255,98 @@ func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullR
 
 	log.Infof("PR #%d: %s -> %s", pr.GetNumber(), headBranch, baseBranch)
 
-	// 1. 先尝试直接获取 PR 内容
+	// 1. 获取所有远程引用
+	cmd := exec.Command("git", "fetch", "--all", "--prune")
+	cmd.Dir = workspace.Path
+	fetchOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to fetch latest changes: %w\nCommand output: %s", err, string(fetchOutput))
+	}
+	log.Infof("Fetched all remote references for PR #%d", pr.GetNumber())
+
+	// 2. 检查当前是否有未提交的变更
+	cmd = exec.Command("git", "status", "--porcelain")
+	cmd.Dir = workspace.Path
+	statusOutput, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to check git status: %w", err)
+	}
+
+	hasChanges := strings.TrimSpace(string(statusOutput)) != ""
+	if hasChanges {
+		// 有未提交的变更，先 stash
+		log.Infof("Found uncommitted changes in worktree, stashing them")
+		cmd = exec.Command("git", "stash", "push", "-m", fmt.Sprintf("Auto stash before syncing PR #%d", pr.GetNumber()))
+		cmd.Dir = workspace.Path
+		stashOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Warnf("Failed to stash changes: %v, output: %s", err, string(stashOutput))
+		}
+	}
+
+	// 3. 尝试直接获取 PR 内容
 	prNumber := pr.GetNumber()
 	log.Infof("Attempting to fetch PR #%d content directly", prNumber)
-
-	cmd := exec.Command("git", "fetch", "origin", fmt.Sprintf("pull/%d/head", prNumber))
+	cmd = exec.Command("git", "fetch", "origin", fmt.Sprintf("pull/%d/head", prNumber))
 	cmd.Dir = workspace.Path
-	prFetchOutput, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Warnf("Failed to fetch PR #%d directly: %v, output: %s", prNumber, err, string(prFetchOutput))
-
-		// 2. 如果直接获取失败，fallback 到 rebase 方式
-		log.Infof("Falling back to rebase approach for PR #%d", prNumber)
-
-		// 获取所有远程仓库的最新代码
-		cmd = exec.Command("git", "fetch", "--all")
+	_, err = cmd.CombinedOutput()
+	if err == nil {
+		// 直接获取成功，使用rebase合并更新
+		log.Infof("Successfully fetched PR #%d content, attempting rebase", prNumber)
+		cmd = exec.Command("git", "rebase", "FETCH_HEAD")
 		cmd.Dir = workspace.Path
-		fetchOutput, err := cmd.CombinedOutput()
+		rebaseOutput, err := cmd.CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("failed to fetch latest changes: %w\nCommand output: %s", err, string(fetchOutput))
+			log.Warnf("Rebase failed, trying reset: %v, output: %s", err, string(rebaseOutput))
+			// rebase失败，强制切换到PR内容
+			cmd = exec.Command("git", "reset", "--hard", "FETCH_HEAD")
+			cmd.Dir = workspace.Path
+			resetOutput, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("failed to reset to PR #%d: %w\nCommand output: %s", prNumber, err, string(resetOutput))
+			}
+			log.Infof("Hard reset worktree to PR #%d content", prNumber)
+		} else {
+			log.Infof("Successfully rebased worktree to PR #%d content", prNumber)
 		}
-
-		// 尝试 rebase 到目标分支的最新代码
+	} else {
+		// 直接获取失败，使用传统rebase方式
+		log.Warnf("Failed to fetch PR #%d directly: %v, falling back to traditional rebase", prNumber, err)
+		
+		// 尝试rebase到目标分支的最新代码
 		cmd = exec.Command("git", "rebase", fmt.Sprintf("origin/%s", baseBranch))
 		cmd.Dir = workspace.Path
 		rebaseOutput, err := cmd.CombinedOutput()
 		if err != nil {
-			log.Errorf("Rebase failed: %v, output: %s", err, string(rebaseOutput))
-			return fmt.Errorf("both direct fetch and rebase failed for PR #%d", prNumber)
-		}
-
-		log.Infof("Successfully rebased PR #%d onto %s", pr.GetNumber(), baseBranch)
-	} else {
-		// 3. 直接获取成功，尝试合并 PR 内容
-		log.Infof("Successfully fetched PR #%d content, attempting to merge", prNumber)
-
-		// 检查当前是否有未提交的变更
-		cmd = exec.Command("git", "status", "--porcelain")
-		cmd.Dir = workspace.Path
-		statusOutput, err := cmd.Output()
-		if err != nil {
-			log.Warnf("Failed to check git status: %v", err)
-		}
-
-		if strings.TrimSpace(string(statusOutput)) != "" {
-			// 有未提交的变更，先 stash
-			log.Infof("Found uncommitted changes, stashing them")
-			cmd = exec.Command("git", "stash", "push", "-m", fmt.Sprintf("Auto stash before syncing PR #%d", prNumber))
-			cmd.Dir = workspace.Path
-			stashOutput, err := cmd.CombinedOutput()
-			if err != nil {
-				log.Warnf("Failed to stash changes: %v, output: %s", err, string(stashOutput))
-			}
-		}
-
-		// 尝试合并 PR 内容，而不是强制覆盖
-		cmd = exec.Command("git", "merge", "FETCH_HEAD", "--no-edit")
-		cmd.Dir = workspace.Path
-		mergeOutput, err := cmd.CombinedOutput()
-		if err != nil {
-			log.Warnf("Merge failed, trying reset: %v, output: %s", err, string(mergeOutput))
-
-			// 合并失败，回退到强制切换（但先备份）
-			cmd = exec.Command("git", "reset", "--hard", "HEAD")
+			log.Warnf("Rebase to base branch failed: %v, output: %s", err, string(rebaseOutput))
+			// rebase失败，尝试强制同步到基础分支
+			cmd = exec.Command("git", "reset", "--hard", fmt.Sprintf("origin/%s", baseBranch))
 			cmd.Dir = workspace.Path
 			resetOutput, err := cmd.CombinedOutput()
 			if err != nil {
-				log.Warnf("Failed to reset: %v, output: %s", err, string(resetOutput))
+				return fmt.Errorf("failed to reset to base branch %s: %w\nCommand output: %s", baseBranch, err, string(resetOutput))
 			}
-
-			// 强制切换到 PR 内容
-			cmd = exec.Command("git", "checkout", "-B", headBranch, "FETCH_HEAD", "--force")
-			cmd.Dir = workspace.Path
-			checkoutOutput, err := cmd.CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("failed to checkout PR #%d: %w\nCommand output: %s", prNumber, err, string(checkoutOutput))
-			}
-
-			log.Infof("Successfully force synced to PR #%d content (after merge failure)", prNumber)
+			log.Infof("Hard reset worktree to base branch %s", baseBranch)
 		} else {
-			log.Infof("Successfully merged PR #%d content", prNumber)
+			log.Infof("Successfully rebased worktree to base branch %s", baseBranch)
 		}
 	}
 
-	log.Infof("Successfully pulled latest changes for PR #%d from remote repo: %s", pr.GetNumber(), workspace.Repository)
+	// 4. 如果之前有stash，尝试恢复
+	if hasChanges {
+		log.Infof("Attempting to restore stashed changes for PR #%d", prNumber)
+		cmd = exec.Command("git", "stash", "pop")
+		cmd.Dir = workspace.Path
+		stashPopOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Warnf("Failed to restore stashed changes: %v, output: %s", err, string(stashPopOutput))
+			log.Infof("You may need to manually resolve the stashed changes later")
+		} else {
+			log.Infof("Successfully restored stashed changes")
+		}
+	}
+
+	log.Infof("Successfully pulled latest changes for PR #%d using rebase strategy", pr.GetNumber())
 	return nil
 }
 

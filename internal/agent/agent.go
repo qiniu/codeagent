@@ -40,6 +40,7 @@ func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
 	}
 
 	go a.StartCleanupRoutine()
+	go a.StartMainRepoUpdateRoutine()
 
 	return a
 }
@@ -85,6 +86,22 @@ func (a *Agent) cleanupExpiredResouces() {
 		log.Infof("Cleaned up expired workspace: %s", ws.Path)
 	}
 
+}
+
+// StartMainRepoUpdateRoutine 启动定期更新主仓库的协程
+func (a *Agent) StartMainRepoUpdateRoutine() {
+	// 首次启动时立即更新一次
+	log.Infof("Performing initial main repository update")
+	a.workspace.EnsureAllMainRepositoriesUpToDate()
+
+	// 然后每30分钟更新一次主仓库
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		log.Infof("Performing scheduled main repository update")
+		a.workspace.EnsureAllMainRepositoriesUpToDate()
+	}
 }
 
 // ProcessIssueComment 处理 Issue 评论事件，包含完整的仓库信息

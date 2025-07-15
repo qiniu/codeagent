@@ -79,6 +79,14 @@ func (r *RepoManager) Initialize() error {
 		log.Warnf("Failed to configure safe directory: %v\nCommand output: %s", err, string(configOutput))
 	}
 
+	// 配置 rebase 为默认拉取策略
+	cmd = exec.Command("git", "config", "--local", "pull.rebase", "true")
+	cmd.Dir = r.repoPath
+	rebaseConfigOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warnf("Failed to configure pull.rebase: %v\nCommand output: %s", err, string(rebaseConfigOutput))
+	}
+
 	log.Infof("Successfully initialized repository: %s", r.repoPath)
 	return nil
 }
@@ -115,6 +123,12 @@ func (r *RepoManager) CreateWorktree(prNumber int, branch string, createNewBranc
 		log.Infof("Repository not initialized, initializing: %s", r.repoPath)
 		if err := r.Initialize(); err != nil {
 			return nil, err
+		}
+	} else {
+		// 仓库已存在，确保主仓库代码是最新的
+		if err := r.updateMainRepository(); err != nil {
+			log.Warnf("Failed to update main repository: %v", err)
+			// 不因为更新失败而阻止worktree创建，但记录警告
 		}
 	}
 
@@ -327,6 +341,12 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 		if err := r.Initialize(); err != nil {
 			return nil, err
 		}
+	} else {
+		// 仓库已存在，确保主仓库代码是最新的
+		if err := r.updateMainRepository(); err != nil {
+			log.Warnf("Failed to update main repository: %v", err)
+			// 不因为更新失败而阻止worktree创建，但记录警告
+		}
 	}
 
 	// 创建 worktree 路径（与仓库目录同级）
@@ -442,4 +462,91 @@ func (r *RepoManager) GetWorktreeCount() int {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
 	return len(r.worktrees)
+}
+
+// updateMainRepository 更新主仓库代码到最新版本
+func (r *RepoManager) updateMainRepository() error {
+	log.Infof("Updating main repository: %s", r.repoPath)
+
+	// 1. 获取远程最新引用
+	cmd := exec.Command("git", "fetch", "--all", "--prune")
+	cmd.Dir = r.repoPath
+	fetchOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to fetch latest changes: %w, output: %s", err, string(fetchOutput))
+	}
+	log.Infof("Fetched latest changes for main repository")
+
+	// 2. 获取当前分支
+	cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = r.repoPath
+	currentBranchOutput, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get current branch: %w", err)
+	}
+	currentBranch := strings.TrimSpace(string(currentBranchOutput))
+
+	// 3. 检查是否有未提交的变更
+	cmd = exec.Command("git", "status", "--porcelain")
+	cmd.Dir = r.repoPath
+	statusOutput, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to check status: %w", err)
+	}
+
+	hasChanges := strings.TrimSpace(string(statusOutput)) != ""
+	if hasChanges {
+		// 主仓库不应该有未提交的变更，这违反了最佳实践
+		log.Warnf("Main repository has uncommitted changes, this violates best practices")
+		log.Warnf("Uncommitted changes:\n%s", string(statusOutput))
+		
+		// 为了安全，暂存这些变更
+		cmd = exec.Command("git", "stash", "push", "-m", "Auto-stash from updateMainRepository")
+		cmd.Dir = r.repoPath
+		stashOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Warnf("Failed to stash changes: %v, output: %s", err, string(stashOutput))
+		} else {
+			log.Infof("Stashed uncommitted changes in main repository")
+		}
+	}
+
+	// 4. 使用 rebase 更新到最新版本
+	remoteBranch := fmt.Sprintf("origin/%s", currentBranch)
+	cmd = exec.Command("git", "rebase", remoteBranch)
+	cmd.Dir = r.repoPath
+	rebaseOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		// rebase 失败，尝试 reset 到远程分支
+		log.Warnf("Rebase failed, attempting hard reset: %v, output: %s", err, string(rebaseOutput))
+		
+		cmd = exec.Command("git", "reset", "--hard", remoteBranch)
+		cmd.Dir = r.repoPath
+		resetOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to reset to remote branch: %w, output: %s", err, string(resetOutput))
+		}
+		log.Infof("Hard reset main repository to %s", remoteBranch)
+	} else {
+		log.Infof("Successfully rebased main repository to %s", remoteBranch)
+	}
+
+	// 5. 清理无用的引用
+	cmd = exec.Command("git", "gc", "--auto")
+	cmd.Dir = r.repoPath
+	gcOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warnf("Failed to run git gc: %v, output: %s", err, string(gcOutput))
+	}
+
+	log.Infof("Main repository updated successfully")
+	return nil
+}
+
+// EnsureMainRepositoryUpToDate 确保主仓库是最新的（公开方法，可被外部调用）
+func (r *RepoManager) EnsureMainRepositoryUpToDate() error {
+	if !r.isInitialized() {
+		return fmt.Errorf("repository not initialized")
+	}
+	return r.updateMainRepository()
 }
