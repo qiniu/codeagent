@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/log"
+	"github.com/qiniu/x/reqid"
+	"github.com/qiniu/x/xlog"
 )
 
 type Agent struct {
@@ -41,53 +44,72 @@ func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
 }
 
 // ProcessIssueComment 处理 Issue 评论事件，包含完整的仓库信息
-func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
+func (a *Agent) ProcessIssueComment(ctx context.Context, event *github.IssueCommentEvent) error {
+	xl := xlog.NewWith(ctx)
+	traceID, _ := reqid.FromContext(ctx)
+	
+	issueNumber := event.Issue.GetNumber()
+	issueTitle := event.Issue.GetTitle()
+	
+	xl.Info("process_issue_comment_start", "trace_id", traceID, "issue_number", issueNumber, "issue_title", issueTitle)
 	// 1. 创建 Issue 工作空间
+	xl.Info("creating_workspace", "trace_id", traceID, "issue_number", issueNumber)
 	ws := a.workspace.CreateWorkspaceFromIssue(event.Issue)
 	if ws == nil {
+		xl.Error("workspace_creation_failed", "trace_id", traceID, "issue_number", issueNumber)
 		return fmt.Errorf("failed to create workspace from issue")
 	}
+	xl.Info("workspace_created", "trace_id", traceID, "workspace_path", ws.Path)
 
 	// 2. 创建分支并推送
+	xl.Info("creating_branch", "trace_id", traceID, "issue_number", issueNumber)
 	if err := a.github.CreateBranch(ws); err != nil {
-		log.Errorf("Failed to create branch: %v", err)
+		xl.Error("branch_creation_failed", "trace_id", traceID, "error", err)
 		return err
 	}
+	xl.Infof("branch_created: trace_id=%s branch_name=%s", traceID, ws.Branch)
 
 	// 3. 创建初始 PR
+	xl.Info("creating_pull_request", "trace_id", traceID, "issue_number", issueNumber)
 	pr, err := a.github.CreatePullRequest(ws)
 	if err != nil {
-		log.Errorf("Failed to create PR: %v", err)
+		xl.Error("pull_request_creation_failed", "trace_id", traceID, "error", err)
 		return err
 	}
+	xl.Info("pull_request_created", "trace_id", traceID, "pr_number", pr.GetNumber(), "pr_url", pr.GetHTMLURL())
 
 	// 4. 移动工作空间从 Issue 到 PR
+	xl.Info("moving_workspace_to_pr", "trace_id", traceID, "pr_number", pr.GetNumber())
 	if err := a.workspace.MoveIssueToPR(ws, pr.GetNumber()); err != nil {
-		log.Errorf("Failed to move workspace: %v", err)
+		xl.Error("workspace_move_failed", "trace_id", traceID, "error", err)
 	}
 	ws.PRNumber = pr.GetNumber()
 
 	// 5. 创建 session 目录
+	xl.Info("creating_session_directory", "trace_id", traceID, "pr_number", pr.GetNumber())
 	suffix := strings.TrimPrefix(filepath.Base(ws.Path), fmt.Sprintf("%s-pr-%d-", ws.Repo, pr.GetNumber()))
 	sessionPath, err := a.workspace.CreateSessionPath(filepath.Dir(ws.Path), ws.Repo, pr.GetNumber(), suffix)
 	if err != nil {
-		log.Errorf("Failed to create session directory: %v", err)
+		xl.Error("session_directory_creation_failed", "trace_id", traceID, "error", err)
 		return err
 	}
 	ws.SessionPath = sessionPath
+	xl.Info("session_directory_created", "trace_id", traceID, "session_path", sessionPath)
 
 	// 6. 注册工作空间到 PR 映射
 	ws.PullRequest = pr
 	a.workspace.RegisterWorkspace(ws, pr)
 
-	log.Infof("process issue #%d, workspace: %s, session: %s", event.Issue.GetNumber(), ws.Path, ws.SessionPath)
+	xl.Info("workspace_registered", "trace_id", traceID, "issue_number", event.Issue.GetNumber(), "workspace_path", ws.Path, "session_path", ws.SessionPath)
 
 	// 7. 初始化 code client
+	xl.Info("initializing_code_client", "trace_id", traceID)
 	code, err := a.sessionManager.GetSession(ws)
 	if err != nil {
-		log.Errorf("failed to get code client: %v", err)
+		xl.Error("code_client_initialization_failed", "trace_id", traceID, "error", err)
 		return err
 	}
+	xl.Info("code_client_initialized", "trace_id", traceID)
 
 	// 8. 执行代码修改，规范 prompt，要求 AI 输出结构化摘要
 	codePrompt := fmt.Sprintf(`请根据以下 Issue 内容修改代码：
@@ -106,19 +128,20 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 
 请确保输出格式清晰，便于阅读和理解。`, event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
 
-	codeResp, err := a.promptWithRetry(code, codePrompt, 3)
+	xl.Info("executing_code_modification", "trace_id", traceID, "prompt_length", len(codePrompt))
+	codeResp, err := a.promptWithRetry(ctx, code, codePrompt, 3)
 	if err != nil {
-		log.Errorf("failed to prompt for code modification: %v", err)
+		xl.Error("code_modification_failed", "trace_id", traceID, "error", err)
 		return err
 	}
 
 	codeOutput, err := io.ReadAll(codeResp.Out)
 	if err != nil {
-		log.Errorf("failed to read code modification output: %v", err)
+		xl.Error("code_output_read_failed", "trace_id", traceID, "error", err)
 		return err
 	}
 
-	log.Infof("LLM Output: %s", string(codeOutput))
+	xl.Info("code_modification_completed", "trace_id", traceID, "output_length", len(codeOutput))
 
 	// 9. 组织结构化 PR Body（解析三段式输出）
 	aiStr := string(codeOutput)
@@ -152,21 +175,23 @@ func (a *Agent) ProcessIssueComment(event *github.IssueCommentEvent) error {
 
 	prBody += "<details><summary>原始 Prompt</summary>\n\n" + codePrompt + "\n\n</details>"
 
+	xl.Info("updating_pull_request", "trace_id", traceID, "pr_body_length", len(prBody))
 	if err = a.github.UpdatePullRequest(pr, prBody); err != nil {
-		log.Errorf("failed to update PR body with execution result: %v", err)
+		xl.Error("pull_request_update_failed", "trace_id", traceID, "error", err)
 		return err
 	}
 
 	// 10. 提交变更并推送到远程
+	xl.Info("committing_and_pushing", "trace_id", traceID)
 	result := &models.ExecutionResult{
 		Output: string(codeOutput),
 	}
 	if err = a.github.CommitAndPush(ws, result, code); err != nil {
-		log.Errorf("Failed to commit and push: %v", err)
+		xl.Error("commit_and_push_failed", "trace_id", traceID, "error", err)
 		return err
 	}
 
-	log.Infof("Successfully processed Issue #%d, PR: %s", event.Issue.GetNumber(), pr.GetHTMLURL())
+	xl.Info("process_issue_comment_success", "trace_id", traceID, "issue_number", event.Issue.GetNumber(), "pr_url", pr.GetHTMLURL())
 	return nil
 }
 
@@ -231,8 +256,8 @@ func extractErrorInfo(output string) string {
 }
 
 // ContinuePR 继续处理 PR 中的任务
-func (a *Agent) ContinuePR(pr *github.PullRequest) error {
-	return a.ContinuePRWithArgs(&github.IssueCommentEvent{
+func (a *Agent) ContinuePR(ctx context.Context, pr *github.PullRequest) error {
+	return a.ContinuePRWithArgs(ctx, &github.IssueCommentEvent{
 		Issue: &github.Issue{
 			Number: github.Int(pr.GetNumber()),
 			Title:  github.String(pr.GetTitle()),
@@ -241,8 +266,12 @@ func (a *Agent) ContinuePR(pr *github.PullRequest) error {
 }
 
 // ContinuePRWithArgs 继续处理 PR 中的任务，支持命令参数
-func (a *Agent) ContinuePRWithArgs(event *github.IssueCommentEvent, args string) error {
-	log.Infof("Continue PR #%d with args: %s", event.Issue.GetNumber(), args)
+func (a *Agent) ContinuePRWithArgs(ctx context.Context, event *github.IssueCommentEvent, args string) error {
+	xl := xlog.NewWith(ctx)
+	traceID, _ := reqid.FromContext(ctx)
+	prNumber := event.Issue.GetNumber()
+
+	xl.Infof("continue_pr_with_args_start: trace_id=%s pr_number=%d args=%s", traceID, prNumber, args)
 
 	// 1. 从工作空间管理器获取 PR 信息
 	// 由于 PR 评论事件中的 Issue 就是 PR，我们可以直接使用
@@ -253,15 +282,21 @@ func (a *Agent) ContinuePRWithArgs(event *github.IssueCommentEvent, args string)
 	}
 
 	// 2. 获取或创建 PR 工作空间
+	xl.Info("getting_workspace_for_pr", "trace_id", traceID, "pr_number", prNumber)
 	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
 	if ws == nil {
+		xl.Error("workspace_get_failed", "trace_id", traceID, "pr_number", prNumber)
 		return fmt.Errorf("failed to get or create workspace for PR continue")
 	}
+	xl.Info("workspace_obtained", "trace_id", traceID, "workspace_path", ws.Path)
 
 	// 3. 拉取远端最新代码
+	xl.Info("pulling_latest_changes", "trace_id", traceID, "pr_number", prNumber)
 	if err := a.github.PullLatestChanges(ws); err != nil {
-		log.Errorf("Failed to pull latest changes: %v", err)
+		xl.Warn("pull_latest_changes_failed", "trace_id", traceID, "error", err)
 		// 不返回错误，继续执行，因为可能是网络问题
+	} else {
+		xl.Info("latest_changes_pulled", "trace_id", traceID)
 	}
 
 	// 4. 初始化 code client
@@ -279,7 +314,7 @@ func (a *Agent) ContinuePRWithArgs(event *github.IssueCommentEvent, args string)
 		prompt = "请继续之前的任务，根据上下文进行相应的修改，回复要简洁明了。"
 	}
 
-	resp, err := a.promptWithRetry(code, prompt, 3)
+	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
 	if err != nil {
 		log.Errorf("failed to prompt for PR continue: %v", err)
 		return err
@@ -314,8 +349,8 @@ func (a *Agent) ContinuePRWithArgs(event *github.IssueCommentEvent, args string)
 }
 
 // FixPR 修复 PR 中的问题
-func (a *Agent) FixPR(pr *github.PullRequest) error {
-	return a.FixPRWithArgs(&github.IssueCommentEvent{
+func (a *Agent) FixPR(ctx context.Context, pr *github.PullRequest) error {
+	return a.FixPRWithArgs(ctx, &github.IssueCommentEvent{
 		Issue: &github.Issue{
 			Number: github.Int(pr.GetNumber()),
 			Title:  github.String(pr.GetTitle()),
@@ -324,8 +359,12 @@ func (a *Agent) FixPR(pr *github.PullRequest) error {
 }
 
 // FixPRWithArgs 修复 PR 中的问题，支持命令参数
-func (a *Agent) FixPRWithArgs(event *github.IssueCommentEvent, args string) error {
-	log.Infof("Fix PR #%d with args: %s", event.Issue.GetNumber(), args)
+func (a *Agent) FixPRWithArgs(ctx context.Context, event *github.IssueCommentEvent, args string) error {
+	xl := xlog.NewWith(ctx)
+	traceID, _ := reqid.FromContext(ctx)
+	prNumber := event.Issue.GetNumber()
+
+	xl.Info("fix_pr_with_args_start", "trace_id", traceID, "pr_number", prNumber, "args", args)
 
 	// 1. 从工作空间管理器获取 PR 信息
 	pr := &github.PullRequest{
@@ -361,7 +400,7 @@ func (a *Agent) FixPRWithArgs(event *github.IssueCommentEvent, args string) erro
 		prompt = "请分析当前代码中的问题并进行修复，回复要简洁明了。"
 	}
 
-	resp, err := a.promptWithRetry(code, prompt, 3)
+	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
 	if err != nil {
 		log.Errorf("failed to prompt for PR fix: %v", err)
 		return err
@@ -396,8 +435,12 @@ func (a *Agent) FixPRWithArgs(event *github.IssueCommentEvent, args string) erro
 }
 
 // ContinuePRFromReviewComment 从 PR 代码行评论继续处理任务
-func (a *Agent) ContinuePRFromReviewComment(event *github.PullRequestReviewCommentEvent, args string) error {
-	log.Infof("Continue PR #%d from review comment with args: %s", event.PullRequest.GetNumber(), args)
+func (a *Agent) ContinuePRFromReviewComment(ctx context.Context, event *github.PullRequestReviewCommentEvent, args string) error {
+	xl := xlog.NewWith(ctx)
+	traceID, _ := reqid.FromContext(ctx)
+	prNumber := event.PullRequest.GetNumber()
+
+	xl.Info("continue_pr_from_review_comment_start", "trace_id", traceID, "pr_number", prNumber, "args", args)
 
 	// 1. 从工作空间管理器获取 PR 信息
 	pr := event.PullRequest
@@ -448,7 +491,7 @@ func (a *Agent) ContinuePRFromReviewComment(event *github.PullRequestReviewComme
 		prompt = fmt.Sprintf("请根据以下代码行评论继续处理代码：\n\n%s\n\n请直接进行相应的修改，回复要简洁明了。", commentContext)
 	}
 
-	resp, err := a.promptWithRetry(code, prompt, 3)
+	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
 	if err != nil {
 		log.Errorf("failed to prompt for PR continue from review comment: %v", err)
 		return err
@@ -483,8 +526,12 @@ func (a *Agent) ContinuePRFromReviewComment(event *github.PullRequestReviewComme
 }
 
 // FixPRFromReviewComment 从 PR 代码行评论修复问题
-func (a *Agent) FixPRFromReviewComment(event *github.PullRequestReviewCommentEvent, args string) error {
-	log.Infof("Fix PR #%d from review comment with args: %s", event.PullRequest.GetNumber(), args)
+func (a *Agent) FixPRFromReviewComment(ctx context.Context, event *github.PullRequestReviewCommentEvent, args string) error {
+	xl := xlog.NewWith(ctx)
+	traceID, _ := reqid.FromContext(ctx)
+	prNumber := event.PullRequest.GetNumber()
+
+	xl.Info("fix_pr_from_review_comment_start", "trace_id", traceID, "pr_number", prNumber, "args", args)
 
 	// 1. 从工作空间管理器获取 PR 信息
 	pr := event.PullRequest
@@ -535,7 +582,7 @@ func (a *Agent) FixPRFromReviewComment(event *github.PullRequestReviewCommentEve
 		prompt = fmt.Sprintf("请根据以下代码行评论修复代码问题：\n\n%s\n\n请直接进行修复，回复要简洁明了。", commentContext)
 	}
 
-	resp, err := a.promptWithRetry(code, prompt, 3)
+	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
 	if err != nil {
 		log.Errorf("failed to prompt for PR fix from review comment: %v", err)
 		return err
@@ -570,34 +617,50 @@ func (a *Agent) FixPRFromReviewComment(event *github.PullRequestReviewCommentEve
 }
 
 // ReviewPR 审查 PR
-func (a *Agent) ReviewPR(pr *github.PullRequest) error {
+func (a *Agent) ReviewPR(ctx context.Context, pr *github.PullRequest) error {
+	xl := xlog.NewWith(ctx)
+	traceID, _ := reqid.FromContext(ctx)
+	prNumber := pr.GetNumber()
+
+	xl.Info("review_pr_start", "trace_id", traceID, "pr_number", prNumber)
+	// TODO: Implement PR review logic
+	xl.Info("review_pr_skipped", "trace_id", traceID, "pr_number", prNumber)
 	return nil
 }
 
 // promptWithRetry 带重试机制的 prompt 调用
-func (a *Agent) promptWithRetry(code code.Code, prompt string, maxRetries int) (*code.Response, error) {
+func (a *Agent) promptWithRetry(ctx context.Context, code code.Code, prompt string, maxRetries int) (*code.Response, error) {
+	xl := xlog.NewWith(ctx)
+	traceID, _ := reqid.FromContext(ctx)
+	
 	var lastErr error
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
+		xl.Info("prompt_attempt", "trace_id", traceID, "attempt", attempt, "max_retries", maxRetries)
+		
 		resp, err := code.Prompt(prompt)
 		if err == nil {
+			xl.Info("prompt_success", "trace_id", traceID, "attempt", attempt)
 			return resp, nil
 		}
 
 		lastErr = err
-		log.Warnf("Prompt attempt %d failed: %v", attempt, err)
+		xl.Warn("prompt_attempt_failed", "trace_id", traceID, "attempt", attempt, "error", err)
 
 		// 如果是 broken pipe 错误，尝试重新创建 session
 		if strings.Contains(err.Error(), "broken pipe") ||
 			strings.Contains(err.Error(), "process has already exited") {
-			log.Infof("Detected broken pipe or process exit, will retry...")
+			xl.Info("broken_pipe_detected", "trace_id", traceID, "attempt", attempt)
 		}
 
 		if attempt < maxRetries {
 			// 等待一段时间后重试
-			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+			sleepDuration := time.Duration(attempt) * 500 * time.Millisecond
+			xl.Info("prompt_retry_wait", "trace_id", traceID, "sleep_duration", sleepDuration)
+			time.Sleep(sleepDuration)
 		}
 	}
 
+	xl.Error("prompt_max_retries_exceeded", "trace_id", traceID, "max_retries", maxRetries, "last_error", lastErr)
 	return nil, fmt.Errorf("failed after %d attempts, last error: %w", maxRetries, lastErr)
 }
