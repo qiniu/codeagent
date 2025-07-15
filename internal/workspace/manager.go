@@ -215,6 +215,10 @@ func (m *Manager) recoverExistingWorkspaces() {
 					m.mutex.Lock()
 					if m.repoManagers[orgRepoPath] == nil {
 						repoManager := NewRepoManager(repoPath, remoteURL)
+						// 恢复 worktrees
+						if err := repoManager.RestoreWorktrees(); err != nil {
+							log.Warnf("Failed to restore worktrees for %s: %v", orgRepoPath, err)
+						}
 						m.repoManagers[orgRepoPath] = repoManager
 						log.Infof("Created repo manager for %s", orgRepoPath)
 					}

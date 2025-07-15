@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"strconv"
+
 	"github.com/qiniu/x/log"
 )
 
@@ -441,6 +443,7 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 	return worktree, nil
 }
 
+// 注册单个 worktree 到内存
 func (r *RepoManager) RegisterWorktree(prNumber int, worktree *WorktreeInfo) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -549,4 +552,25 @@ func (r *RepoManager) EnsureMainRepositoryUpToDate() error {
 		return fmt.Errorf("repository not initialized")
 	}
 	return r.updateMainRepository()
+}
+
+// RestoreWorktrees 扫描磁盘上的 worktree 并注册到内存
+func (r *RepoManager) RestoreWorktrees() error {
+	worktrees, err := r.ListWorktrees()
+	if err != nil {
+		return err
+	}
+	for _, wt := range worktrees {
+		// 只处理含 -pr- 的 worktree 目录
+		base := filepath.Base(wt.Worktree)
+		if strings.Contains(base, "-pr-") {
+			parts := strings.Split(base, "-pr-")
+			numberParts := strings.Split(parts[1], "-")
+			prNumber, err := strconv.Atoi(numberParts[0])
+			if err == nil {
+				r.RegisterWorktree(prNumber, wt)
+			}
+		}
+	}
+	return nil
 }
