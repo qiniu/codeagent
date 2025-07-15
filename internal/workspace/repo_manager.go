@@ -384,7 +384,7 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 		if err != nil {
 			log.Errorf("Failed to check remote branch: %v, output: %s", err, string(checkOutput))
 		} else if strings.TrimSpace(string(checkOutput)) == "" {
-			log.Errorf("Remote branch origin/%s does not exist, will create new branch", branch)
+			log.Warnf("Remote branch origin/%s does not exist, will create new branch", branch)
 			// 如果远程分支不存在，创建新分支
 			defaultBranchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 			defaultBranchCmd.Dir = r.repoPath
@@ -399,8 +399,8 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 			}
 			cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, defaultBranch)
 		} else {
-			log.Infof("Remote branch exists, creating worktree: git worktree add -b %s %s origin/%s", branch, worktreePath, branch)
-			cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, fmt.Sprintf("origin/%s", branch))
+			log.Infof("Remote branch exists, creating worktree: git worktree add %s origin/%s", worktreePath, branch)
+			cmd = exec.Command("git", "worktree", "add", worktreePath, fmt.Sprintf("origin/%s", branch))
 		}
 	}
 

@@ -203,8 +203,89 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 		return fmt.Errorf("failed to commit changes: %w\nCommand output: %s", err, string(commitOutput))
 	}
 
-	// 推送到远程（带冲突处理）
-	cmd = exec.Command("git", "push")
+	// 推送到正确的远程仓库
+	if err := c.pushToCorrectRemote(workspace); err != nil {
+		return fmt.Errorf("failed to push changes: %w", err)
+	}
+
+	log.Infof("Committed and pushed changes for workspace %s", workspace.Path)
+	return nil
+}
+
+// pushToCorrectRemote 推送到正确的远程仓库（支持 fork 仓库）
+func (c *Client) pushToCorrectRemote(workspace *models.Workspace) error {
+	// 如果是 fork 仓库的 PR，需要推送到 fork 仓库
+	if workspace.ForkOwner != "" && workspace.ForkURL != "" {
+		log.Infof("Pushing to fork repository: %s", workspace.ForkURL)
+		return c.pushToForkRemote(workspace)
+	}
+
+	// 否则推送到主仓库
+	log.Infof("Pushing to main repository")
+	return c.pushToMainRemote(workspace)
+}
+
+// pushToForkRemote 推送到 fork 仓库
+func (c *Client) pushToForkRemote(workspace *models.Workspace) error {
+	// 检查是否已经配置了 fork remote
+	cmd := exec.Command("git", "remote", "get-url", "fork")
+	cmd.Dir = workspace.Path
+	_, err := cmd.Output()
+	
+	if err != nil {
+		// 添加 fork remote
+		log.Infof("Adding fork remote: %s", workspace.ForkURL)
+		cmd = exec.Command("git", "remote", "add", "fork", workspace.ForkURL)
+		cmd.Dir = workspace.Path
+		addRemoteOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to add fork remote: %w\nCommand output: %s", err, string(addRemoteOutput))
+		}
+	}
+
+	// 推送到 fork 仓库
+	cmd = exec.Command("git", "push", "fork", workspace.Branch)
+	cmd.Dir = workspace.Path
+	pushOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		pushOutputStr := string(pushOutput)
+		log.Infof("Push to fork failed, output: %s", pushOutputStr)
+
+		// 检查是否是推送冲突
+		if strings.Contains(pushOutputStr, "non-fast-forward") {
+			log.Infof("Push failed due to remote changes, attempting to resolve conflict")
+
+			// 从 fork 仓库拉取最新代码
+			cmd = exec.Command("git", "pull", "fork", workspace.Branch)
+			cmd.Dir = workspace.Path
+			pullOutput, err := cmd.CombinedOutput()
+			if err != nil {
+				log.Warnf("Failed to pull from fork: %v, output: %s", err, string(pullOutput))
+			}
+
+			// 再次尝试推送
+			cmd = exec.Command("git", "push", "fork", workspace.Branch)
+			cmd.Dir = workspace.Path
+			pushOutput2, err2 := cmd.CombinedOutput()
+			if err2 != nil {
+				log.Errorf("Push still failed after pull")
+				return fmt.Errorf("failed to push to fork: %w\nCommand output: %s", err2, string(pushOutput2))
+			}
+
+			log.Infof("Successfully pushed changes to fork after pulling remote updates")
+			return nil
+		}
+
+		return fmt.Errorf("failed to push to fork: %w\nCommand output: %s", err, string(pushOutput))
+	}
+
+	log.Infof("Successfully pushed changes to fork repository")
+	return nil
+}
+
+// pushToMainRemote 推送到主仓库
+func (c *Client) pushToMainRemote(workspace *models.Workspace) error {
+	cmd := exec.Command("git", "push")
 	cmd.Dir = workspace.Path
 	pushOutput, err := cmd.CombinedOutput()
 	if err != nil {
@@ -231,7 +312,7 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 		return fmt.Errorf("failed to push changes: %w\nCommand output: %s", err, string(pushOutput))
 	}
 
-	log.Infof("Committed and pushed changes for Issue #%d", workspace.Issue.GetNumber())
+	log.Infof("Successfully pushed changes to main repository")
 	return nil
 }
 
@@ -255,6 +336,27 @@ func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullR
 
 	log.Infof("PR #%d: %s -> %s", pr.GetNumber(), headBranch, baseBranch)
 
+	// 检查是否是 fork 仓库的 PR
+	isForkPR := pr.GetHead().GetRepo().GetOwner().GetLogin() != pr.GetBase().GetRepo().GetOwner().GetLogin()
+	if isForkPR {
+		log.Infof("Detected fork PR from %s/%s", pr.GetHead().GetRepo().GetOwner().GetLogin(), pr.GetHead().GetRepo().GetName())
+		return c.pullLatestChangesFromFork(workspace, pr)
+	}
+
+	// 原有的非 fork PR 处理逻辑
+	return c.pullLatestChangesFromMain(workspace, pr)
+}
+
+// pullLatestChangesFromFork 从 fork 仓库拉取最新代码
+func (c *Client) pullLatestChangesFromFork(workspace *models.Workspace, pr *github.PullRequest) error {
+	prNumber := pr.GetNumber()
+	headBranch := pr.GetHead().GetRef()
+	forkOwner := pr.GetHead().GetRepo().GetOwner().GetLogin()
+	forkRepo := pr.GetHead().GetRepo().GetName()
+	forkURL := pr.GetHead().GetRepo().GetCloneURL()
+
+	log.Infof("Pulling latest changes from fork: %s/%s, branch: %s", forkOwner, forkRepo, headBranch)
+
 	// 1. 获取所有远程引用
 	cmd := exec.Command("git", "fetch", "--all", "--prune")
 	cmd.Dir = workspace.Path
@@ -262,7 +364,100 @@ func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullR
 	if err != nil {
 		return fmt.Errorf("failed to fetch latest changes: %w\nCommand output: %s", err, string(fetchOutput))
 	}
-	log.Infof("Fetched all remote references for PR #%d", pr.GetNumber())
+
+	// 2. 检查是否已经配置了 fork remote
+	cmd = exec.Command("git", "remote", "get-url", "fork")
+	cmd.Dir = workspace.Path
+	_, err = cmd.Output()
+	
+	if err != nil {
+		// 添加 fork remote
+		log.Infof("Adding fork remote: %s", forkURL)
+		cmd = exec.Command("git", "remote", "add", "fork", forkURL)
+		cmd.Dir = workspace.Path
+		addRemoteOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to add fork remote: %w\nCommand output: %s", err, string(addRemoteOutput))
+		}
+	}
+
+	// 3. 从 fork 仓库获取最新代码
+	cmd = exec.Command("git", "fetch", "fork", headBranch)
+	cmd.Dir = workspace.Path
+	forkFetchOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to fetch from fork: %w\nCommand output: %s", err, string(forkFetchOutput))
+	}
+
+	// 4. 检查当前是否有未提交的变更
+	cmd = exec.Command("git", "status", "--porcelain")
+	cmd.Dir = workspace.Path
+	statusOutput, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to check git status: %w", err)
+	}
+
+	hasChanges := strings.TrimSpace(string(statusOutput)) != ""
+	if hasChanges {
+		// 有未提交的变更，先 stash
+		log.Infof("Found uncommitted changes in worktree, stashing them")
+		cmd = exec.Command("git", "stash", "push", "-m", fmt.Sprintf("Auto stash before syncing PR #%d", prNumber))
+		cmd.Dir = workspace.Path
+		stashOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Warnf("Failed to stash changes: %v, output: %s", err, string(stashOutput))
+		}
+	}
+
+	// 5. 尝试 rebase 到 fork 的最新代码
+	cmd = exec.Command("git", "rebase", fmt.Sprintf("fork/%s", headBranch))
+	cmd.Dir = workspace.Path
+	rebaseOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warnf("Rebase to fork branch failed: %v, output: %s", err, string(rebaseOutput))
+		// rebase 失败，强制切换到 fork 的最新代码
+		cmd = exec.Command("git", "reset", "--hard", fmt.Sprintf("fork/%s", headBranch))
+		cmd.Dir = workspace.Path
+		resetOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to reset to fork branch %s: %w\nCommand output: %s", headBranch, err, string(resetOutput))
+		}
+		log.Infof("Hard reset worktree to fork branch %s", headBranch)
+	} else {
+		log.Infof("Successfully rebased worktree to fork branch %s", headBranch)
+	}
+
+	// 6. 如果之前有 stash，尝试恢复
+	if hasChanges {
+		log.Infof("Attempting to restore stashed changes for PR #%d", prNumber)
+		cmd = exec.Command("git", "stash", "pop")
+		cmd.Dir = workspace.Path
+		stashPopOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Warnf("Failed to restore stashed changes: %v, output: %s", err, string(stashPopOutput))
+			log.Infof("You may need to manually resolve the stashed changes later")
+		} else {
+			log.Infof("Successfully restored stashed changes")
+		}
+	}
+
+	log.Infof("Successfully pulled latest changes from fork for PR #%d", prNumber)
+	return nil
+}
+
+// pullLatestChangesFromMain 从主仓库拉取最新代码（原有逻辑）
+func (c *Client) pullLatestChangesFromMain(workspace *models.Workspace, pr *github.PullRequest) error {
+	prNumber := pr.GetNumber()
+	baseBranch := pr.GetBase().GetRef()
+
+	// 1. 获取所有远程引用
+	cmd := exec.Command("git", "fetch", "--all", "--prune")
+	cmd.Dir = workspace.Path
+	fetchOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to fetch latest changes: %w\nCommand output: %s", err, string(fetchOutput))
+	}
+	log.Infof("Fetched all remote references for PR #%d", prNumber)
 
 	// 2. 检查当前是否有未提交的变更
 	cmd = exec.Command("git", "status", "--porcelain")
@@ -276,7 +471,7 @@ func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullR
 	if hasChanges {
 		// 有未提交的变更，先 stash
 		log.Infof("Found uncommitted changes in worktree, stashing them")
-		cmd = exec.Command("git", "stash", "push", "-m", fmt.Sprintf("Auto stash before syncing PR #%d", pr.GetNumber()))
+		cmd = exec.Command("git", "stash", "push", "-m", fmt.Sprintf("Auto stash before syncing PR #%d", prNumber))
 		cmd.Dir = workspace.Path
 		stashOutput, err := cmd.CombinedOutput()
 		if err != nil {
@@ -285,7 +480,6 @@ func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullR
 	}
 
 	// 3. 尝试直接获取 PR 内容
-	prNumber := pr.GetNumber()
 	log.Infof("Attempting to fetch PR #%d content directly", prNumber)
 	cmd = exec.Command("git", "fetch", "origin", fmt.Sprintf("pull/%d/head", prNumber))
 	cmd.Dir = workspace.Path
@@ -346,7 +540,7 @@ func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullR
 		}
 	}
 
-	log.Infof("Successfully pulled latest changes for PR #%d using rebase strategy", pr.GetNumber())
+	log.Infof("Successfully pulled latest changes for PR #%d using rebase strategy", prNumber)
 	return nil
 }
 

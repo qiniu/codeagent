@@ -555,6 +555,16 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest) *models.Workspac
 
 	org := pr.GetBase().GetRepo().GetOwner().GetLogin()
 
+	// 检查是否是 fork 仓库的 PR
+	var forkOwner, forkRepo, forkURL string
+	isForkPR := pr.GetHead().GetRepo().GetOwner().GetLogin() != pr.GetBase().GetRepo().GetOwner().GetLogin()
+	if isForkPR {
+		forkOwner = pr.GetHead().GetRepo().GetOwner().GetLogin()
+		forkRepo = pr.GetHead().GetRepo().GetName()
+		forkURL = pr.GetHead().GetRepo().GetCloneURL()
+		log.Infof("Detected fork PR from %s/%s", forkOwner, forkRepo)
+	}
+
 	// 获取或创建仓库管理器
 	repoManager := m.getOrCreateRepoManager(org, repo)
 
@@ -586,6 +596,9 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest) *models.Workspac
 		Branch:      worktree.Branch,
 		PullRequest: pr,
 		CreatedAt:   time.Now(),
+		ForkOwner:   forkOwner,
+		ForkRepo:    forkRepo,
+		ForkURL:     forkURL,
 	}
 
 	// 注册到内存映射

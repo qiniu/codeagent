@@ -24,6 +24,10 @@ type Workspace struct {
 	Issue       *github.Issue       `json:"issue"`
 	PullRequest *github.PullRequest `json:"pull_request"`
 	CreatedAt   time.Time           `json:"created_at"`
+	// fork repository information for PR from fork
+	ForkOwner string `json:"fork_owner,omitempty"`
+	ForkRepo  string `json:"fork_repo,omitempty"`
+	ForkURL   string `json:"fork_url,omitempty"`
 }
 
 type ExecutionResult struct {
