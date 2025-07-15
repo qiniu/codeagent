@@ -289,7 +289,7 @@ func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullR
 	log.Infof("Attempting to fetch PR #%d content directly", prNumber)
 	cmd = exec.Command("git", "fetch", "origin", fmt.Sprintf("pull/%d/head", prNumber))
 	cmd.Dir = workspace.Path
-	_, err = cmd.CombinedOutput()
+	fetchOutput, err = cmd.CombinedOutput()
 	if err == nil {
 		// 直接获取成功，使用rebase合并更新
 		log.Infof("Successfully fetched PR #%d content, attempting rebase", prNumber)
@@ -297,7 +297,7 @@ func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullR
 		cmd.Dir = workspace.Path
 		rebaseOutput, err := cmd.CombinedOutput()
 		if err != nil {
-			log.Warnf("Rebase failed, trying reset: %v, output: %s", err, string(rebaseOutput))
+			log.Errorf("Rebase failed, trying reset: %v, output: %s", err, string(rebaseOutput))
 			// rebase失败，强制切换到PR内容
 			cmd = exec.Command("git", "reset", "--hard", "FETCH_HEAD")
 			cmd.Dir = workspace.Path
@@ -311,14 +311,14 @@ func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullR
 		}
 	} else {
 		// 直接获取失败，使用传统rebase方式
-		log.Warnf("Failed to fetch PR #%d directly: %v, falling back to traditional rebase", prNumber, err)
+		log.Errorf("Failed to fetch PR #%d directly: %v, falling back to traditional rebase, output: %s", prNumber, err, string(fetchOutput))
 
 		// 尝试rebase到目标分支的最新代码
 		cmd = exec.Command("git", "rebase", fmt.Sprintf("origin/%s", baseBranch))
 		cmd.Dir = workspace.Path
 		rebaseOutput, err := cmd.CombinedOutput()
 		if err != nil {
-			log.Warnf("Rebase to base branch failed: %v, output: %s", err, string(rebaseOutput))
+			log.Errorf("Rebase to base branch failed: %v, output: %s", err, string(rebaseOutput))
 			// rebase失败，尝试强制同步到基础分支
 			cmd = exec.Command("git", "reset", "--hard", fmt.Sprintf("origin/%s", baseBranch))
 			cmd.Dir = workspace.Path
