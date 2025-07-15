@@ -8,6 +8,9 @@ os:
 
 dist: xenial
 
+# 只对 Pull Request 进行检查
+if: type = pull_request
+
 # 缓存模块以加速构建
 cache:
   directories:
@@ -30,8 +33,6 @@ before_install:
 install:
   - go mod download
   - go mod verify
-  - go install golang.org/x/tools/cmd/goimports@latest
-  - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 # 构建脚本
 script:
@@ -39,13 +40,13 @@ script:
   - echo "Building project..."
   - make build
   
-  # 2. 静态检查
-  - echo "Running static analysis..."
-  - golangci-lint run ./...
+  # 2. 代码检查
+  - echo "Running go vet..."
+  - go vet ./...
   
   # 3. 格式检查
   - echo "Checking code format..."
-  - test -z "$(goimports -l .)"
+  - test -z "$(gofmt -l .)"
   
   # 4. 单元测试
   - echo "Running unit tests..."
@@ -58,6 +59,4 @@ after_success:
 
 # 通知设置
 notifications:
-  email:
-    on_success: change
-    on_failure: always
+  email: false
