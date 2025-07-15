@@ -95,9 +95,9 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter, body []byte) {
 	xl := xlog.NewWith(ctx)
 	traceID := getTraceID(ctx)
-	
+
 	xl.Infof("issue_comment_handler_start: trace_id=%s", traceID)
-	
+
 	var event github.IssueCommentEvent
 	if err := json.Unmarshal(body, &event); err != nil {
 		xl.Errorf("issue_comment_unmarshal_failed: trace_id=%s error=%v", traceID, err)
@@ -122,7 +122,7 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 	// 检查是否是 PR 评论（Issue 的 PullRequest 字段不为空）
 	if event.Issue.PullRequestLinks != nil {
 		xl.Info("pr_comment_detected", "trace_id", traceID, "pr_number", issueNumber)
-		
+
 		// 这是 PR 评论，处理 /continue 和 /fix 命令
 		if strings.HasPrefix(comment, "/continue") {
 			xl.Info("continue_command_received", "trace_id", traceID, "pr_number", issueNumber, "pr_title", issueTitle)
@@ -165,7 +165,7 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 
 	// 处理 Issue 的 /code 命令
 	if strings.HasPrefix(comment, "/code") {
-		xl.Info("code_command_received", "trace_id", traceID, 
+		xl.Info("code_command_received", "trace_id", traceID,
 			"issue_url", event.Issue.GetHTMLURL(),
 			"issue_title", issueTitle,
 			"issue_body_length", len(event.Issue.GetBody()))

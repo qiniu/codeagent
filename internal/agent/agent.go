@@ -47,10 +47,10 @@ func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
 func (a *Agent) ProcessIssueComment(ctx context.Context, event *github.IssueCommentEvent) error {
 	xl := xlog.NewWith(ctx)
 	traceID, _ := reqid.FromContext(ctx)
-	
+
 	issueNumber := event.Issue.GetNumber()
 	issueTitle := event.Issue.GetTitle()
-	
+
 	xl.Info("process_issue_comment_start", "trace_id", traceID, "issue_number", issueNumber, "issue_title", issueTitle)
 	// 1. 创建 Issue 工作空间
 	xl.Info("creating_workspace", "trace_id", traceID, "issue_number", issueNumber)
@@ -632,12 +632,12 @@ func (a *Agent) ReviewPR(ctx context.Context, pr *github.PullRequest) error {
 func (a *Agent) promptWithRetry(ctx context.Context, code code.Code, prompt string, maxRetries int) (*code.Response, error) {
 	xl := xlog.NewWith(ctx)
 	traceID, _ := reqid.FromContext(ctx)
-	
+
 	var lastErr error
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		xl.Info("prompt_attempt", "trace_id", traceID, "attempt", attempt, "max_retries", maxRetries)
-		
+
 		resp, err := code.Prompt(prompt)
 		if err == nil {
 			xl.Info("prompt_success", "trace_id", traceID, "attempt", attempt)

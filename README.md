@@ -144,7 +144,7 @@ go run ./cmd/server
 go run ./cmd/server --config config.yaml
 ```
 
-**2. Claude + 本地 CLI 模式**
+**2. Claude + 本地 CLI 模式（推荐开发环境）**
 
 ```bash
 # 使用环境变量
@@ -217,8 +217,8 @@ export WEBHOOK_SECRET="your-webhook-secret"
 **注意**:
 
 - 本地 CLI 模式需要预先安装 Claude CLI 或 Gemini CLI 工具
-- Gemini CLI 模式使用单次 prompt 方式，每次调用都会启动新的进程，避免了 broken pipe 错误
-- Gemini CLI 会自动构建包含项目上下文、Issue 信息和对话历史的完整 prompt，提供更好的代码生成质量
+- Claude CLI 和 Gemini CLI 模式都使用单次 prompt 方式，每次调用都会启动新的进程，避免了 broken pipe 错误
+- Claude CLI 和 Gemini CLI 都会自动构建包含项目上下文、Issue 信息和对话历史的完整 prompt，提供更好的代码生成质量
 
 2. **测试健康检查**
 
