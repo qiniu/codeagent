@@ -479,6 +479,66 @@ func (c *Client) GetPullRequestComments(pr *github.PullRequest) ([]*github.PullR
 	return comments, nil
 }
 
+// GetPullRequestReviewComments 获取 PR 的所有 Review Comments（代码行评论）
+func (c *Client) GetPullRequestReviewComments(pr *github.PullRequest) ([]*github.PullRequestComment, error) {
+	prURL := pr.GetHTMLURL()
+	log.Infof("Getting review comments for PR URL: %s", prURL)
+
+	repoOwner, repoName := c.parseRepoURL(prURL)
+	if repoOwner == "" || repoName == "" {
+		return nil, fmt.Errorf("invalid repository URL: %s", prURL)
+	}
+
+	log.Infof("Parsed repository: %s/%s, PR number: %d", repoOwner, repoName, pr.GetNumber())
+
+	// 使用 PullRequests.ListComments 来获取代码行评论
+	comments, _, err := c.client.PullRequests.ListComments(context.Background(), repoOwner, repoName, pr.GetNumber(), &github.PullRequestListCommentsOptions{
+		ListOptions: github.ListOptions{PerPage: 100}, // 获取所有评论
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PR review comments: %w", err)
+	}
+
+	log.Infof("Found %d review comments for PR #%d", len(comments), pr.GetNumber())
+	return comments, nil
+}
+
+// FormatReviewCommentsContext 格式化 Review Comments 为上下文字符串
+func (c *Client) FormatReviewCommentsContext(comments []*github.PullRequestComment) string {
+	if len(comments) == 0 {
+		return "无代码行评论。"
+	}
+
+	var contextLines []string
+	contextLines = append(contextLines, fmt.Sprintf("共找到 %d 条代码行评论：\n", len(comments)))
+
+	for i, comment := range comments {
+		// 获取行范围信息
+		startLine := comment.GetStartLine()
+		endLine := comment.GetLine()
+
+		var lineRangeInfo string
+		if startLine != 0 && endLine != 0 && startLine != endLine {
+			// 多行选择
+			lineRangeInfo = fmt.Sprintf("行号范围：%d-%d", startLine, endLine)
+		} else {
+			// 单行
+			lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
+		}
+
+		// 格式化单个评论
+		commentContext := fmt.Sprintf("%d. 文件：%s\n   %s\n   评论：%s\n",
+			i+1,
+			comment.GetPath(),
+			lineRangeInfo,
+			comment.GetBody())
+
+		contextLines = append(contextLines, commentContext)
+	}
+
+	return strings.Join(contextLines, "\n")
+}
+
 // parseRepoURL 解析仓库 URL 获取 owner 和 repo 名称
 func (c *Client) parseRepoURL(repoURL string) (owner, repo string) {
 	// 处理 HTTPS URL: https://github.com/owner/repo.git

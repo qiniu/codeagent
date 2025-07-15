@@ -341,15 +341,40 @@ func (a *Agent) ContinuePRWithArgs(event *github.IssueCommentEvent, args string)
 		return fmt.Errorf("failed to create code session: %w", err)
 	}
 
-	// 7. 构建 prompt，包含命令参数
-	var prompt string
-	if args != "" {
-		prompt = fmt.Sprintf("请根据以下指令继续处理这个 PR：\n\n%s\n\n请分析当前的代码变更，并根据指令执行相应的操作。", args)
-	} else {
-		prompt = "请继续处理这个 PR，分析代码变更并提供改进建议。"
+	// 7. 获取 PR 的所有 Review Comments（代码行评论）
+	reviewComments, err := a.github.GetPullRequestReviewComments(pr)
+	if err != nil {
+		log.Errorf("Failed to get PR review comments: %v", err)
+		// 不返回错误，继续执行，因为可能没有 review comments
+		reviewComments = nil
 	}
 
-	// 8. 执行 AI 处理
+	// 8. 构建 prompt，包含命令参数和所有 review comments
+	var prompt string
+	
+	// 格式化 review comments 上下文
+	reviewContext := ""
+	if reviewComments != nil && len(reviewComments) > 0 {
+		reviewContext = a.github.FormatReviewCommentsContext(reviewComments)
+	}
+
+	if args != "" {
+		if reviewContext != "" {
+			prompt = fmt.Sprintf("请根据以下指令和代码行评论继续处理这个 PR：\n\n指令：%s\n\n代码行评论：\n%s\n\n请分析当前的代码变更，结合代码行评论的反馈，并根据指令执行相应的操作。", args, reviewContext)
+		} else {
+			prompt = fmt.Sprintf("请根据以下指令继续处理这个 PR：\n\n%s\n\n请分析当前的代码变更，并根据指令执行相应的操作。", args)
+		}
+	} else {
+		if reviewContext != "" {
+			prompt = fmt.Sprintf("请根据以下代码行评论继续处理这个 PR：\n\n%s\n\n请分析当前的代码变更，结合代码行评论的反馈，提供改进建议并进行相应的修改。", reviewContext)
+		} else {
+			prompt = "请继续处理这个 PR，分析代码变更并提供改进建议。"
+		}
+	}
+
+	log.Infof("Prompt for PR continue: %s", prompt)
+
+	// 9. 执行 AI 处理
 	resp, err := a.promptWithRetry(codeClient, prompt, 3)
 	if err != nil {
 		log.Errorf("Failed to process PR continue: %v", err)
@@ -364,7 +389,7 @@ func (a *Agent) ContinuePRWithArgs(event *github.IssueCommentEvent, args string)
 
 	log.Infof("PR Continue Output: %s", string(output))
 
-	// 9. 提交变更并更新 PR
+	// 10. 提交变更并更新 PR
 	result := &models.ExecutionResult{
 		Output: string(output),
 		Error:  "",
@@ -375,7 +400,7 @@ func (a *Agent) ContinuePRWithArgs(event *github.IssueCommentEvent, args string)
 		// 不返回错误，继续执行评论
 	}
 
-	// 10. 评论到 PR
+	// 11. 评论到 PR
 	commentBody := string(output)
 	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
 		log.Errorf("Failed to create PR comment: %v", err)
@@ -436,32 +461,57 @@ func (a *Agent) FixPRWithArgs(event *github.IssueCommentEvent, args string) erro
 		return fmt.Errorf("failed to get PR information: %w", err)
 	}
 
-	// 2. 获取或创建 PR 工作空间
+	// 3. 获取或创建 PR 工作空间
 	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR fix")
 	}
 
-	// 3. 拉取远端最新代码
+	// 4. 拉取远端最新代码
 	if err := a.github.PullLatestChanges(ws, pr); err != nil {
 		log.Errorf("Failed to pull latest changes: %v", err)
 		// 不返回错误，继续执行，因为可能是网络问题
 	}
 
-	// 4. 初始化 code client
+	// 5. 初始化 code client
 	code, err := a.sessionManager.GetSession(ws)
 	if err != nil {
 		log.Errorf("failed to get code client for PR fix: %v", err)
 		return err
 	}
 
-	// 4. 构建 prompt，包含命令参数
-	var prompt string
-	if args != "" {
-		prompt = fmt.Sprintf("请根据以下指令修复代码问题：\n\n指令：%s\n\n请直接进行修复，回复要简洁明了。", args)
-	} else {
-		prompt = "请分析当前代码中的问题并进行修复，回复要简洁明了。"
+	// 6. 获取 PR 的所有 Review Comments（代码行评论）
+	reviewComments, err := a.github.GetPullRequestReviewComments(pr)
+	if err != nil {
+		log.Errorf("Failed to get PR review comments: %v", err)
+		// 不返回错误，继续执行，因为可能没有 review comments
+		reviewComments = nil
 	}
+
+	// 7. 构建 prompt，包含命令参数和所有 review comments
+	var prompt string
+	
+	// 格式化 review comments 上下文
+	reviewContext := ""
+	if reviewComments != nil && len(reviewComments) > 0 {
+		reviewContext = a.github.FormatReviewCommentsContext(reviewComments)
+	}
+
+	if args != "" {
+		if reviewContext != "" {
+			prompt = fmt.Sprintf("请根据以下指令和代码行评论修复代码问题：\n\n指令：%s\n\n代码行评论：\n%s\n\n请直接进行修复，回复要简洁明了。", args, reviewContext)
+		} else {
+			prompt = fmt.Sprintf("请根据以下指令修复代码问题：\n\n指令：%s\n\n请直接进行修复，回复要简洁明了。", args)
+		}
+	} else {
+		if reviewContext != "" {
+			prompt = fmt.Sprintf("请根据以下代码行评论修复代码问题：\n\n%s\n\n请直接进行修复，回复要简洁明了。", reviewContext)
+		} else {
+			prompt = "请分析当前代码中的问题并进行修复，回复要简洁明了。"
+		}
+	}
+
+	log.Infof("Prompt for PR fix: %s", prompt)
 
 	resp, err := a.promptWithRetry(code, prompt, 3)
 	if err != nil {
@@ -477,7 +527,7 @@ func (a *Agent) FixPRWithArgs(event *github.IssueCommentEvent, args string) erro
 
 	log.Infof("PR Fix Output: %s", string(output))
 
-	// 5. 提交变更并更新 PR
+	// 8. 提交变更并更新 PR
 	result := &models.ExecutionResult{
 		Output: string(output),
 	}
@@ -486,7 +536,7 @@ func (a *Agent) FixPRWithArgs(event *github.IssueCommentEvent, args string) erro
 		return err
 	}
 
-	// 6. 评论到 PR
+	// 9. 评论到 PR
 	commentBody := string(output)
 	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
 		log.Errorf("failed to create PR comment for fix: %v", err)
