@@ -76,7 +76,7 @@ func (g *geminiLocal) executeGeminiLocal(prompt string) ([]byte, error) {
 	cmd.Dir = g.workspace.Path // 设置工作目录，Gemini CLI 会自动读取该目录的文件作为上下文
 
 	// 设置环境变量
-	cmd.Env = append(os.Environ())
+	cmd.Env = os.Environ()
 
 	log.Infof("Executing local gemini CLI in directory %s: gemini %s", g.workspace.Path, strings.Join(args, " "))
 

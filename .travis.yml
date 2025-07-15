@@ -1,0 +1,62 @@
+language: go
+
+go:
+  - "1.21"
+
+os:
+  - linux
+
+dist: xenial
+
+# 只对 Pull Request 进行检查
+if: type = pull_request
+
+# 缓存模块以加速构建
+cache:
+  directories:
+    - $HOME/.cache/go-build
+    - $GOPATH/pkg/mod
+
+# 环境变量
+env:
+  - GO111MODULE=on
+
+# 构建前的准备工作
+before_install:
+  - go version
+  - echo $HOME
+  - echo $GOPATH
+  - echo $GOROOT
+  - which go
+
+# 安装依赖
+install:
+  - go mod download
+  - go mod verify
+
+# 构建脚本
+script:
+  # 1. 编译
+  - echo "Building project..."
+  - make build
+  
+  # 2. 代码检查
+  - echo "Running go vet..."
+  - go vet ./...
+  
+  # 3. 格式检查
+  - echo "Checking code format..."
+  - test -z "$(gofmt -l .)"
+  
+  # 4. 单元测试
+  - echo "Running unit tests..."
+  - make test
+  - go test -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+# 构建成功后的操作
+after_success:
+  - bash <(curl -s https://codecov.io/bash)
+
+# 通知设置
+notifications:
+  email: false

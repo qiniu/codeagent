@@ -312,7 +312,7 @@ func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullR
 	} else {
 		// 直接获取失败，使用传统rebase方式
 		log.Warnf("Failed to fetch PR #%d directly: %v, falling back to traditional rebase", prNumber, err)
-		
+
 		// 尝试rebase到目标分支的最新代码
 		cmd = exec.Command("git", "rebase", fmt.Sprintf("origin/%s", baseBranch))
 		cmd.Dir = workspace.Path
