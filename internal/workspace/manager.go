@@ -720,3 +720,4 @@ func (m *Manager) GetExpiredWorkspaces() []*models.Workspace {
 
 	return expiredWorkspaces
 }
+
