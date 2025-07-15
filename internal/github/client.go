@@ -141,7 +141,7 @@ func (c *Client) CreatePullRequest(workspace *models.Workspace) (*github.PullReq
 - [ ] 代码审查和优化
 
 ---
-*此 PR 由 XGo Agent 自动创建，将逐步完善实现*`,
+*此 PR 由 Code Agent(https://github.com/qbox/codeagent) 自动创建，将逐步完善实现*`,
 		workspace.Issue.GetNumber(),
 		workspace.Issue.GetBody())
 
