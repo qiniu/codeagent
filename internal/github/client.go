@@ -479,6 +479,27 @@ func (c *Client) GetPullRequestComments(pr *github.PullRequest) ([]*github.PullR
 	return comments, nil
 }
 
+// GetPullRequestIssueComments 获取 PR 的 Issue 评论（一般性评论，不是代码行评论）
+func (c *Client) GetPullRequestIssueComments(pr *github.PullRequest) ([]*github.IssueComment, error) {
+	prURL := pr.GetHTMLURL()
+	log.Infof("Getting issue comments for PR URL: %s", prURL)
+
+	repoOwner, repoName := c.parseRepoURL(prURL)
+	if repoOwner == "" || repoName == "" {
+		return nil, fmt.Errorf("invalid repository URL: %s", prURL)
+	}
+
+	log.Infof("Parsed repository: %s/%s, PR number: %d", repoOwner, repoName, pr.GetNumber())
+
+	// PR的issue comments使用Issues API，因为PR也是一个Issue
+	comments, _, err := c.client.Issues.ListComments(context.Background(), repoOwner, repoName, pr.GetNumber(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PR issue comments: %w", err)
+	}
+
+	return comments, nil
+}
+
 // parseRepoURL 解析仓库 URL 获取 owner 和 repo 名称
 func (c *Client) parseRepoURL(repoURL string) (owner, repo string) {
 	// 处理 HTTPS URL: https://github.com/owner/repo.git

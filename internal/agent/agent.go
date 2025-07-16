@@ -384,14 +384,27 @@ func (a *Agent) ContinuePRWithArgs(ctx context.Context, event *github.IssueComme
 	}
 	log.Infof("Code client initialized successfully")
 
-	// 7. 构建 prompt，包含命令参数
+	// 7. 构建 prompt，包含完整PR上下文和命令参数
 	var prompt string
-	if args != "" {
-		prompt = fmt.Sprintf("请根据以下指令继续处理这个 PR：\n\n%s\n\n请分析当前的代码变更，并根据指令执行相应的操作。", args)
-		log.Infof("Using custom prompt with args")
+	
+	// 构建包含所有PR上下文的信息
+	prContext, err := a.buildPRContextForGeneralComment(ctx, pr, event.Comment.GetBody())
+	if err != nil {
+		log.Warnf("Failed to build PR context, using simple context: %v", err)
+		// 降级到原有的简单上下文
+		if args != "" {
+			prompt = fmt.Sprintf("请根据以下指令继续处理这个 PR：\n\n%s\n\n请分析当前的代码变更，并根据指令执行相应的操作。", args)
+		} else {
+			prompt = "请继续处理这个 PR，分析代码变更并提供改进建议。"
+		}
 	} else {
-		prompt = "请继续处理这个 PR，分析代码变更并提供改进建议。"
-		log.Infof("Using default prompt")
+		if args != "" {
+			prompt = fmt.Sprintf("你是一个代码助手，需要根据PR的完整背景信息和当前评论来继续处理代码。\n\n%s\n\n**附加指令**: %s\n\n请根据以上信息和当前评论，分析代码变更并执行相应的操作。注意：当前评论是核心指令，历史评论仅作为上下文参考。", prContext, args)
+			log.Infof("Using custom prompt with args and full context")
+		} else {
+			prompt = fmt.Sprintf("你是一个代码助手，需要根据PR的完整背景信息和当前评论来继续处理代码。\n\n%s\n\n请根据以上信息，分析代码变更并提供改进建议。注意：当前评论是核心指令，历史评论仅作为上下文参考。", prContext)
+			log.Infof("Using default prompt with full context")
+		}
 	}
 
 	// 8. 执行 AI 处理
@@ -510,12 +523,25 @@ func (a *Agent) FixPRWithArgs(ctx context.Context, event *github.IssueCommentEve
 		return err
 	}
 
-	// 4. 构建 prompt，包含命令参数
+	// 4. 构建 prompt，包含完整PR上下文和命令参数
 	var prompt string
-	if args != "" {
-		prompt = fmt.Sprintf("请根据以下指令修复代码问题：\n\n指令：%s\n\n请直接进行修复，回复要简洁明了。", args)
+	
+	// 构建包含所有PR上下文的信息
+	prContext, err := a.buildPRContextForGeneralComment(ctx, pr, event.Comment.GetBody())
+	if err != nil {
+		log.Warnf("Failed to build PR context, using simple context: %v", err)
+		// 降级到原有的简单上下文
+		if args != "" {
+			prompt = fmt.Sprintf("请根据以下指令修复代码问题：\n\n指令：%s\n\n请直接进行修复，回复要简洁明了。", args)
+		} else {
+			prompt = "请分析当前代码中的问题并进行修复，回复要简洁明了。"
+		}
 	} else {
-		prompt = "请分析当前代码中的问题并进行修复，回复要简洁明了。"
+		if args != "" {
+			prompt = fmt.Sprintf("你是一个代码助手，需要根据PR的完整背景信息和当前评论来修复代码问题。\n\n%s\n\n**附加指令**: %s\n\n请根据以上信息和当前评论，分析并修复代码问题。注意：当前评论是核心指令，历史评论仅作为上下文参考。回复要简洁明了。", prContext, args)
+		} else {
+			prompt = fmt.Sprintf("你是一个代码助手，需要根据PR的完整背景信息和当前评论来修复代码问题。\n\n%s\n\n请根据以上信息，分析当前代码中的问题并进行修复。注意：当前评论是核心指令，历史评论仅作为上下文参考。回复要简洁明了。", prContext)
+		}
 	}
 
 	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
@@ -582,7 +608,7 @@ func (a *Agent) ContinuePRFromReviewComment(ctx context.Context, event *github.P
 		return err
 	}
 
-	// 4. 构建 prompt，包含评论上下文和命令参数
+	// 4. 构建 prompt，包含完整PR上下文和当前评论
 	var prompt string
 
 	// 获取行范围信息
@@ -598,15 +624,22 @@ func (a *Agent) ContinuePRFromReviewComment(ctx context.Context, event *github.P
 		lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
 	}
 
-	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n%s",
-		event.Comment.GetBody(),
-		event.Comment.GetPath(),
-		lineRangeInfo)
+	// 构建包含所有PR上下文的信息
+	prContext, err := a.buildPRContextForReviewComment(ctx, pr, event.Comment.GetBody(), event.Comment.GetPath(), lineRangeInfo)
+	if err != nil {
+		log.Warnf("Failed to build PR context, using simple context: %v", err)
+		// 降级到原有的简单上下文
+		commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n%s",
+			event.Comment.GetBody(),
+			event.Comment.GetPath(),
+			lineRangeInfo)
+		prContext = commentContext
+	}
 
 	if args != "" {
-		prompt = fmt.Sprintf("请根据以下代码行评论和指令继续处理代码：\n\n%s\n\n指令：%s\n\n请直接进行相应的修改，回复要简洁明了。", commentContext, args)
+		prompt = fmt.Sprintf("你是一个代码助手，需要根据PR的完整背景信息和当前的代码行评论来继续处理代码。\n\n%s\n\n**附加指令**: %s\n\n请根据以上信息和当前需要处理的评论，直接进行相应的代码修改。注意：当前评论是核心指令，历史评论仅作为上下文参考。回复要简洁明了。", prContext, args)
 	} else {
-		prompt = fmt.Sprintf("请根据以下代码行评论继续处理代码：\n\n%s\n\n请直接进行相应的修改，回复要简洁明了。", commentContext)
+		prompt = fmt.Sprintf("你是一个代码助手，需要根据PR的完整背景信息和当前的代码行评论来继续处理代码。\n\n%s\n\n请根据以上信息和当前需要处理的评论，直接进行相应的代码修改。注意：当前评论是核心指令，历史评论仅作为上下文参考。回复要简洁明了。", prContext)
 	}
 
 	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
@@ -673,7 +706,7 @@ func (a *Agent) FixPRFromReviewComment(ctx context.Context, event *github.PullRe
 		return err
 	}
 
-	// 4. 构建 prompt，包含评论上下文和命令参数
+	// 4. 构建 prompt，包含完整PR上下文和当前评论
 	var prompt string
 
 	// 获取行范围信息
@@ -689,15 +722,22 @@ func (a *Agent) FixPRFromReviewComment(ctx context.Context, event *github.PullRe
 		lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
 	}
 
-	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n%s",
-		event.Comment.GetBody(),
-		event.Comment.GetPath(),
-		lineRangeInfo)
+	// 构建包含所有PR上下文的信息
+	prContext, err := a.buildPRContextForReviewComment(ctx, pr, event.Comment.GetBody(), event.Comment.GetPath(), lineRangeInfo)
+	if err != nil {
+		log.Warnf("Failed to build PR context, using simple context: %v", err)
+		// 降级到原有的简单上下文
+		commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n%s",
+			event.Comment.GetBody(),
+			event.Comment.GetPath(),
+			lineRangeInfo)
+		prContext = commentContext
+	}
 
 	if args != "" {
-		prompt = fmt.Sprintf("请根据以下代码行评论和指令修复代码问题：\n\n%s\n\n指令：%s\n\n请直接进行修复，回复要简洁明了。", commentContext, args)
+		prompt = fmt.Sprintf("你是一个代码助手，需要根据PR的完整背景信息和当前的代码行评论来修复代码问题。\n\n%s\n\n**附加指令**: %s\n\n请根据以上信息和当前需要处理的评论，直接进行代码修复。注意：当前评论是核心指令，历史评论仅作为上下文参考。回复要简洁明了。", prContext, args)
 	} else {
-		prompt = fmt.Sprintf("请根据以下代码行评论修复代码问题：\n\n%s\n\n请直接进行修复，回复要简洁明了。", commentContext)
+		prompt = fmt.Sprintf("你是一个代码助手，需要根据PR的完整背景信息和当前的代码行评论来修复代码问题。\n\n%s\n\n请根据以上信息和当前需要处理的评论，直接进行代码修复。注意：当前评论是核心指令，历史评论仅作为上下文参考。回复要简洁明了。", prContext)
 	}
 
 	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
@@ -780,6 +820,163 @@ func (a *Agent) CleanupAfterPRMerged(ctx context.Context, pr *github.PullRequest
 
 	log.Infof("Cleanup after PR merged completed: PR #%d, workspace: %s", prNumber, ws.Path)
 	return nil
+}
+
+// buildPRContextForReviewComment 构建PR的完整上下文信息，包括PR描述和所有评论
+func (a *Agent) buildPRContextForReviewComment(ctx context.Context, pr *github.PullRequest, currentCommentBody string, filePath string, lineInfo string) (string, error) {
+	log := xlog.NewWith(ctx)
+	
+	var contextBuilder strings.Builder
+	
+	// 1. PR基本信息和描述
+	contextBuilder.WriteString("## PR背景信息\n")
+	contextBuilder.WriteString(fmt.Sprintf("**PR标题**: %s\n", pr.GetTitle()))
+	contextBuilder.WriteString(fmt.Sprintf("**PR编号**: #%d\n", pr.GetNumber()))
+	
+	if pr.GetBody() != "" {
+		contextBuilder.WriteString(fmt.Sprintf("**PR描述**:\n%s\n\n", pr.GetBody()))
+	} else {
+		contextBuilder.WriteString("**PR描述**: 无\n\n")
+	}
+	
+	// 2. 获取并添加所有Issue评论（一般性PR评论）
+	issueComments, err := a.github.GetPullRequestIssueComments(pr)
+	if err != nil {
+		log.Warnf("Failed to get PR issue comments: %v", err)
+	} else if len(issueComments) > 0 {
+		contextBuilder.WriteString("## PR讨论历史（按时间顺序）\n")
+		for i, comment := range issueComments {
+			// 过滤掉机器人评论和命令
+			commentBody := comment.GetBody()
+			if strings.HasPrefix(commentBody, "/") || 
+			   (comment.GetUser() != nil && strings.Contains(comment.GetUser().GetLogin(), "bot")) {
+				continue
+			}
+			
+			contextBuilder.WriteString(fmt.Sprintf("**评论 %d** (by %s):\n%s\n\n", 
+				i+1, 
+				comment.GetUser().GetLogin(),
+				commentBody))
+		}
+	}
+	
+	// 3. 获取并添加所有代码行评论（Review评论）
+	reviewComments, err := a.github.GetPullRequestComments(pr)
+	if err != nil {
+		log.Warnf("Failed to get PR review comments: %v", err)
+	} else if len(reviewComments) > 0 {
+		contextBuilder.WriteString("## 代码评审历史（按时间顺序）\n")
+		for i, comment := range reviewComments {
+			// 过滤掉机器人评论和命令
+			commentBody := comment.GetBody()
+			if strings.HasPrefix(commentBody, "/") || 
+			   (comment.GetUser() != nil && strings.Contains(comment.GetUser().GetLogin(), "bot")) {
+				continue
+			}
+			
+			startLine := comment.GetStartLine()
+			endLine := comment.GetLine()
+			var lineRange string
+			if startLine != 0 && endLine != 0 && startLine != endLine {
+				lineRange = fmt.Sprintf("行号%d-%d", startLine, endLine)
+			} else {
+				lineRange = fmt.Sprintf("行号%d", endLine)
+			}
+			
+			contextBuilder.WriteString(fmt.Sprintf("**代码评论 %d** (by %s, 文件:%s, %s):\n%s\n\n", 
+				i+1,
+				comment.GetUser().GetLogin(),
+				comment.GetPath(),
+				lineRange,
+				commentBody))
+		}
+	}
+	
+	// 4. 当前需要处理的评论（突出显示）
+	contextBuilder.WriteString("## 当前需要处理的评论\n")
+	contextBuilder.WriteString(fmt.Sprintf("**文件**: %s\n", filePath))
+	contextBuilder.WriteString(fmt.Sprintf("**位置**: %s\n", lineInfo))
+	contextBuilder.WriteString(fmt.Sprintf("**评论内容**: %s\n\n", currentCommentBody))
+	
+	return contextBuilder.String(), nil
+}
+
+// buildPRContextForGeneralComment 构建PR的完整上下文信息，用于一般性PR评论（非代码行评论）
+func (a *Agent) buildPRContextForGeneralComment(ctx context.Context, pr *github.PullRequest, currentCommentBody string) (string, error) {
+	log := xlog.NewWith(ctx)
+	
+	var contextBuilder strings.Builder
+	
+	// 1. PR基本信息和描述
+	contextBuilder.WriteString("## PR背景信息\n")
+	contextBuilder.WriteString(fmt.Sprintf("**PR标题**: %s\n", pr.GetTitle()))
+	contextBuilder.WriteString(fmt.Sprintf("**PR编号**: #%d\n", pr.GetNumber()))
+	
+	if pr.GetBody() != "" {
+		contextBuilder.WriteString(fmt.Sprintf("**PR描述**:\n%s\n\n", pr.GetBody()))
+	} else {
+		contextBuilder.WriteString("**PR描述**: 无\n\n")
+	}
+	
+	// 2. 获取并添加所有Issue评论（一般性PR评论）
+	issueComments, err := a.github.GetPullRequestIssueComments(pr)
+	if err != nil {
+		log.Warnf("Failed to get PR issue comments: %v", err)
+	} else if len(issueComments) > 0 {
+		contextBuilder.WriteString("## PR讨论历史（按时间顺序）\n")
+		for i, comment := range issueComments {
+			// 过滤掉机器人评论、命令和当前评论
+			commentBody := comment.GetBody()
+			if strings.HasPrefix(commentBody, "/") || 
+			   (comment.GetUser() != nil && strings.Contains(comment.GetUser().GetLogin(), "bot")) ||
+			   commentBody == currentCommentBody {
+				continue
+			}
+			
+			contextBuilder.WriteString(fmt.Sprintf("**评论 %d** (by %s):\n%s\n\n", 
+				i+1, 
+				comment.GetUser().GetLogin(),
+				commentBody))
+		}
+	}
+	
+	// 3. 获取并添加所有代码行评论（Review评论）
+	reviewComments, err := a.github.GetPullRequestComments(pr)
+	if err != nil {
+		log.Warnf("Failed to get PR review comments: %v", err)
+	} else if len(reviewComments) > 0 {
+		contextBuilder.WriteString("## 代码评审历史（按时间顺序）\n")
+		for i, comment := range reviewComments {
+			// 过滤掉机器人评论和命令
+			commentBody := comment.GetBody()
+			if strings.HasPrefix(commentBody, "/") || 
+			   (comment.GetUser() != nil && strings.Contains(comment.GetUser().GetLogin(), "bot")) {
+				continue
+			}
+			
+			startLine := comment.GetStartLine()
+			endLine := comment.GetLine()
+			var lineRange string
+			if startLine != 0 && endLine != 0 && startLine != endLine {
+				lineRange = fmt.Sprintf("行号%d-%d", startLine, endLine)
+			} else {
+				lineRange = fmt.Sprintf("行号%d", endLine)
+			}
+			
+			contextBuilder.WriteString(fmt.Sprintf("**代码评论 %d** (by %s, 文件:%s, %s):\n%s\n\n", 
+				i+1,
+				comment.GetUser().GetLogin(),
+				comment.GetPath(),
+				lineRange,
+				commentBody))
+		}
+	}
+	
+	// 4. 当前需要处理的评论（突出显示）
+	contextBuilder.WriteString("## 当前需要处理的评论\n")
+	contextBuilder.WriteString(fmt.Sprintf("**评论内容**: %s\n\n", currentCommentBody))
+	
+	return contextBuilder.String(), nil
 }
 
 // promptWithRetry 带重试机制的 prompt 调用
