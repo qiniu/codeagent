@@ -807,7 +807,7 @@ func (a *Agent) ProcessPRFromReviewWithComment(ctx context.Context, event *githu
 
 	// 6. 构建批量处理的 prompt，包含所有 review comments 和位置信息
 	var commentContexts []string
-	
+
 	// 添加 review body 作为总体上下文
 	if event.Review.GetBody() != "" {
 		commentContexts = append(commentContexts, fmt.Sprintf("Review 总体说明：%s", event.Review.GetBody()))
@@ -829,7 +829,7 @@ func (a *Agent) ProcessPRFromReviewWithComment(ctx context.Context, event *githu
 			lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
 		}
 
-		commentContext := fmt.Sprintf("评论 %d：\n文件：%s\n%s\n内容：%s", 
+		commentContext := fmt.Sprintf("评论 %d：\n文件：%s\n%s\n内容：%s",
 			i+1, filePath, lineRangeInfo, commentBody)
 		commentContexts = append(commentContexts, commentContext)
 	}
@@ -935,7 +935,7 @@ func (a *Agent) ProcessPRFromReview(ctx context.Context, event *github.PullReque
 
 	// 6. 构建批量处理的 prompt，包含所有 review comments 和位置信息
 	var commentContexts []string
-	
+
 	// 添加 review body 作为总体上下文
 	if event.Review.GetBody() != "" {
 		commentContexts = append(commentContexts, fmt.Sprintf("Review 总体说明：%s", event.Review.GetBody()))
@@ -957,7 +957,7 @@ func (a *Agent) ProcessPRFromReview(ctx context.Context, event *github.PullReque
 			lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
 		}
 
-		commentContext := fmt.Sprintf("评论 %d：\n文件：%s\n%s\n内容：%s", 
+		commentContext := fmt.Sprintf("评论 %d：\n文件：%s\n%s\n内容：%s",
 			i+1, filePath, lineRangeInfo, commentBody)
 		commentContexts = append(commentContexts, commentContext)
 	}
@@ -1022,7 +1022,7 @@ func (a *Agent) processReviewOnly(ctx context.Context, event *github.PullRequest
 	prNumber := event.PullRequest.GetNumber()
 	reviewID := event.Review.GetID()
 	reviewBody := event.Review.GetBody()
-	
+
 	log.Infof("Processing PR #%d review %d body only: %s", prNumber, reviewID, command)
 
 	// 1. 从工作空间管理器获取 PR 信息
@@ -1252,7 +1252,7 @@ func (a *Agent) processReviewOnlyWithComment(ctx context.Context, event *github.
 	prNumber := event.PullRequest.GetNumber()
 	reviewID := event.Review.GetID()
 	reviewBody := event.Review.GetBody()
-	
+
 	log.Infof("Processing PR #%d review %d body only: %s", prNumber, reviewID, command)
 
 	// 1. 从工作空间管理器获取 PR 信息

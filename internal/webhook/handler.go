@@ -275,7 +275,7 @@ func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, bod
 	prTitle := event.PullRequest.GetTitle()
 	reviewID := event.Review.GetID()
 	reviewBody := event.Review.GetBody()
-	
+
 	log.Infof("Received PR review for PR #%d: %s, review ID: %d", prNumber, prTitle, reviewID)
 
 	// 检查是否包含批量处理命令
@@ -291,7 +291,7 @@ func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, bod
 	if strings.HasPrefix(reviewBody, "/continue") || strings.HasPrefix(reviewBody, "/fix") {
 		var command string
 		var commandArgs string
-		
+
 		if strings.HasPrefix(reviewBody, "/continue") {
 			command = "/continue"
 			commandArgs = strings.TrimSpace(strings.TrimPrefix(reviewBody, "/continue"))
@@ -308,7 +308,7 @@ func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, bod
 		if event.Review != nil && event.Review.User != nil {
 			triggerUser = event.Review.User.GetLogin()
 		}
-		
+
 		var processingCommentBody string
 		if triggerUser != "" {
 			processingCommentBody = fmt.Sprintf("@%s 正在处理您的 %s 指令，请稍候...", triggerUser, command)
