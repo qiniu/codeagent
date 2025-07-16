@@ -277,11 +277,19 @@ func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, bod
 	reviewID := event.Review.GetID()
 	reviewBody := event.Review.GetBody()
 
-	log.Infof("Received PR review for PR #%d: %s, review ID: %d", prNumber, prTitle, reviewID)
+	action := event.GetAction()
+	log.Infof("Received PR review for PR #%d: %s, review ID: %d, action: %s", prNumber, prTitle, reviewID, action)
 
 	// 检查是否包含批量处理命令
 	if event.Review == nil || event.PullRequest == nil {
 		log.Debugf("PR review event missing review or pull request data")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// 只处理 "submitted" 事件，避免在编辑或其他操作时重复触发
+	if action != "submitted" {
+		log.Debugf("Ignoring PR review event with action: %s (only process 'submitted' events)", action)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
