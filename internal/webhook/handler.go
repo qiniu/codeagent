@@ -302,16 +302,36 @@ func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, bod
 		log.Infof("Received %s command in PR review for PR #%d: %s", command, prNumber, prTitle)
 		log.Debugf("Command args: %s", commandArgs)
 
+		// 先创建一个 "正在处理" 的评论，并 @ 触发用户
+		triggerUser := ""
+		if event.Review != nil && event.Review.User != nil {
+			triggerUser = event.Review.User.GetLogin()
+		}
+		
+		var processingCommentBody string
+		if triggerUser != "" {
+			processingCommentBody = fmt.Sprintf("@%s 正在处理您的 %s 指令，请稍候...", triggerUser, command)
+		} else {
+			processingCommentBody = fmt.Sprintf("正在处理 %s 指令，请稍候...", command)
+		}
+
+		log.Infof("Creating processing comment for %s command", command)
+		processingComment, err := h.agent.CreateProcessingComment(ctx, event.PullRequest, processingCommentBody)
+		if err != nil {
+			log.Errorf("Failed to create processing comment: %v", err)
+			// 即使创建评论失败，也继续处理任务，但不传递评论 ID
+		}
+
 		// 异步执行批量处理任务
-		go func(event *github.PullRequestReviewEvent, cmd string, args string, traceCtx context.Context) {
+		go func(event *github.PullRequestReviewEvent, cmd string, args string, commentID int64, triggerUser string, traceCtx context.Context) {
 			traceLog := xlog.NewWith(traceCtx)
 			traceLog.Infof("Starting PR batch processing from review task")
-			if err := h.agent.ProcessPRFromReview(traceCtx, event, cmd, args); err != nil {
+			if err := h.agent.ProcessPRFromReviewWithComment(traceCtx, event, cmd, args, commentID, triggerUser); err != nil {
 				traceLog.Errorf("Agent process PR from review error: %v", err)
 			} else {
 				traceLog.Infof("PR batch processing from review task completed successfully")
 			}
-		}(&event, command, commandArgs, ctx)
+		}(&event, command, commandArgs, getCommentID(processingComment), triggerUser, ctx)
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("pr batch processing from review started"))
@@ -412,4 +432,12 @@ func (h *Handler) handlePush(ctx context.Context, w http.ResponseWriter, body []
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("push event received"))
+}
+
+// getCommentID 安全地从评论对象中获取 ID
+func getCommentID(comment *github.IssueComment) int64 {
+	if comment == nil {
+		return 0
+	}
+	return comment.GetID()
 }

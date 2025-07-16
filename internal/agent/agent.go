@@ -735,6 +735,156 @@ func (a *Agent) FixPRFromReviewComment(ctx context.Context, event *github.PullRe
 	return nil
 }
 
+// CreateProcessingComment 创建"正在处理"的评论
+func (a *Agent) CreateProcessingComment(ctx context.Context, pr *github.PullRequest, commentBody string) (*github.IssueComment, error) {
+	log := xlog.NewWith(ctx)
+	log.Infof("Creating processing comment for PR #%d", pr.GetNumber())
+
+	comment, err := a.github.CreatePullRequestCommentWithReturn(pr, commentBody)
+	if err != nil {
+		log.Errorf("Failed to create processing comment: %v", err)
+		return nil, err
+	}
+
+	log.Infof("Created processing comment with ID: %d", comment.GetID())
+	return comment, nil
+}
+
+// ProcessPRFromReviewWithComment 从 PR review 批量处理多个 review comments 并更新指定评论
+func (a *Agent) ProcessPRFromReviewWithComment(ctx context.Context, event *github.PullRequestReviewEvent, command string, args string, commentID int64, triggerUser string) error {
+	log := xlog.NewWith(ctx)
+
+	prNumber := event.PullRequest.GetNumber()
+	reviewID := event.Review.GetID()
+	log.Infof("Processing PR #%d from review %d with command: %s, args: %s, commentID: %d", prNumber, reviewID, command, args, commentID)
+
+	// 1. 从工作空间管理器获取 PR 信息
+	pr := event.PullRequest
+
+	// 2. 获取指定 review 的所有 comments
+	reviewComments, err := a.github.GetReviewComments(pr, reviewID)
+	if err != nil {
+		log.Errorf("Failed to get review comments: %v", err)
+		// 如果获取评论失败，也要更新处理状态
+		a.updateCommentWithError(ctx, pr, commentID, triggerUser, command, err)
+		return err
+	}
+
+	if len(reviewComments) == 0 {
+		log.Infof("No review comments found for review %d", reviewID)
+		// 如果没有review comments，但有review body，也应该处理
+		if event.Review.GetBody() != "" {
+			return a.processReviewOnlyWithComment(ctx, event, command, args, commentID, triggerUser)
+		}
+		// 更新评论说明没有找到需要处理的内容
+		a.updateCommentWithNoContent(ctx, pr, commentID, triggerUser, command)
+		return nil
+	}
+
+	log.Infof("Found %d review comments for review %d", len(reviewComments), reviewID)
+
+	// 3. 获取或创建 PR 工作空间
+	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
+	if ws == nil {
+		err := fmt.Errorf("failed to get or create workspace for PR batch processing from review")
+		a.updateCommentWithError(ctx, pr, commentID, triggerUser, command, err)
+		return err
+	}
+
+	// 4. 拉取远端最新代码
+	if err := a.github.PullLatestChanges(ws, pr); err != nil {
+		log.Errorf("Failed to pull latest changes: %v", err)
+		// 不返回错误，继续执行，因为可能是网络问题
+	}
+
+	// 5. 初始化 code client
+	code, err := a.sessionManager.GetSession(ws)
+	if err != nil {
+		log.Errorf("failed to get code client for PR batch processing from review: %v", err)
+		a.updateCommentWithError(ctx, pr, commentID, triggerUser, command, err)
+		return err
+	}
+
+	// 6. 构建批量处理的 prompt，包含所有 review comments 和位置信息
+	var commentContexts []string
+	
+	// 添加 review body 作为总体上下文
+	if event.Review.GetBody() != "" {
+		commentContexts = append(commentContexts, fmt.Sprintf("Review 总体说明：%s", event.Review.GetBody()))
+	}
+
+	// 为每个 comment 构建详细上下文
+	for i, comment := range reviewComments {
+		startLine := comment.GetStartLine()
+		endLine := comment.GetLine()
+		filePath := comment.GetPath()
+		commentBody := comment.GetBody()
+
+		var lineRangeInfo string
+		if startLine != 0 && endLine != 0 && startLine != endLine {
+			// 多行选择
+			lineRangeInfo = fmt.Sprintf("行号范围：%d-%d", startLine, endLine)
+		} else {
+			// 单行
+			lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
+		}
+
+		commentContext := fmt.Sprintf("评论 %d：\n文件：%s\n%s\n内容：%s", 
+			i+1, filePath, lineRangeInfo, commentBody)
+		commentContexts = append(commentContexts, commentContext)
+	}
+
+	// 组合所有上下文
+	allComments := strings.Join(commentContexts, "\n\n")
+
+	var prompt string
+	if command == "/continue" {
+		if args != "" {
+			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论和指令继续处理代码：\n\n%s\n\n指令：%s\n\n请一次性处理所有评论中提到的问题，确保保留代码的位置信息，回复要简洁明了。", allComments, args)
+		} else {
+			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论继续处理代码：\n\n%s\n\n请一次性处理所有评论中提到的问题，确保保留代码的位置信息，回复要简洁明了。", allComments)
+		}
+	} else { // /fix
+		if args != "" {
+			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论和指令修复代码问题：\n\n%s\n\n指令：%s\n\n请一次性修复所有评论中提到的问题，确保保留代码的位置信息，回复要简洁明了。", allComments, args)
+		} else {
+			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论修复代码问题：\n\n%s\n\n请一次性修复所有评论中提到的问题，确保保留代码的位置信息，回复要简洁明了。", allComments)
+		}
+	}
+
+	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
+	if err != nil {
+		log.Errorf("Failed to prompt for PR batch processing from review: %v", err)
+		a.updateCommentWithError(ctx, pr, commentID, triggerUser, command, err)
+		return err
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		log.Errorf("Failed to read output for PR batch processing from review: %v", err)
+		a.updateCommentWithError(ctx, pr, commentID, triggerUser, command, err)
+		return err
+	}
+
+	log.Infof("PR Batch Processing from Review Output length: %d", len(output))
+	log.Debugf("PR Batch Processing from Review Output: %s", string(output))
+
+	// 7. 提交变更并更新 PR
+	result := &models.ExecutionResult{
+		Output: string(output),
+	}
+	if err := a.github.CommitAndPush(ws, result, code); err != nil {
+		log.Errorf("Failed to commit and push for PR batch processing from review: %v", err)
+		// 即使提交失败，也要更新评论显示结果
+	}
+
+	// 8. 更新之前创建的评论，而不是创建新评论
+	a.updateCommentWithResult(ctx, pr, commentID, triggerUser, command, len(reviewComments), string(output))
+
+	log.Infof("Successfully processed PR #%d from review %d with %d comments", pr.GetNumber(), reviewID, len(reviewComments))
+	return nil
+}
+
 // ProcessPRFromReview 从 PR review 批量处理多个 review comments
 func (a *Agent) ProcessPRFromReview(ctx context.Context, event *github.PullRequestReviewEvent, command string, args string) error {
 	log := xlog.NewWith(ctx)
@@ -1026,4 +1176,176 @@ func (a *Agent) promptWithRetry(ctx context.Context, code code.Code, prompt stri
 
 	log.Errorf("All prompt attempts failed after %d attempts", maxRetries)
 	return nil, fmt.Errorf("failed after %d attempts, last error: %w", maxRetries, lastErr)
+}
+
+// updateCommentWithError 当处理出错时更新评论
+func (a *Agent) updateCommentWithError(ctx context.Context, pr *github.PullRequest, commentID int64, triggerUser string, command string, err error) {
+	log := xlog.NewWith(ctx)
+	if commentID == 0 {
+		return // 没有评论 ID，跳过更新
+	}
+
+	var errorCommentBody string
+	if triggerUser != "" {
+		errorCommentBody = fmt.Sprintf("@%s %s 指令处理失败：\n\n```\n%v\n```\n\n请检查代码或重试。", triggerUser, command, err)
+	} else {
+		errorCommentBody = fmt.Sprintf("%s 指令处理失败：\n\n```\n%v\n```\n\n请检查代码或重试。", command, err)
+	}
+
+	if updateErr := a.github.UpdatePullRequestComment(pr, commentID, errorCommentBody); updateErr != nil {
+		log.Errorf("Failed to update comment with error: %v", updateErr)
+	}
+}
+
+// updateCommentWithNoContent 当没有找到需要处理的内容时更新评论
+func (a *Agent) updateCommentWithNoContent(ctx context.Context, pr *github.PullRequest, commentID int64, triggerUser string, command string) {
+	log := xlog.NewWith(ctx)
+	if commentID == 0 {
+		return // 没有评论 ID，跳过更新
+	}
+
+	var noContentCommentBody string
+	if triggerUser != "" {
+		noContentCommentBody = fmt.Sprintf("@%s %s 指令处理完成，但没有找到需要处理的内容。", triggerUser, command)
+	} else {
+		noContentCommentBody = fmt.Sprintf("%s 指令处理完成，但没有找到需要处理的内容。", command)
+	}
+
+	if updateErr := a.github.UpdatePullRequestComment(pr, commentID, noContentCommentBody); updateErr != nil {
+		log.Errorf("Failed to update comment with no content: %v", updateErr)
+	}
+}
+
+// updateCommentWithResult 当处理成功时更新评论并显示结果
+func (a *Agent) updateCommentWithResult(ctx context.Context, pr *github.PullRequest, commentID int64, triggerUser string, command string, commentCount int, result string) {
+	log := xlog.NewWith(ctx)
+	if commentID == 0 {
+		// 没有评论 ID，使用原有的创建评论方式
+		commentBody := fmt.Sprintf("已批量处理此次 review 的 %d 个评论：\n\n%s", commentCount, result)
+		if err := a.github.CreatePullRequestComment(pr, commentBody); err != nil {
+			log.Errorf("failed to create PR comment for batch processing result: %v", err)
+		}
+		return
+	}
+
+	var resultCommentBody string
+	if triggerUser != "" {
+		resultCommentBody = fmt.Sprintf("@%s %s 指令处理完成！已批量处理 %d 个评论：\n\n%s", triggerUser, command, commentCount, result)
+	} else {
+		resultCommentBody = fmt.Sprintf("%s 指令处理完成！已批量处理 %d 个评论：\n\n%s", command, commentCount, result)
+	}
+
+	if updateErr := a.github.UpdatePullRequestComment(pr, commentID, resultCommentBody); updateErr != nil {
+		log.Errorf("Failed to update comment with result: %v", updateErr)
+		// 如果更新失败，尝试创建新评论
+		commentBody := fmt.Sprintf("已批量处理此次 review 的 %d 个评论：\n\n%s", commentCount, result)
+		if err := a.github.CreatePullRequestComment(pr, commentBody); err != nil {
+			log.Errorf("failed to create PR comment for batch processing result: %v", err)
+		}
+	}
+}
+
+// processReviewOnlyWithComment 处理只有 review body 没有 comments 的情况并更新评论
+func (a *Agent) processReviewOnlyWithComment(ctx context.Context, event *github.PullRequestReviewEvent, command string, args string, commentID int64, triggerUser string) error {
+	log := xlog.NewWith(ctx)
+
+	prNumber := event.PullRequest.GetNumber()
+	reviewID := event.Review.GetID()
+	reviewBody := event.Review.GetBody()
+	
+	log.Infof("Processing PR #%d review %d body only: %s", prNumber, reviewID, command)
+
+	// 1. 从工作空间管理器获取 PR 信息
+	pr := event.PullRequest
+
+	// 2. 获取或创建 PR 工作空间
+	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
+	if ws == nil {
+		err := fmt.Errorf("failed to get or create workspace for PR review body processing")
+		a.updateCommentWithError(ctx, pr, commentID, triggerUser, command, err)
+		return err
+	}
+
+	// 3. 拉取远端最新代码
+	if err := a.github.PullLatestChanges(ws, pr); err != nil {
+		log.Errorf("Failed to pull latest changes: %v", err)
+	}
+
+	// 4. 初始化 code client
+	code, err := a.sessionManager.GetSession(ws)
+	if err != nil {
+		log.Errorf("failed to get code client for PR review body processing: %v", err)
+		a.updateCommentWithError(ctx, pr, commentID, triggerUser, command, err)
+		return err
+	}
+
+	// 5. 构建 prompt
+	var prompt string
+	if command == "/continue" {
+		if args != "" {
+			prompt = fmt.Sprintf("请根据以下 PR Review 说明和指令继续处理代码：\n\nReview 说明：%s\n\n指令：%s\n\n请直接进行相应的修改，回复要简洁明了。", reviewBody, args)
+		} else {
+			prompt = fmt.Sprintf("请根据以下 PR Review 说明继续处理代码：\n\nReview 说明：%s\n\n请直接进行相应的修改，回复要简洁明了。", reviewBody)
+		}
+	} else { // /fix
+		if args != "" {
+			prompt = fmt.Sprintf("请根据以下 PR Review 说明和指令修复代码问题：\n\nReview 说明：%s\n\n指令：%s\n\n请直接进行相应的修改，回复要简洁明了。", reviewBody, args)
+		} else {
+			prompt = fmt.Sprintf("请根据以下 PR Review 说明修复代码问题：\n\nReview 说明：%s\n\n请直接进行相应的修改，回复要简洁明了。", reviewBody)
+		}
+	}
+
+	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
+	if err != nil {
+		log.Errorf("Failed to prompt for PR review body processing: %v", err)
+		a.updateCommentWithError(ctx, pr, commentID, triggerUser, command, err)
+		return err
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		log.Errorf("Failed to read output for PR review body processing: %v", err)
+		a.updateCommentWithError(ctx, pr, commentID, triggerUser, command, err)
+		return err
+	}
+
+	log.Infof("PR Review Body Processing Output length: %d", len(output))
+	log.Debugf("PR Review Body Processing Output: %s", string(output))
+
+	// 6. 提交变更并更新 PR
+	result := &models.ExecutionResult{
+		Output: string(output),
+	}
+	if err := a.github.CommitAndPush(ws, result, code); err != nil {
+		log.Errorf("Failed to commit and push for PR review body processing: %v", err)
+		// 即使提交失败，也要更新评论显示结果
+	}
+
+	// 7. 更新之前创建的评论
+	var resultCommentBody string
+	if triggerUser != "" {
+		resultCommentBody = fmt.Sprintf("@%s %s 指令处理完成！已根据 review 说明处理：\n\n%s", triggerUser, command, string(output))
+	} else {
+		resultCommentBody = fmt.Sprintf("%s 指令处理完成！已根据 review 说明处理：\n\n%s", command, string(output))
+	}
+
+	if commentID > 0 {
+		if updateErr := a.github.UpdatePullRequestComment(pr, commentID, resultCommentBody); updateErr != nil {
+			log.Errorf("Failed to update comment with result: %v", updateErr)
+			// 如果更新失败，尝试创建新评论
+			responseBody := fmt.Sprintf("已根据 review 说明处理：\n\n%s", string(output))
+			if err := a.github.CreatePullRequestComment(pr, responseBody); err != nil {
+				log.Errorf("failed to create PR comment for review body processing result: %v", err)
+			}
+		}
+	} else {
+		// 没有评论 ID，创建新评论
+		responseBody := fmt.Sprintf("已根据 review 说明处理：\n\n%s", string(output))
+		if err := a.github.CreatePullRequestComment(pr, responseBody); err != nil {
+			log.Errorf("failed to create PR comment for review body processing result: %v", err)
+		}
+	}
+
+	log.Infof("Successfully processed PR #%d review %d body", pr.GetNumber(), reviewID)
+	return nil
 }
