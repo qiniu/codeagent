@@ -154,22 +154,18 @@ func (a *Agent) ProcessIssueComment(ctx context.Context, event *github.IssueComm
 	}
 	log.Infof("Code client initialized successfully")
 
-	// 8. 执行代码修改，规范 prompt，要求 AI 输出结构化摘要
-	codePrompt := fmt.Sprintf(`请根据以下 Issue 内容修改代码：
+	// 8. 执行代码修改
+	codePrompt := fmt.Sprintf(`根据Issue修改代码：
 
 标题：%s
 描述：%s
 
-请直接修改代码，并按照以下格式输出你的分析和操作：
+输出格式：
+%s
+简要说明改动内容
 
 %s
-请总结本次代码改动的主要内容。
-
-%s
-请以简洁的列表形式列出具体改动：
-- 变动的文件（每个文件后面列出具体变动，如：xxx/xx.go 添加删除逻辑）
-
-请确保输出格式清晰，便于阅读和理解。`, event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
+- 列出修改的文件和具体变动`, event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
 
 	log.Infof("Executing code modification with AI")
 	codeResp, err := a.promptWithRetry(ctx, code, codePrompt, 3)
@@ -387,10 +383,10 @@ func (a *Agent) ContinuePRWithArgs(ctx context.Context, event *github.IssueComme
 	// 7. 构建 prompt，包含命令参数
 	var prompt string
 	if args != "" {
-		prompt = fmt.Sprintf("请根据以下指令继续处理这个 PR：\n\n%s\n\n请分析当前的代码变更，并根据指令执行相应的操作。", args)
+		prompt = fmt.Sprintf("根据指令继续处理PR：\n\n%s", args)
 		log.Infof("Using custom prompt with args")
 	} else {
-		prompt = "请继续处理这个 PR，分析代码变更并提供改进建议。"
+		prompt = "继续处理PR，分析代码变更并改进"
 		log.Infof("Using default prompt")
 	}
 
@@ -513,9 +509,9 @@ func (a *Agent) FixPRWithArgs(ctx context.Context, event *github.IssueCommentEve
 	// 4. 构建 prompt，包含命令参数
 	var prompt string
 	if args != "" {
-		prompt = fmt.Sprintf("请根据以下指令修复代码问题：\n\n指令：%s\n\n请直接进行修复，回复要简洁明了。", args)
+		prompt = fmt.Sprintf("根据指令修复代码问题：\n\n%s", args)
 	} else {
-		prompt = "请分析当前代码中的问题并进行修复，回复要简洁明了。"
+		prompt = "分析并修复代码问题"
 	}
 
 	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
@@ -604,9 +600,9 @@ func (a *Agent) ContinuePRFromReviewComment(ctx context.Context, event *github.P
 		lineRangeInfo)
 
 	if args != "" {
-		prompt = fmt.Sprintf("请根据以下代码行评论和指令继续处理代码：\n\n%s\n\n指令：%s\n\n请直接进行相应的修改，回复要简洁明了。", commentContext, args)
+		prompt = fmt.Sprintf("根据代码行评论和指令处理：\n\n%s\n\n指令：%s", commentContext, args)
 	} else {
-		prompt = fmt.Sprintf("请根据以下代码行评论继续处理代码：\n\n%s\n\n请直接进行相应的修改，回复要简洁明了。", commentContext)
+		prompt = fmt.Sprintf("根据代码行评论处理：\n\n%s", commentContext)
 	}
 
 	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
@@ -695,9 +691,9 @@ func (a *Agent) FixPRFromReviewComment(ctx context.Context, event *github.PullRe
 		lineRangeInfo)
 
 	if args != "" {
-		prompt = fmt.Sprintf("请根据以下代码行评论和指令修复代码问题：\n\n%s\n\n指令：%s\n\n请直接进行修复，回复要简洁明了。", commentContext, args)
+		prompt = fmt.Sprintf("根据代码行评论和指令修复：\n\n%s\n\n指令：%s", commentContext, args)
 	} else {
-		prompt = fmt.Sprintf("请根据以下代码行评论修复代码问题：\n\n%s\n\n请直接进行修复，回复要简洁明了。", commentContext)
+		prompt = fmt.Sprintf("根据代码行评论修复：\n\n%s", commentContext)
 	}
 
 	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
@@ -732,6 +728,141 @@ func (a *Agent) FixPRFromReviewComment(ctx context.Context, event *github.PullRe
 	}
 
 	log.Infof("Successfully fixed PR #%d from review comment", pr.GetNumber())
+	return nil
+}
+
+// ProcessPRFromReviewWithTriggerUser 从 PR review 批量处理多个 review comments 并在反馈中@用户
+func (a *Agent) ProcessPRFromReviewWithTriggerUser(ctx context.Context, event *github.PullRequestReviewEvent, command string, args string, triggerUser string) error {
+	log := xlog.NewWith(ctx)
+
+	prNumber := event.PullRequest.GetNumber()
+	reviewID := event.Review.GetID()
+	log.Infof("Processing PR #%d from review %d with command: %s, args: %s, triggerUser: %s", prNumber, reviewID, command, args, triggerUser)
+
+	// 1. 从工作空间管理器获取 PR 信息
+	pr := event.PullRequest
+
+	// 2. 获取指定 review 的所有 comments
+	reviewComments, err := a.github.GetReviewComments(pr, reviewID)
+	if err != nil {
+		log.Errorf("Failed to get review comments: %v", err)
+		return err
+	}
+
+	log.Infof("Found %d review comments for review %d", len(reviewComments), reviewID)
+
+	// 3. 获取或创建 PR 工作空间
+	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
+	if ws == nil {
+		return fmt.Errorf("failed to get or create workspace for PR batch processing from review")
+	}
+
+	// 4. 拉取远端最新代码
+	if err := a.github.PullLatestChanges(ws, pr); err != nil {
+		log.Errorf("Failed to pull latest changes: %v", err)
+		// 不返回错误，继续执行，因为可能是网络问题
+	}
+
+	// 5. 初始化 code client
+	code, err := a.sessionManager.GetSession(ws)
+	if err != nil {
+		log.Errorf("failed to get code client for PR batch processing from review: %v", err)
+		return err
+	}
+
+	// 6. 构建批量处理的 prompt，包含所有 review comments 和位置信息
+	var commentContexts []string
+
+	// 添加 review body 作为总体上下文
+	if event.Review.GetBody() != "" {
+		commentContexts = append(commentContexts, fmt.Sprintf("Review 总体说明：%s", event.Review.GetBody()))
+	}
+
+	// 为每个 comment 构建详细上下文
+	for i, comment := range reviewComments {
+		startLine := comment.GetStartLine()
+		endLine := comment.GetLine()
+		filePath := comment.GetPath()
+		commentBody := comment.GetBody()
+
+		var lineRangeInfo string
+		if startLine != 0 && endLine != 0 && startLine != endLine {
+			// 多行选择
+			lineRangeInfo = fmt.Sprintf("行号范围：%d-%d", startLine, endLine)
+		} else {
+			// 单行
+			lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
+		}
+
+		commentContext := fmt.Sprintf("评论 %d：\n文件：%s\n%s\n内容：%s",
+			i+1, filePath, lineRangeInfo, commentBody)
+		commentContexts = append(commentContexts, commentContext)
+	}
+
+	// 组合所有上下文
+	allComments := strings.Join(commentContexts, "\n\n")
+
+	var prompt string
+	if command == "/continue" {
+		if args != "" {
+			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论和指令继续处理代码：\n\n%s\n\n指令：%s\n\n请一次性处理所有评论中提到的问题，回复要简洁明了。", allComments, args)
+		} else {
+			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论继续处理代码：\n\n%s\n\n请一次性处理所有评论中提到的问题，回复要简洁明了。", allComments)
+		}
+	} else { // /fix
+		if args != "" {
+			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论和指令修复代码问题：\n\n%s\n\n指令：%s\n\n请一次性修复所有评论中提到的问题，回复要简洁明了。", allComments, args)
+		} else {
+			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论修复代码问题：\n\n%s\n\n请一次性修复所有评论中提到的问题，回复要简洁明了。", allComments)
+		}
+	}
+
+	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
+	if err != nil {
+		log.Errorf("Failed to prompt for PR batch processing from review: %v", err)
+		return err
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		log.Errorf("Failed to read output for PR batch processing from review: %v", err)
+		return err
+	}
+
+	log.Infof("PR Batch Processing from Review Output length: %d", len(output))
+	log.Debugf("PR Batch Processing from Review Output: %s", string(output))
+
+	// 7. 提交变更并更新 PR
+	result := &models.ExecutionResult{
+		Output: string(output),
+	}
+	if err := a.github.CommitAndPush(ws, result, code); err != nil {
+		log.Errorf("Failed to commit and push for PR batch processing from review: %v", err)
+		return err
+	}
+
+	// 8. 创建评论，包含@用户提及
+	var responseBody string
+	if triggerUser != "" {
+		if len(reviewComments) == 0 {
+			responseBody = fmt.Sprintf("@%s 已根据 review 说明处理：\n\n%s", triggerUser, string(output))
+		} else {
+			responseBody = fmt.Sprintf("@%s 已批量处理此次 review 的 %d 个评论：\n\n%s", triggerUser, len(reviewComments), string(output))
+		}
+	} else {
+		if len(reviewComments) == 0 {
+			responseBody = fmt.Sprintf("已根据 review 说明处理：\n\n%s", string(output))
+		} else {
+			responseBody = fmt.Sprintf("已批量处理此次 review 的 %d 个评论：\n\n%s", len(reviewComments), string(output))
+		}
+	}
+
+	if err = a.github.CreatePullRequestComment(pr, responseBody); err != nil {
+		log.Errorf("failed to create PR comment for batch processing result: %v", err)
+		return err
+	}
+
+	log.Infof("Successfully processed PR #%d from review %d with %d comments", pr.GetNumber(), reviewID, len(reviewComments))
 	return nil
 }
 
