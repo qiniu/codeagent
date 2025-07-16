@@ -828,16 +828,7 @@ func (a *Agent) buildPRContextForReviewComment(ctx context.Context, pr *github.P
 
 	var contextBuilder strings.Builder
 
-	// 1. PR基本信息和描述
-	contextBuilder.WriteString("## PR背景信息\n")
-	contextBuilder.WriteString(fmt.Sprintf("**PR标题**: %s\n", pr.GetTitle()))
-	contextBuilder.WriteString(fmt.Sprintf("**PR编号**: #%d\n", pr.GetNumber()))
-
-	if pr.GetBody() != "" {
-		contextBuilder.WriteString(fmt.Sprintf("**PR描述**:\n%s\n\n", pr.GetBody()))
-	} else {
-		contextBuilder.WriteString("**PR描述**: 无\n\n")
-	}
+	// 1. 跳过PR基本信息和描述，聚焦于代码评论内容
 
 	// 2. 获取并添加所有Issue评论（一般性PR评论）
 	issueComments, err := a.github.GetPullRequestIssueComments(pr)
@@ -860,13 +851,13 @@ func (a *Agent) buildPRContextForReviewComment(ctx context.Context, pr *github.P
 		}
 	}
 
-	// 3. 获取并添加所有代码行评论（Review评论），重点关注相关行
+	// 3. 获取并添加所有代码行评论（Review评论），重点关注当前行
 	reviewComments, err := a.github.GetPullRequestComments(pr)
 	if err != nil {
 		log.Warnf("Failed to get PR review comments: %v", err)
 	} else if len(reviewComments) > 0 {
-		// 分离当前文件和行的评论与其他评论
-		var currentFileComments []*github.PullRequestComment
+		// 分离当前行的评论与其他评论
+		var currentLineComments []*github.PullRequestComment
 		var otherComments []*github.PullRequestComment
 
 		// 解析当前行号信息
@@ -885,45 +876,30 @@ func (a *Agent) buildPRContextForReviewComment(ctx context.Context, pr *github.P
 				continue
 			}
 
-			// 检查是否是同一文件的评论
-			if comment.GetPath() == filePath {
-				// 进一步检查是否在相同或相近的行
-				commentLine := comment.GetLine()
-				if currentLine > 0 && commentLine > 0 && abs(commentLine-currentLine) <= 10 {
-					currentFileComments = append(currentFileComments, comment)
-				} else {
-					otherComments = append(otherComments, comment)
-				}
+			// 只关注当前行的评论，其他行的评论归为一般评论
+			if comment.GetPath() == filePath && comment.GetLine() == currentLine {
+				currentLineComments = append(currentLineComments, comment)
 			} else {
 				otherComments = append(otherComments, comment)
 			}
 		}
 
-		// 优先显示当前文件和相关行的评论
-		if len(currentFileComments) > 0 {
-			contextBuilder.WriteString("## 当前文件相关行的评论历史（重点关注）\n")
-			for i, comment := range currentFileComments {
+		// 优先显示当前行的评论，按时间顺序排列
+		if len(currentLineComments) > 0 {
+			contextBuilder.WriteString("## 当前行的评论历史（按时间顺序）\n")
+			for i, comment := range currentLineComments {
 				commentBody := comment.GetBody()
-				startLine := comment.GetStartLine()
-				endLine := comment.GetLine()
-				var lineRange string
-				if startLine != 0 && endLine != 0 && startLine != endLine {
-					lineRange = fmt.Sprintf("行号%d-%d", startLine, endLine)
-				} else {
-					lineRange = fmt.Sprintf("行号%d", endLine)
-				}
-
-				contextBuilder.WriteString(fmt.Sprintf("**🔍 相关评论 %d** (by %s, %s):\n%s\n\n",
+				contextBuilder.WriteString(fmt.Sprintf("**🔍 评论 %d** (by %s, %s):\n%s\n\n",
 					i+1,
 					comment.GetUser().GetLogin(),
-					lineRange,
+					comment.GetCreatedAt().Format("2006-01-02 15:04:05"),
 					commentBody))
 			}
 		}
 
-		// 显示其他代码评论
+		// 将其他行的评论整合到一般评论中
 		if len(otherComments) > 0 {
-			contextBuilder.WriteString("## 其他代码评审历史（按时间顺序）\n")
+			contextBuilder.WriteString("## 其他代码评审历史（统一整合）\n")
 			for i, comment := range otherComments {
 				commentBody := comment.GetBody()
 				startLine := comment.GetStartLine()
@@ -970,9 +946,6 @@ func (a *Agent) buildPRContextForGeneralComment(ctx context.Context, pr *github.
 
 	// 1. PR基本信息和描述
 	contextBuilder.WriteString("## PR背景信息\n")
-	contextBuilder.WriteString(fmt.Sprintf("**PR标题**: %s\n", pr.GetTitle()))
-	contextBuilder.WriteString(fmt.Sprintf("**PR编号**: #%d\n", pr.GetNumber()))
-
 	if pr.GetBody() != "" {
 		contextBuilder.WriteString(fmt.Sprintf("**PR描述**:\n%s\n\n", pr.GetBody()))
 	} else {
