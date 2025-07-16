@@ -14,7 +14,6 @@ import (
 	"github.com/qiniu/x/xlog"
 )
 
-
 type Handler struct {
 	config *config.Config
 	agent  *agent.Agent
@@ -47,7 +46,7 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	} else {
 		traceID = "unknown"
 	}
-	
+
 	logger := xlog.New(traceID)
 	ctx := context.WithValue(context.Background(), "logger", logger)
 	logger.Infof("Received webhook event: %s", eventType)
@@ -103,13 +102,13 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 	issueNumber := event.Issue.GetNumber()
 	issueTitle := event.Issue.GetTitle()
 
-	log.Infof("Processing issue comment: issue=#%d, title=%s, comment_length=%d", 
+	log.Infof("Processing issue comment: issue=#%d, title=%s, comment_length=%d",
 		issueNumber, issueTitle, len(comment))
 
 	// 检查是否是 PR 评论（Issue 的 PullRequest 字段不为空）
 	if event.Issue.PullRequestLinks != nil {
 		log.Infof("Detected PR comment for PR #%d", issueNumber)
-		
+
 		// 这是 PR 评论，处理 /continue 和 /fix 命令
 		if strings.HasPrefix(comment, "/continue") {
 			log.Infof("Received /continue command for PR #%d: %s", issueNumber, issueTitle)
@@ -158,7 +157,7 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 
 	// 处理 Issue 的 /code 命令
 	if strings.HasPrefix(comment, "/code") {
-		log.Infof("Received /code command for Issue: %s, title: %s", 
+		log.Infof("Received /code command for Issue: %s, title: %s",
 			event.Issue.GetHTMLURL(), issueTitle)
 
 		// 异步执行 Agent 任务
@@ -207,7 +206,7 @@ func (h *Handler) handlePRReviewComment(ctx context.Context, w http.ResponseWrit
 	comment := event.Comment.GetBody()
 	filePath := event.Comment.GetPath()
 	line := event.Comment.GetLine()
-	log.Infof("Processing PR review comment: file=%s, line=%d, comment_length=%d", 
+	log.Infof("Processing PR review comment: file=%s, line=%d, comment_length=%d",
 		filePath, line, len(comment))
 
 	if strings.HasPrefix(comment, "/continue") {
