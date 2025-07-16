@@ -2,7 +2,11 @@ package webhook
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -25,9 +29,22 @@ func NewHandler(cfg *config.Config, agent *agent.Agent) *Handler {
 
 // HandleWebhook 通用 Webhook 处理器
 func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
-	// 1. 验证 Webhook 签名（此处省略，建议用 X-Hub-Signature 校验）
+	// 1. 读取请求体（需要在验证签名之前读取）
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("invalid body"))
+		return
+	}
 
-	// 2. 获取事件类型
+	// 2. 验证 Webhook 签名
+	if !h.validateSignature(r, body) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("invalid signature"))
+		return
+	}
+
+	// 3. 获取事件类型
 	eventType := r.Header.Get("X-GitHub-Event")
 	if eventType == "" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -35,7 +52,7 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. 创建追踪 ID 和上下文
+	// 4. 创建追踪 ID 和上下文
 	// 使用 X-GitHub-Delivery header 作为 trace ID，截短到前8位
 	deliveryID := r.Header.Get("X-GitHub-Delivery")
 	var traceID string
@@ -50,16 +67,6 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	logger := xlog.New(traceID)
 	ctx := context.WithValue(context.Background(), "logger", logger)
 	logger.Infof("Received webhook event: %s", eventType)
-
-	// 4. 读取请求体
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		logger.Errorf("Failed to read request body: %v", err)
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("invalid body"))
-		return
-	}
-
 	logger.Debugf("Request body size: %d bytes", len(body))
 
 	// 5. 根据事件类型分发处理
@@ -346,4 +353,39 @@ func (h *Handler) handlePush(ctx context.Context, w http.ResponseWriter, body []
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("push event received"))
+}
+
+// validateSignature validates the GitHub webhook signature
+func (h *Handler) validateSignature(r *http.Request, body []byte) bool {
+	// Skip validation if no webhook secret is configured
+	if h.config.Server.WebhookSecret == "" {
+		return true
+	}
+
+	signature := r.Header.Get("X-Hub-Signature-256")
+	if signature == "" {
+		// Fall back to old signature header
+		signature = r.Header.Get("X-Hub-Signature")
+		if signature == "" {
+			return false
+		}
+	}
+
+	// Remove the "sha256=" or "sha1=" prefix
+	var actualSignature string
+	if strings.HasPrefix(signature, "sha256=") {
+		actualSignature = strings.TrimPrefix(signature, "sha256=")
+	} else if strings.HasPrefix(signature, "sha1=") {
+		actualSignature = strings.TrimPrefix(signature, "sha1=")
+	} else {
+		return false
+	}
+
+	// Generate expected signature
+	mac := hmac.New(sha256.New, []byte(h.config.Server.WebhookSecret))
+	mac.Write(body)
+	expectedSignature := hex.EncodeToString(mac.Sum(nil))
+
+	// Compare signatures
+	return hmac.Equal([]byte(actualSignature), []byte(expectedSignature))
 }

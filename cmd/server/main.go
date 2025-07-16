@@ -55,6 +55,20 @@ func main() {
 	if cfg.Server.WebhookSecret == "" {
 		log.Fatalf("Webhook Secret is required. Please set it via --webhook-secret flag or WEBHOOK_SECRET environment variable")
 	}
+	
+	// 验证 AI provider 的 API Key
+	switch cfg.CodeProvider {
+	case "claude":
+		if cfg.Claude.APIKey == "" {
+			log.Fatalf("Claude API Key is required when using Claude provider. Please set it via --claude-api-key flag or CLAUDE_API_KEY environment variable")
+		}
+	case "gemini":
+		if cfg.Gemini.APIKey == "" {
+			log.Fatalf("Gemini API Key is required when using Gemini provider. Please set it via GEMINI_API_KEY or GOOGLE_API_KEY environment variable")
+		}
+	default:
+		log.Fatalf("Invalid code provider: %s. Supported providers: claude, gemini", cfg.CodeProvider)
+	}
 
 	log.Infof("Configuration validated successfully")
 

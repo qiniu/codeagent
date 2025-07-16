@@ -130,12 +130,37 @@ func (c *claudeCode) Prompt(message string) (*Response, error) {
 		return nil, fmt.Errorf("failed to execute claude: %w", err)
 	}
 
-	// 不等待命令完成，让调用方处理输出流
-	// 错误处理将在调用方读取时进行
-	return &Response{Out: stdout}, nil
+	// 创建一个自定义的 io.Reader 来包装 stdout 和错误处理
+	return &Response{Out: &claudeOutputReader{
+		stdout: stdout,
+		cmd:    cmd,
+		stderr: &stderr,
+	}}, nil
 }
 
 func (c *claudeCode) Close() error {
 	stopCmd := exec.Command("docker", "rm", "-f", c.containerName)
 	return stopCmd.Run()
+}
+
+// claudeOutputReader wraps stdout and provides better error handling
+type claudeOutputReader struct {
+	stdout io.ReadCloser
+	cmd    *exec.Cmd
+	stderr *bytes.Buffer
+}
+
+func (r *claudeOutputReader) Read(p []byte) (n int, err error) {
+	n, err = r.stdout.Read(p)
+	if err == io.EOF {
+		// Command finished, check if it was successful
+		if cmdErr := r.cmd.Wait(); cmdErr != nil {
+			stderrStr := r.stderr.String()
+			if stderrStr != "" {
+				log.Errorf("Claude command failed with stderr: %s", stderrStr)
+			}
+			return n, fmt.Errorf("claude command failed: %w", cmdErr)
+		}
+	}
+	return n, err
 }
