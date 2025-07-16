@@ -866,8 +866,6 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUser(ctx context.Context, event *g
 	return nil
 }
 
-
-
 // ReviewPR 审查 PR
 func (a *Agent) ReviewPR(ctx context.Context, pr *github.PullRequest) error {
 	log := xlog.NewWith(ctx)
