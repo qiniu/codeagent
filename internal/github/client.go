@@ -415,58 +415,7 @@ func (c *Client) CreatePullRequestComment(pr *github.PullRequest, commentBody st
 	return nil
 }
 
-// CreatePullRequestCommentWithReturn 在 PR 上创建评论并返回评论对象
-func (c *Client) CreatePullRequestCommentWithReturn(pr *github.PullRequest, commentBody string) (*github.IssueComment, error) {
-	prURL := pr.GetHTMLURL()
-	log.Infof("Creating comment for PR URL: %s", prURL)
 
-	repoOwner, repoName := c.parseRepoURL(prURL)
-	if repoOwner == "" || repoName == "" {
-		return nil, fmt.Errorf("invalid repository URL: %s", prURL)
-	}
-
-	log.Infof("Parsed repository: %s/%s, PR number: %d", repoOwner, repoName, pr.GetNumber())
-
-	// 使用 Issue Comments API 来创建 PR 评论
-	// PR 实际上也是一种 Issue，所以可以使用 Issue Comments API
-	comment := &github.IssueComment{
-		Body: &commentBody,
-	}
-
-	createdComment, _, err := c.client.Issues.CreateComment(context.Background(), repoOwner, repoName, pr.GetNumber(), comment)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create PR comment: %w", err)
-	}
-
-	log.Infof("Created comment on PR #%d with ID: %d", pr.GetNumber(), createdComment.GetID())
-	return createdComment, nil
-}
-
-// UpdatePullRequestComment 更新 PR 上的评论
-func (c *Client) UpdatePullRequestComment(pr *github.PullRequest, commentID int64, newCommentBody string) error {
-	prURL := pr.GetHTMLURL()
-	log.Infof("Updating comment %d for PR URL: %s", commentID, prURL)
-
-	repoOwner, repoName := c.parseRepoURL(prURL)
-	if repoOwner == "" || repoName == "" {
-		return fmt.Errorf("invalid repository URL: %s", prURL)
-	}
-
-	log.Infof("Parsed repository: %s/%s, PR number: %d, comment ID: %d", repoOwner, repoName, pr.GetNumber(), commentID)
-
-	// 使用 Issue Comments API 来更新 PR 评论
-	comment := &github.IssueComment{
-		Body: &newCommentBody,
-	}
-
-	_, _, err := c.client.Issues.EditComment(context.Background(), repoOwner, repoName, commentID, comment)
-	if err != nil {
-		return fmt.Errorf("failed to update PR comment: %w", err)
-	}
-
-	log.Infof("Updated comment %d on PR #%d", commentID, pr.GetNumber())
-	return nil
-}
 
 // ReplyToReviewComment 回复 PR 代码行评论
 func (c *Client) ReplyToReviewComment(pr *github.PullRequest, commentID int64, commentBody string) error {
