@@ -350,20 +350,6 @@ func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullR
 	return nil
 }
 
-// Push 推送当前分支到远程
-func (c *Client) Push(workspace *models.Workspace) error {
-	// 推送到远程
-	cmd := exec.Command("git", "push")
-	cmd.Dir = workspace.Path
-	pushOutput, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to push changes: %w\nCommand output: %s", err, string(pushOutput))
-	}
-
-	log.Infof("Committed and pushed changes for Issue #%d", workspace.Issue.GetNumber())
-	return nil
-}
-
 // GetPullRequest 获取 PR 的完整信息
 func (c *Client) GetPullRequest(owner, repo string, prNumber int) (*github.PullRequest, error) {
 	pr, _, err := c.client.PullRequests.Get(context.Background(), owner, repo, prNumber)
@@ -371,21 +357,6 @@ func (c *Client) GetPullRequest(owner, repo string, prNumber int) (*github.PullR
 		return nil, fmt.Errorf("failed to get PR #%d: %w", prNumber, err)
 	}
 	return pr, nil
-}
-
-// GetPullRequestChanges 获取 PR 的变更内容 (diff)
-func (c *Client) GetPullRequestChanges(pr *github.PullRequest) (string, error) {
-	repoOwner, repoName := c.parseRepoURL(pr.GetHTMLURL())
-	if repoOwner == "" || repoName == "" {
-		return "", fmt.Errorf("invalid repository URL: %s", pr.GetHTMLURL())
-	}
-
-	diff, _, err := c.client.PullRequests.GetRaw(context.Background(), repoOwner, repoName, pr.GetNumber(), github.RawOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to get PR diff: %w", err)
-	}
-
-	return diff, nil
 }
 
 // CreatePullRequestComment 在 PR 上创建评论
@@ -414,8 +385,6 @@ func (c *Client) CreatePullRequestComment(pr *github.PullRequest, commentBody st
 	log.Infof("Created comment on PR #%d", pr.GetNumber())
 	return nil
 }
-
-
 
 // ReplyToReviewComment 回复 PR 代码行评论
 func (c *Client) ReplyToReviewComment(pr *github.PullRequest, commentID int64, commentBody string) error {
@@ -461,57 +430,13 @@ func (c *Client) UpdatePullRequest(pr *github.PullRequest, newBody string) error
 	return nil
 }
 
-// GetPullRequestComments 获取 PR 的评论
-func (c *Client) GetPullRequestComments(pr *github.PullRequest) ([]*github.PullRequestComment, error) {
-	prURL := pr.GetHTMLURL()
-	log.Infof("Getting comments for PR URL: %s", prURL)
-
-	repoOwner, repoName := c.parseRepoURL(prURL)
-	if repoOwner == "" || repoName == "" {
-		return nil, fmt.Errorf("invalid repository URL: %s", prURL)
-	}
-
-	log.Infof("Parsed repository: %s/%s, PR number: %d", repoOwner, repoName, pr.GetNumber())
-
-	comments, _, err := c.client.PullRequests.ListComments(context.Background(), repoOwner, repoName, pr.GetNumber(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get PR comments: %w", err)
-	}
-
-	return comments, nil
-}
-
-// GetPullRequestReviews 获取 PR 的所有 reviews
-func (c *Client) GetPullRequestReviews(pr *github.PullRequest) ([]*github.PullRequestReview, error) {
-	prURL := pr.GetHTMLURL()
-	log.Infof("Getting reviews for PR URL: %s", prURL)
-
-	repoOwner, repoName := c.parseRepoURL(prURL)
-	if repoOwner == "" || repoName == "" {
-		return nil, fmt.Errorf("invalid repository URL: %s", prURL)
-	}
-
-	log.Infof("Parsed repository: %s/%s, PR number: %d", repoOwner, repoName, pr.GetNumber())
-
-	reviews, _, err := c.client.PullRequests.ListReviews(context.Background(), repoOwner, repoName, pr.GetNumber(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get PR reviews: %w", err)
-	}
-
-	return reviews, nil
-}
-
 // GetReviewComments 获取指定 review 的所有 comments
 func (c *Client) GetReviewComments(pr *github.PullRequest, reviewID int64) ([]*github.PullRequestComment, error) {
 	prURL := pr.GetHTMLURL()
-	log.Infof("Getting review comments for PR URL: %s, review ID: %d", prURL, reviewID)
-
 	repoOwner, repoName := c.parseRepoURL(prURL)
 	if repoOwner == "" || repoName == "" {
 		return nil, fmt.Errorf("invalid repository URL: %s", prURL)
 	}
-
-	log.Infof("Parsed repository: %s/%s, PR number: %d, review ID: %d", repoOwner, repoName, pr.GetNumber(), reviewID)
 
 	comments, _, err := c.client.PullRequests.ListComments(context.Background(), repoOwner, repoName, pr.GetNumber(), &github.PullRequestListCommentsOptions{})
 	if err != nil {

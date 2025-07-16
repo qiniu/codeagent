@@ -419,4 +419,3 @@ func (h *Handler) handlePush(ctx context.Context, w http.ResponseWriter, body []
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("push event received"))
 }
-
