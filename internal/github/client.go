@@ -471,12 +471,32 @@ func (c *Client) GetPullRequestComments(pr *github.PullRequest) ([]*github.PullR
 
 	log.Infof("Parsed repository: %s/%s, PR number: %d", repoOwner, repoName, pr.GetNumber())
 
-	comments, _, err := c.client.PullRequests.ListComments(context.Background(), repoOwner, repoName, pr.GetNumber(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get PR comments: %w", err)
+	// 获取所有代码行评论，按时间排序
+	opts := &github.PullRequestListCommentsOptions{
+		Sort:      "created",
+		Direction: "asc",
+		ListOptions: github.ListOptions{
+			PerPage: 100,
+		},
 	}
 
-	return comments, nil
+	var allComments []*github.PullRequestComment
+	for {
+		comments, resp, err := c.client.PullRequests.ListComments(context.Background(), repoOwner, repoName, pr.GetNumber(), opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get PR comments: %w", err)
+		}
+
+		allComments = append(allComments, comments...)
+
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+
+	log.Infof("Retrieved %d PR review comments", len(allComments))
+	return allComments, nil
 }
 
 // GetPullRequestIssueComments 获取 PR 的 Issue 评论（一般性评论，不是代码行评论）

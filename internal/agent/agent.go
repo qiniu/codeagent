@@ -386,7 +386,7 @@ func (a *Agent) ContinuePRWithArgs(ctx context.Context, event *github.IssueComme
 
 	// 7. 构建 prompt，包含完整PR上下文和命令参数
 	var prompt string
-	
+
 	// 构建包含所有PR上下文的信息
 	prContext, err := a.buildPRContextForGeneralComment(ctx, pr, event.Comment.GetBody())
 	if err != nil {
@@ -525,7 +525,7 @@ func (a *Agent) FixPRWithArgs(ctx context.Context, event *github.IssueCommentEve
 
 	// 4. 构建 prompt，包含完整PR上下文和命令参数
 	var prompt string
-	
+
 	// 构建包含所有PR上下文的信息
 	prContext, err := a.buildPRContextForGeneralComment(ctx, pr, event.Comment.GetBody())
 	if err != nil {
@@ -825,20 +825,20 @@ func (a *Agent) CleanupAfterPRMerged(ctx context.Context, pr *github.PullRequest
 // buildPRContextForReviewComment 构建PR的完整上下文信息，包括PR描述和所有评论
 func (a *Agent) buildPRContextForReviewComment(ctx context.Context, pr *github.PullRequest, currentCommentBody string, filePath string, lineInfo string) (string, error) {
 	log := xlog.NewWith(ctx)
-	
+
 	var contextBuilder strings.Builder
-	
+
 	// 1. PR基本信息和描述
 	contextBuilder.WriteString("## PR背景信息\n")
 	contextBuilder.WriteString(fmt.Sprintf("**PR标题**: %s\n", pr.GetTitle()))
 	contextBuilder.WriteString(fmt.Sprintf("**PR编号**: #%d\n", pr.GetNumber()))
-	
+
 	if pr.GetBody() != "" {
 		contextBuilder.WriteString(fmt.Sprintf("**PR描述**:\n%s\n\n", pr.GetBody()))
 	} else {
 		contextBuilder.WriteString("**PR描述**: 无\n\n")
 	}
-	
+
 	// 2. 获取并添加所有Issue评论（一般性PR评论）
 	issueComments, err := a.github.GetPullRequestIssueComments(pr)
 	if err != nil {
@@ -848,76 +848,137 @@ func (a *Agent) buildPRContextForReviewComment(ctx context.Context, pr *github.P
 		for i, comment := range issueComments {
 			// 过滤掉机器人评论和命令
 			commentBody := comment.GetBody()
-			if strings.HasPrefix(commentBody, "/") || 
-			   (comment.GetUser() != nil && strings.Contains(comment.GetUser().GetLogin(), "bot")) {
+			if strings.HasPrefix(commentBody, "/") ||
+				(comment.GetUser() != nil && strings.Contains(comment.GetUser().GetLogin(), "bot")) {
 				continue
 			}
-			
-			contextBuilder.WriteString(fmt.Sprintf("**评论 %d** (by %s):\n%s\n\n", 
-				i+1, 
+
+			contextBuilder.WriteString(fmt.Sprintf("**评论 %d** (by %s):\n%s\n\n",
+				i+1,
 				comment.GetUser().GetLogin(),
 				commentBody))
 		}
 	}
-	
-	// 3. 获取并添加所有代码行评论（Review评论）
+
+	// 3. 获取并添加所有代码行评论（Review评论），重点关注相关行
 	reviewComments, err := a.github.GetPullRequestComments(pr)
 	if err != nil {
 		log.Warnf("Failed to get PR review comments: %v", err)
 	} else if len(reviewComments) > 0 {
-		contextBuilder.WriteString("## 代码评审历史（按时间顺序）\n")
-		for i, comment := range reviewComments {
+		// 分离当前文件和行的评论与其他评论
+		var currentFileComments []*github.PullRequestComment
+		var otherComments []*github.PullRequestComment
+
+		// 解析当前行号信息
+		currentLine := 0
+		if strings.Contains(lineInfo, "行号：") {
+			fmt.Sscanf(lineInfo, "行号：%d", &currentLine)
+		} else if strings.Contains(lineInfo, "行号范围：") {
+			fmt.Sscanf(lineInfo, "行号范围：%d-", &currentLine)
+		}
+
+		for _, comment := range reviewComments {
 			// 过滤掉机器人评论和命令
 			commentBody := comment.GetBody()
-			if strings.HasPrefix(commentBody, "/") || 
-			   (comment.GetUser() != nil && strings.Contains(comment.GetUser().GetLogin(), "bot")) {
+			if strings.HasPrefix(commentBody, "/") ||
+				(comment.GetUser() != nil && strings.Contains(comment.GetUser().GetLogin(), "bot")) {
 				continue
 			}
-			
-			startLine := comment.GetStartLine()
-			endLine := comment.GetLine()
-			var lineRange string
-			if startLine != 0 && endLine != 0 && startLine != endLine {
-				lineRange = fmt.Sprintf("行号%d-%d", startLine, endLine)
+
+			// 检查是否是同一文件的评论
+			if comment.GetPath() == filePath {
+				// 进一步检查是否在相同或相近的行
+				commentLine := comment.GetLine()
+				if currentLine > 0 && commentLine > 0 && abs(commentLine-currentLine) <= 10 {
+					currentFileComments = append(currentFileComments, comment)
+				} else {
+					otherComments = append(otherComments, comment)
+				}
 			} else {
-				lineRange = fmt.Sprintf("行号%d", endLine)
+				otherComments = append(otherComments, comment)
 			}
-			
-			contextBuilder.WriteString(fmt.Sprintf("**代码评论 %d** (by %s, 文件:%s, %s):\n%s\n\n", 
-				i+1,
-				comment.GetUser().GetLogin(),
-				comment.GetPath(),
-				lineRange,
-				commentBody))
+		}
+
+		// 优先显示当前文件和相关行的评论
+		if len(currentFileComments) > 0 {
+			contextBuilder.WriteString("## 当前文件相关行的评论历史（重点关注）\n")
+			for i, comment := range currentFileComments {
+				commentBody := comment.GetBody()
+				startLine := comment.GetStartLine()
+				endLine := comment.GetLine()
+				var lineRange string
+				if startLine != 0 && endLine != 0 && startLine != endLine {
+					lineRange = fmt.Sprintf("行号%d-%d", startLine, endLine)
+				} else {
+					lineRange = fmt.Sprintf("行号%d", endLine)
+				}
+
+				contextBuilder.WriteString(fmt.Sprintf("**🔍 相关评论 %d** (by %s, %s):\n%s\n\n",
+					i+1,
+					comment.GetUser().GetLogin(),
+					lineRange,
+					commentBody))
+			}
+		}
+
+		// 显示其他代码评论
+		if len(otherComments) > 0 {
+			contextBuilder.WriteString("## 其他代码评审历史（按时间顺序）\n")
+			for i, comment := range otherComments {
+				commentBody := comment.GetBody()
+				startLine := comment.GetStartLine()
+				endLine := comment.GetLine()
+				var lineRange string
+				if startLine != 0 && endLine != 0 && startLine != endLine {
+					lineRange = fmt.Sprintf("行号%d-%d", startLine, endLine)
+				} else {
+					lineRange = fmt.Sprintf("行号%d", endLine)
+				}
+
+				contextBuilder.WriteString(fmt.Sprintf("**代码评论 %d** (by %s, 文件:%s, %s):\n%s\n\n",
+					i+1,
+					comment.GetUser().GetLogin(),
+					comment.GetPath(),
+					lineRange,
+					commentBody))
+			}
 		}
 	}
-	
+
 	// 4. 当前需要处理的评论（突出显示）
 	contextBuilder.WriteString("## 当前需要处理的评论\n")
 	contextBuilder.WriteString(fmt.Sprintf("**文件**: %s\n", filePath))
 	contextBuilder.WriteString(fmt.Sprintf("**位置**: %s\n", lineInfo))
 	contextBuilder.WriteString(fmt.Sprintf("**评论内容**: %s\n\n", currentCommentBody))
-	
+
 	return contextBuilder.String(), nil
+}
+
+// abs 计算两个整数的绝对差值
+func abs(a int) int {
+	if a < 0 {
+		return -a
+	}
+	return a
 }
 
 // buildPRContextForGeneralComment 构建PR的完整上下文信息，用于一般性PR评论（非代码行评论）
 func (a *Agent) buildPRContextForGeneralComment(ctx context.Context, pr *github.PullRequest, currentCommentBody string) (string, error) {
 	log := xlog.NewWith(ctx)
-	
+
 	var contextBuilder strings.Builder
-	
+
 	// 1. PR基本信息和描述
 	contextBuilder.WriteString("## PR背景信息\n")
 	contextBuilder.WriteString(fmt.Sprintf("**PR标题**: %s\n", pr.GetTitle()))
 	contextBuilder.WriteString(fmt.Sprintf("**PR编号**: #%d\n", pr.GetNumber()))
-	
+
 	if pr.GetBody() != "" {
 		contextBuilder.WriteString(fmt.Sprintf("**PR描述**:\n%s\n\n", pr.GetBody()))
 	} else {
 		contextBuilder.WriteString("**PR描述**: 无\n\n")
 	}
-	
+
 	// 2. 获取并添加所有Issue评论（一般性PR评论）
 	issueComments, err := a.github.GetPullRequestIssueComments(pr)
 	if err != nil {
@@ -927,19 +988,19 @@ func (a *Agent) buildPRContextForGeneralComment(ctx context.Context, pr *github.
 		for i, comment := range issueComments {
 			// 过滤掉机器人评论、命令和当前评论
 			commentBody := comment.GetBody()
-			if strings.HasPrefix(commentBody, "/") || 
-			   (comment.GetUser() != nil && strings.Contains(comment.GetUser().GetLogin(), "bot")) ||
-			   commentBody == currentCommentBody {
+			if strings.HasPrefix(commentBody, "/") ||
+				(comment.GetUser() != nil && strings.Contains(comment.GetUser().GetLogin(), "bot")) ||
+				commentBody == currentCommentBody {
 				continue
 			}
-			
-			contextBuilder.WriteString(fmt.Sprintf("**评论 %d** (by %s):\n%s\n\n", 
-				i+1, 
+
+			contextBuilder.WriteString(fmt.Sprintf("**评论 %d** (by %s):\n%s\n\n",
+				i+1,
 				comment.GetUser().GetLogin(),
 				commentBody))
 		}
 	}
-	
+
 	// 3. 获取并添加所有代码行评论（Review评论）
 	reviewComments, err := a.github.GetPullRequestComments(pr)
 	if err != nil {
@@ -949,11 +1010,11 @@ func (a *Agent) buildPRContextForGeneralComment(ctx context.Context, pr *github.
 		for i, comment := range reviewComments {
 			// 过滤掉机器人评论和命令
 			commentBody := comment.GetBody()
-			if strings.HasPrefix(commentBody, "/") || 
-			   (comment.GetUser() != nil && strings.Contains(comment.GetUser().GetLogin(), "bot")) {
+			if strings.HasPrefix(commentBody, "/") ||
+				(comment.GetUser() != nil && strings.Contains(comment.GetUser().GetLogin(), "bot")) {
 				continue
 			}
-			
+
 			startLine := comment.GetStartLine()
 			endLine := comment.GetLine()
 			var lineRange string
@@ -962,8 +1023,8 @@ func (a *Agent) buildPRContextForGeneralComment(ctx context.Context, pr *github.
 			} else {
 				lineRange = fmt.Sprintf("行号%d", endLine)
 			}
-			
-			contextBuilder.WriteString(fmt.Sprintf("**代码评论 %d** (by %s, 文件:%s, %s):\n%s\n\n", 
+
+			contextBuilder.WriteString(fmt.Sprintf("**代码评论 %d** (by %s, 文件:%s, %s):\n%s\n\n",
 				i+1,
 				comment.GetUser().GetLogin(),
 				comment.GetPath(),
@@ -971,11 +1032,11 @@ func (a *Agent) buildPRContextForGeneralComment(ctx context.Context, pr *github.
 				commentBody))
 		}
 	}
-	
+
 	// 4. 当前需要处理的评论（突出显示）
 	contextBuilder.WriteString("## 当前需要处理的评论\n")
 	contextBuilder.WriteString(fmt.Sprintf("**评论内容**: %s\n\n", currentCommentBody))
-	
+
 	return contextBuilder.String(), nil
 }
 
