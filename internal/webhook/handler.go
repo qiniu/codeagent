@@ -11,6 +11,7 @@ import (
 	"github.com/qbox/codeagent/internal/config"
 
 	"github.com/google/go-github/v58/github"
+	"github.com/qiniu/x/reqid"
 	"github.com/qiniu/x/xlog"
 )
 
@@ -47,20 +48,21 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		traceID = "unknown"
 	}
 
-	logger := xlog.New(traceID)
-	ctx := context.WithValue(context.Background(), "logger", logger)
-	logger.Infof("Received webhook event: %s", eventType)
+	// 使用 reqid.NewContext 将 traceID 存储到 context 中
+	ctx := reqid.NewContext(context.Background(), traceID)
+	xl := xlog.NewWith(ctx)
+	xl.Infof("Received webhook event: %s", eventType)
 
 	// 4. 读取请求体
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		logger.Errorf("Failed to read request body: %v", err)
+		xl.Errorf("Failed to read request body: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("invalid body"))
 		return
 	}
 
-	logger.Debugf("Request body size: %d bytes", len(body))
+	xl.Debugf("Request body size: %d bytes", len(body))
 
 	// 5. 根据事件类型分发处理
 	switch eventType {
@@ -75,7 +77,7 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	case "push":
 		h.handlePush(ctx, w, body)
 	default:
-		logger.Warnf("Unhandled event type: %s", eventType)
+		xl.Warnf("Unhandled event type: %s", eventType)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("event type not handled"))
 	}
