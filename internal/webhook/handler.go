@@ -68,6 +68,8 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		h.handleIssueComment(ctx, w, body)
 	case "pull_request_review_comment":
 		h.handlePRReviewComment(ctx, w, body)
+	case "pull_request_review":
+		h.handlePRReview(ctx, w, body)
 	case "pull_request":
 		h.handlePullRequest(ctx, w, body)
 	case "push":
@@ -253,6 +255,70 @@ func (h *Handler) handlePRReviewComment(ctx context.Context, w http.ResponseWrit
 		return
 	}
 
+	w.WriteHeader(http.StatusOK)
+}
+
+// handlePRReview 处理 PR review 事件
+func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, body []byte) {
+	log := xlog.NewWith(ctx)
+
+	var event github.PullRequestReviewEvent
+	if err := json.Unmarshal(body, &event); err != nil {
+		log.Errorf("Failed to unmarshal PR review event: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("invalid pr review event"))
+		return
+	}
+
+	prNumber := event.PullRequest.GetNumber()
+	prTitle := event.PullRequest.GetTitle()
+	reviewID := event.Review.GetID()
+	reviewBody := event.Review.GetBody()
+	
+	log.Infof("Received PR review for PR #%d: %s, review ID: %d", prNumber, prTitle, reviewID)
+
+	// 检查是否包含批量处理命令
+	if event.Review == nil || event.PullRequest == nil {
+		log.Debugf("PR review event missing review or pull request data")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	log.Infof("Processing PR review: review_body_length=%d", len(reviewBody))
+
+	// 检查 review body 是否包含 /continue 或 /fix 命令
+	if strings.HasPrefix(reviewBody, "/continue") || strings.HasPrefix(reviewBody, "/fix") {
+		var command string
+		var commandArgs string
+		
+		if strings.HasPrefix(reviewBody, "/continue") {
+			command = "/continue"
+			commandArgs = strings.TrimSpace(strings.TrimPrefix(reviewBody, "/continue"))
+		} else {
+			command = "/fix"
+			commandArgs = strings.TrimSpace(strings.TrimPrefix(reviewBody, "/fix"))
+		}
+
+		log.Infof("Received %s command in PR review for PR #%d: %s", command, prNumber, prTitle)
+		log.Debugf("Command args: %s", commandArgs)
+
+		// 异步执行批量处理任务
+		go func(event *github.PullRequestReviewEvent, cmd string, args string, traceCtx context.Context) {
+			traceLog := xlog.NewWith(traceCtx)
+			traceLog.Infof("Starting PR batch processing from review task")
+			if err := h.agent.ProcessPRFromReview(traceCtx, event, cmd, args); err != nil {
+				traceLog.Errorf("Agent process PR from review error: %v", err)
+			} else {
+				traceLog.Infof("PR batch processing from review task completed successfully")
+			}
+		}(&event, command, commandArgs, ctx)
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("pr batch processing from review started"))
+		return
+	}
+
+	log.Debugf("No recognized batch command found in review body")
 	w.WriteHeader(http.StatusOK)
 }
 

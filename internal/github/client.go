@@ -479,6 +479,54 @@ func (c *Client) GetPullRequestComments(pr *github.PullRequest) ([]*github.PullR
 	return comments, nil
 }
 
+// GetPullRequestReviews 获取 PR 的所有 reviews
+func (c *Client) GetPullRequestReviews(pr *github.PullRequest) ([]*github.PullRequestReview, error) {
+	prURL := pr.GetHTMLURL()
+	log.Infof("Getting reviews for PR URL: %s", prURL)
+
+	repoOwner, repoName := c.parseRepoURL(prURL)
+	if repoOwner == "" || repoName == "" {
+		return nil, fmt.Errorf("invalid repository URL: %s", prURL)
+	}
+
+	log.Infof("Parsed repository: %s/%s, PR number: %d", repoOwner, repoName, pr.GetNumber())
+
+	reviews, _, err := c.client.PullRequests.ListReviews(context.Background(), repoOwner, repoName, pr.GetNumber(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PR reviews: %w", err)
+	}
+
+	return reviews, nil
+}
+
+// GetReviewComments 获取指定 review 的所有 comments
+func (c *Client) GetReviewComments(pr *github.PullRequest, reviewID int64) ([]*github.PullRequestComment, error) {
+	prURL := pr.GetHTMLURL()
+	log.Infof("Getting review comments for PR URL: %s, review ID: %d", prURL, reviewID)
+
+	repoOwner, repoName := c.parseRepoURL(prURL)
+	if repoOwner == "" || repoName == "" {
+		return nil, fmt.Errorf("invalid repository URL: %s", prURL)
+	}
+
+	log.Infof("Parsed repository: %s/%s, PR number: %d, review ID: %d", repoOwner, repoName, pr.GetNumber(), reviewID)
+
+	comments, _, err := c.client.PullRequests.ListComments(context.Background(), repoOwner, repoName, pr.GetNumber(), &github.PullRequestListCommentsOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get review comments: %w", err)
+	}
+
+	// 过滤出属于指定 review 的评论
+	var reviewComments []*github.PullRequestComment
+	for _, comment := range comments {
+		if comment.GetPullRequestReviewID() == reviewID {
+			reviewComments = append(reviewComments, comment)
+		}
+	}
+
+	return reviewComments, nil
+}
+
 // parseRepoURL 解析仓库 URL 获取 owner 和 repo 名称
 func (c *Client) parseRepoURL(repoURL string) (owner, repo string) {
 	// 处理 HTTPS URL: https://github.com/owner/repo.git
