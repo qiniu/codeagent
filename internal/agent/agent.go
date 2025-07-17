@@ -299,15 +299,15 @@ func extractErrorInfo(output string) string {
 	return ""
 }
 
-// ContinuePRWithArgs 继续处理 PR 中的任务，支持命令参数
-func (a *Agent) ContinuePRWithArgs(ctx context.Context, event *github.IssueCommentEvent, args string) error {
+// processPRWithArgs 处理PR的通用函数，支持不同的操作模式
+func (a *Agent) processPRWithArgs(ctx context.Context, event *github.IssueCommentEvent, args string, mode string) error {
 	log := xlog.NewWith(ctx)
 
 	prNumber := event.Issue.GetNumber()
-	log.Infof("Continue PR #%d with args: %s", prNumber, args)
+	log.Infof("%s PR #%d with args: %s", mode, prNumber, args)
 
-	// 1. 验证这是一个 PR 评论（而不是 Issue 评论）
-	if event.Issue.PullRequestLinks == nil {
+	// 1. 验证这是一个 PR 评论（仅对continue操作）
+	if mode == "Continue" && event.Issue.PullRequestLinks == nil {
 		log.Errorf("This is not a PR comment, cannot continue")
 		return fmt.Errorf("this is not a PR comment, cannot continue")
 	}
@@ -357,8 +357,8 @@ func (a *Agent) ContinuePRWithArgs(ctx context.Context, event *github.IssueComme
 	log.Infof("Getting or creating workspace for PR")
 	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
 	if ws == nil {
-		log.Errorf("Failed to get or create workspace for PR continue")
-		return fmt.Errorf("failed to get or create workspace for PR continue")
+		log.Errorf("Failed to get or create workspace for PR %s", strings.ToLower(mode))
+		return fmt.Errorf("failed to get or create workspace for PR %s", strings.ToLower(mode))
 	}
 	log.Infof("Workspace ready: %s", ws.Path)
 
@@ -396,72 +396,48 @@ func (a *Agent) ContinuePRWithArgs(ctx context.Context, event *github.IssueComme
 		currentCommentID = event.Comment.GetID()
 	}
 	historicalContext := a.formatHistoricalComments(allComments, currentCommentID)
-	
-	if args != "" {
-		if historicalContext != "" {
-			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来处理当前指令：
 
-%s
+	// 根据模式生成不同的 prompt
+	prompt = a.buildPrompt(mode, args, historicalContext)
 
-## 当前指令
-%s
+	log.Infof("Using %s prompt with args and historical context", strings.ToLower(mode))
 
-请根据上述PR描述、历史讨论和当前指令，进行相应的代码修改。注意：
-1. 当前指令是主要任务，历史信息仅作为上下文参考
-2. 请确保修改符合PR的整体目标和已有的讨论共识
-3. 如果发现与历史讨论有冲突，请优先执行当前指令并在回复中说明`, historicalContext, args)
-		} else {
-			prompt = fmt.Sprintf("根据指令继续处理PR：\n\n%s", args)
-		}
-		log.Infof("Using custom prompt with args and historical context")
-	} else {
-		if historicalContext != "" {
-			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来继续处理PR：
-
-%s
-
-## 任务
-继续处理PR，分析代码变更并改进
-
-请根据上述PR描述和历史讨论，进行相应的代码修改和改进。`, historicalContext)
-		} else {
-			prompt = "继续处理PR，分析代码变更并改进"
-		}
-		log.Infof("Using default prompt with historical context")
-	}
-
-	// 8. 执行 AI 处理
-	log.Infof("Executing AI processing for PR continue")
+	// 9. 执行 AI 处理
+	log.Infof("Executing AI processing for PR %s", strings.ToLower(mode))
 	resp, err := a.promptWithRetry(ctx, codeClient, prompt, 3)
 	if err != nil {
-		log.Errorf("Failed to process PR continue: %v", err)
-		return fmt.Errorf("failed to process PR continue: %w", err)
+		log.Errorf("Failed to process PR %s: %v", strings.ToLower(mode), err)
+		return fmt.Errorf("failed to process PR %s: %w", strings.ToLower(mode), err)
 	}
 
 	output, err := io.ReadAll(resp.Out)
 	if err != nil {
-		log.Errorf("Failed to read output for PR continue: %v", err)
-		return fmt.Errorf("failed to read output for PR continue: %w", err)
+		log.Errorf("Failed to read output for PR %s: %v", strings.ToLower(mode), err)
+		return fmt.Errorf("failed to read output for PR %s: %w", strings.ToLower(mode), err)
 	}
 
 	log.Infof("AI processing completed, output length: %d", len(output))
-	log.Debugf("PR Continue Output: %s", string(output))
+	log.Debugf("PR %s Output: %s", mode, string(output))
 
-	// 9. 提交变更并更新 PR
+	// 10. 提交变更并更新 PR
 	result := &models.ExecutionResult{
 		Output: string(output),
 		Error:  "",
 	}
 
-	log.Infof("Committing and pushing changes for PR continue")
+	log.Infof("Committing and pushing changes for PR %s", strings.ToLower(mode))
 	if err := a.github.CommitAndPush(ws, result, codeClient); err != nil {
 		log.Errorf("Failed to commit and push changes: %v", err)
-		// 不返回错误，继续执行评论
+		// 根据模式决定是否返回错误
+		if mode == "Fix" {
+			return err
+		}
+		// Continue模式不返回错误，继续执行评论
 	} else {
 		log.Infof("Changes committed and pushed successfully")
 	}
 
-	// 10. 评论到 PR
+	// 11. 评论到 PR
 	commentBody := string(output)
 	log.Infof("Creating PR comment")
 	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
@@ -470,8 +446,67 @@ func (a *Agent) ContinuePRWithArgs(ctx context.Context, event *github.IssueComme
 	}
 	log.Infof("PR comment created successfully")
 
-	log.Infof("Successfully continued PR #%d", prNumber)
+	log.Infof("Successfully %s PR #%d", strings.ToLower(mode), prNumber)
 	return nil
+}
+
+// buildPrompt 构建不同模式的 prompt
+func (a *Agent) buildPrompt(mode string, args string, historicalContext string) string {
+	var prompt string
+	var taskDescription string
+	var defaultTask string
+
+	switch mode {
+	case "Continue":
+		taskDescription = "请根据上述PR描述、历史讨论和当前指令，进行相应的代码修改。"
+		defaultTask = "继续处理PR，分析代码变更并改进"
+	case "Fix":
+		taskDescription = "请根据上述PR描述、历史讨论和当前指令，进行相应的代码修复。"
+		defaultTask = "分析并修复代码问题"
+	default:
+		taskDescription = "请根据上述PR描述、历史讨论和当前指令，进行相应的代码处理。"
+		defaultTask = "处理代码任务"
+	}
+
+	if args != "" {
+		if historicalContext != "" {
+			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
+
+%s
+
+## 当前指令
+%s
+
+%s注意：
+1. 当前指令是主要任务，历史信息仅作为上下文参考
+2. 请确保修改符合PR的整体目标和已有的讨论共识
+3. 如果发现与历史讨论有冲突，请优先执行当前指令并在回复中说明`,
+				strings.ToLower(mode), historicalContext, args, taskDescription)
+		} else {
+			prompt = fmt.Sprintf("根据指令%s：\n\n%s", strings.ToLower(mode), args)
+		}
+	} else {
+		if historicalContext != "" {
+			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
+
+%s
+
+## 任务
+%s
+
+请根据上述PR描述和历史讨论，进行相应的代码修改和改进。`,
+				strings.ToLower(mode), historicalContext, defaultTask)
+		} else {
+			prompt = defaultTask
+		}
+	}
+
+	return prompt
+}
+
+// ContinuePRWithArgs 继续处理 PR 中的任务，支持命令参数
+func (a *Agent) ContinuePRWithArgs(ctx context.Context, event *github.IssueCommentEvent, args string) error {
+	return a.processPRWithArgs(ctx, event, args, "Continue")
 }
 
 // FixPR 修复 PR 中的问题
@@ -486,149 +521,7 @@ func (a *Agent) FixPR(ctx context.Context, pr *github.PullRequest) error {
 
 // FixPRWithArgs 修复 PR 中的问题，支持命令参数
 func (a *Agent) FixPRWithArgs(ctx context.Context, event *github.IssueCommentEvent, args string) error {
-	log := xlog.NewWith(ctx)
-
-	prNumber := event.Issue.GetNumber()
-	log.Infof("Fix PR #%d with args: %s", prNumber, args)
-
-	// 1. 从 IssueCommentEvent 中提取仓库信息
-	repoURL := ""
-	repoOwner := ""
-	repoName := ""
-
-	// 优先使用 repository 字段（如果存在）
-	if event.Repo != nil {
-		repoOwner = event.Repo.GetOwner().GetLogin()
-		repoName = event.Repo.GetName()
-		repoURL = event.Repo.GetCloneURL()
-	}
-
-	// 如果 repository 字段不存在，从 Issue 的 HTML URL 中提取
-	if repoURL == "" {
-		htmlURL := event.Issue.GetHTMLURL()
-		if strings.Contains(htmlURL, "github.com") {
-			parts := strings.Split(htmlURL, "/")
-			if len(parts) >= 5 {
-				repoOwner = parts[len(parts)-4] // owner
-				repoName = parts[len(parts)-3]  // repo
-				repoURL = fmt.Sprintf("https://github.com/%s/%s.git", repoOwner, repoName)
-			}
-		}
-	}
-
-	if repoURL == "" {
-		return fmt.Errorf("failed to extract repository URL from event")
-	}
-
-	// 2. 从 GitHub API 获取完整的 PR 信息
-	pr, err := a.github.GetPullRequest(repoOwner, repoName, event.Issue.GetNumber())
-	if err != nil {
-		log.Errorf("Failed to get PR #%d: %v", event.Issue.GetNumber(), err)
-		return fmt.Errorf("failed to get PR information: %w", err)
-	}
-
-	// 2. 获取或创建 PR 工作空间
-	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
-	if ws == nil {
-		return fmt.Errorf("failed to get or create workspace for PR fix")
-	}
-
-	// 3. 拉取远端最新代码
-	if err := a.github.PullLatestChanges(ws, pr); err != nil {
-		log.Errorf("Failed to pull latest changes: %v", err)
-		// 不返回错误，继续执行，因为可能是网络问题
-	}
-
-	// 4. 初始化 code client
-	code, err := a.sessionManager.GetSession(ws)
-	if err != nil {
-		log.Errorf("failed to get code client for PR fix: %v", err)
-		return err
-	}
-
-	// 4. 获取所有PR评论历史用于构建上下文
-	log.Infof("Fetching all PR comments for historical context")
-	allComments, err := a.github.GetAllPRComments(pr)
-	if err != nil {
-		log.Warnf("Failed to get PR comments for context: %v", err)
-		// 不返回错误，使用简单的prompt
-		allComments = &models.PRAllComments{}
-	}
-
-	// 5. 构建包含历史上下文的 prompt
-	var prompt string
-	var currentCommentID int64
-	if event.Comment != nil {
-		currentCommentID = event.Comment.GetID()
-	}
-	historicalContext := a.formatHistoricalComments(allComments, currentCommentID)
-	
-	if args != "" {
-		if historicalContext != "" {
-			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来修复代码问题：
-
-%s
-
-## 当前指令
-%s
-
-请根据上述PR描述、历史讨论和当前指令，进行相应的代码修复。注意：
-1. 当前指令是主要任务，历史信息仅作为上下文参考
-2. 请确保修复符合PR的整体目标和已有的讨论共识
-3. 如果发现与历史讨论有冲突，请优先执行当前指令并在回复中说明`, historicalContext, args)
-		} else {
-			prompt = fmt.Sprintf("根据指令修复代码问题：\n\n%s", args)
-		}
-		log.Infof("Using custom prompt with args and historical context")
-	} else {
-		if historicalContext != "" {
-			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来修复代码问题：
-
-%s
-
-## 任务
-分析并修复代码问题
-
-请根据上述PR描述和历史讨论，分析并修复相关的代码问题。`, historicalContext)
-		} else {
-			prompt = "分析并修复代码问题"
-		}
-		log.Infof("Using default prompt with historical context")
-	}
-
-	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
-	if err != nil {
-		log.Errorf("Failed to prompt for PR fix: %v", err)
-		return err
-	}
-
-	output, err := io.ReadAll(resp.Out)
-	if err != nil {
-		log.Errorf("Failed to read output for PR fix: %v", err)
-		return err
-	}
-
-	log.Infof("PR Fix Output length: %d", len(output))
-	log.Debugf("PR Fix Output: %s", string(output))
-
-	// 5. 提交变更并更新 PR
-	result := &models.ExecutionResult{
-		Output: string(output),
-	}
-	if err := a.github.CommitAndPush(ws, result, code); err != nil {
-		log.Errorf("Failed to commit and push for PR fix: %v", err)
-		return err
-	}
-
-	// 6. 评论到 PR
-	commentBody := string(output)
-	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
-		log.Errorf("failed to create PR comment for fix: %v", err)
-		return err
-	}
-
-	log.Infof("Successfully fixed PR #%d", pr.GetNumber())
-	return nil
+	return a.processPRWithArgs(ctx, event, args, "Fix")
 }
 
 // ContinuePRFromReviewComment 从 PR 代码行评论继续处理任务
@@ -1032,12 +925,12 @@ func (a *Agent) promptWithRetry(ctx context.Context, code code.Code, prompt stri
 // formatHistoricalComments 格式化历史评论，用于构建上下文
 func (a *Agent) formatHistoricalComments(allComments *models.PRAllComments, currentCommentID int64) string {
 	var contextParts []string
-	
+
 	// 添加 PR 描述
 	if allComments.PRBody != "" {
 		contextParts = append(contextParts, fmt.Sprintf("## PR 描述\n%s", allComments.PRBody))
 	}
-	
+
 	// 添加历史的一般评论（排除当前评论）
 	if len(allComments.IssueComments) > 0 {
 		var historyComments []string
@@ -1053,7 +946,7 @@ func (a *Agent) formatHistoricalComments(allComments *models.PRAllComments, curr
 			contextParts = append(contextParts, fmt.Sprintf("## 历史评论\n%s", strings.Join(historyComments, "\n\n")))
 		}
 	}
-	
+
 	// 添加代码行评论
 	if len(allComments.ReviewComments) > 0 {
 		var reviewComments []string
@@ -1071,7 +964,7 @@ func (a *Agent) formatHistoricalComments(allComments *models.PRAllComments, curr
 			contextParts = append(contextParts, fmt.Sprintf("## 代码行评论\n%s", strings.Join(reviewComments, "\n\n")))
 		}
 	}
-	
+
 	// 添加 Review 评论
 	if len(allComments.Reviews) > 0 {
 		var reviews []string
@@ -1088,6 +981,6 @@ func (a *Agent) formatHistoricalComments(allComments *models.PRAllComments, curr
 			contextParts = append(contextParts, fmt.Sprintf("## Review 评论\n%s", strings.Join(reviews, "\n\n")))
 		}
 	}
-	
+
 	return strings.Join(contextParts, "\n\n")
 }

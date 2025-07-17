@@ -36,8 +36,8 @@ type ExecutionResult struct {
 
 // PRAllComments 包含 PR 的所有评论信息
 type PRAllComments struct {
-	PRBody         string                         `json:"pr_body"`
-	IssueComments  []*github.IssueComment         `json:"issue_comments"`
-	ReviewComments []*github.PullRequestComment   `json:"review_comments"`
-	Reviews        []*github.PullRequestReview    `json:"reviews"`
+	PRBody         string                       `json:"pr_body"`
+	IssueComments  []*github.IssueComment       `json:"issue_comments"`
+	ReviewComments []*github.PullRequestComment `json:"review_comments"`
+	Reviews        []*github.PullRequestReview  `json:"reviews"`
 }
