@@ -204,9 +204,16 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 	}
 
 	// 推送到远程（带冲突处理）
-	cmd = exec.Command("git", "push")
-	cmd.Dir = workspace.Path
-	pushOutput, err := cmd.CombinedOutput()
+	// 对于fork PR，确保推送到origin（fork仓库）
+	var pushCmd *exec.Cmd
+	if workspace.IsFork {
+		log.Infof("Fork PR detected, pushing to origin (fork repository)")
+		pushCmd = exec.Command("git", "push", "origin", workspace.Branch)
+	} else {
+		pushCmd = exec.Command("git", "push")
+	}
+	pushCmd.Dir = workspace.Path
+	pushOutput, err := pushCmd.CombinedOutput()
 	if err != nil {
 		pushOutputStr := string(pushOutput)
 		log.Infof("Push failed, output: %s", pushOutputStr)
@@ -216,9 +223,14 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 			log.Infof("Push failed due to remote changes, attempting to resolve conflict")
 
 			// 拉取成功后，再次尝试推送
-			cmd = exec.Command("git", "push")
-			cmd.Dir = workspace.Path
-			pushOutput2, err2 := cmd.CombinedOutput()
+			var retryPushCmd *exec.Cmd
+			if workspace.IsFork {
+				retryPushCmd = exec.Command("git", "push", "origin", workspace.Branch)
+			} else {
+				retryPushCmd = exec.Command("git", "push")
+			}
+			retryPushCmd.Dir = workspace.Path
+			pushOutput2, err2 := retryPushCmd.CombinedOutput()
 			if err2 != nil {
 				log.Errorf("Push still failed after pull, attempting force push")
 				return fmt.Errorf("failed to push changes: %w\nCommand output: %s", err2, string(pushOutput2))
@@ -231,7 +243,11 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 		return fmt.Errorf("failed to push changes: %w\nCommand output: %s", err, string(pushOutput))
 	}
 
-	log.Infof("Committed and pushed changes for Issue #%d", workspace.Issue.GetNumber())
+	if workspace.Issue != nil {
+		log.Infof("Committed and pushed changes for Issue #%d", workspace.Issue.GetNumber())
+	} else {
+		log.Infof("Committed and pushed changes for PR #%d", workspace.PRNumber)
+	}
 	return nil
 }
 
@@ -254,6 +270,17 @@ func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullR
 	}
 
 	log.Infof("PR #%d: %s -> %s", pr.GetNumber(), headBranch, baseBranch)
+
+	// 检查是否是 fork PR，如果是，需要设置 fork 仓库的远程
+	if workspace.IsFork {
+		log.Infof("Detected fork PR, setting up fork remote")
+		
+		// 为fork仓库添加远程（如果不存在）
+		err := c.setupForkRemote(workspace, pr)
+		if err != nil {
+			log.Warnf("Failed to setup fork remote: %v", err)
+		}
+	}
 
 	// 1. 获取所有远程引用
 	cmd := exec.Command("git", "fetch", "--all", "--prune")
@@ -537,7 +564,10 @@ func (c *Client) generateCommitMessage(workspace *models.Workspace, result *mode
 	}
 
 	// 构建更详细的prompt
-	prompt := fmt.Sprintf(`Please help me generate a standard English commit message that follows open source community conventions.
+	var prompt string
+	if workspace.Issue != nil {
+		// Issue workspace
+		prompt = fmt.Sprintf(`Please help me generate a standard English commit message that follows open source community conventions.
 
 Issue Information:
 - Title: %s
@@ -559,13 +589,47 @@ Please follow this format for the commit message:
 4. Finally add "Closes #%d" to link the Issue
 
 Important: Please return only the plain text commit message content, do not include any formatting marks (such as markdown syntax, etc.), and do not include any explanatory text.`,
-		workspace.Issue.GetTitle(),
-		workspace.Issue.GetBody(),
-		result.Output,
-		string(statusOutput),
-		string(diffOutput),
-		workspace.Issue.GetNumber(),
-	)
+			workspace.Issue.GetTitle(),
+			workspace.Issue.GetBody(),
+			result.Output,
+			string(statusOutput),
+			string(diffOutput),
+			workspace.Issue.GetNumber(),
+		)
+	} else {
+		// PR workspace
+		prompt = fmt.Sprintf(`Please help me generate a standard English commit message that follows open source community conventions.
+
+PR Information:
+- PR Number: #%d
+- PR Title: %s
+- PR Description: %s
+
+AI Execution Result:
+%s
+
+Git Status:
+%s
+
+Git Changes:
+%s
+
+Please follow this format for the commit message:
+1. Use conventional commits format (e.g., feat:, fix:, docs:, style:, refactor:, test:, chore:)
+2. Keep the title concise and clear, no more than 50 characters
+3. If necessary, add detailed description after an empty line
+4. Reference the PR with "#%d" in the description
+
+Important: Please return only the plain text commit message content, do not include any formatting marks (such as markdown syntax, etc.), and do not include any explanatory text.`,
+			workspace.PRNumber,
+			workspace.PullRequest.GetTitle(),
+			workspace.PullRequest.GetBody(),
+			result.Output,
+			string(statusOutput),
+			string(diffOutput),
+			workspace.PRNumber,
+		)
+	}
 
 	// 调用AI生成commit message
 	resp, err := codeClient.Prompt(prompt)
@@ -587,6 +651,43 @@ Important: Please return only the plain text commit message content, do not incl
 	}
 
 	return commitMsg, nil
+}
+
+// setupForkRemote 为fork PR设置远程仓库
+func (c *Client) setupForkRemote(workspace *models.Workspace, pr *github.PullRequest) error {
+	baseRepoURL := pr.GetBase().GetRepo().GetCloneURL()
+	forkRepoURL := pr.GetHead().GetRepo().GetCloneURL()
+	
+	log.Infof("Setting up fork remote: base=%s, fork=%s", baseRepoURL, forkRepoURL)
+	
+	// 检查是否已经有upstream远程
+	cmd := exec.Command("git", "remote", "get-url", "upstream")
+	cmd.Dir = workspace.Path
+	_, err := cmd.Output()
+	
+	if err != nil {
+		// 添加upstream远程（指向基础仓库）
+		cmd = exec.Command("git", "remote", "add", "upstream", baseRepoURL)
+		cmd.Dir = workspace.Path
+		remoteOutput, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to add upstream remote: %w\nCommand output: %s", err, string(remoteOutput))
+		}
+		log.Infof("Added upstream remote: %s", baseRepoURL)
+	} else {
+		log.Infof("Upstream remote already exists")
+	}
+	
+	// 确保origin指向fork仓库
+	cmd = exec.Command("git", "remote", "set-url", "origin", forkRepoURL)
+	cmd.Dir = workspace.Path
+	setUrlOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to set origin remote: %w\nCommand output: %s", err, string(setUrlOutput))
+	}
+	log.Infof("Set origin remote to fork: %s", forkRepoURL)
+	
+	return nil
 }
 
 // min 返回两个整数中的较小值

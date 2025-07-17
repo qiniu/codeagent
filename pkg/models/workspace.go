@@ -24,6 +24,11 @@ type Workspace struct {
 	Issue       *github.Issue       `json:"issue"`
 	PullRequest *github.PullRequest `json:"pull_request"`
 	CreatedAt   time.Time           `json:"created_at"`
+	// fork-related fields
+	IsFork         bool   `json:"is_fork"`          // 是否是fork仓库的PR
+	ForkOrg        string `json:"fork_org"`         // fork仓库的组织名
+	ForkRepo       string `json:"fork_repo"`        // fork仓库的仓库名
+	ForkRepository string `json:"fork_repository"`  // fork仓库的URL
 }
 
 type ExecutionResult struct {

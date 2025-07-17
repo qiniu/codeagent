@@ -310,6 +310,25 @@ func (m *Manager) getOrCreateRepoManager(org, repo string) *RepoManager {
 	return repoManager
 }
 
+// getOrCreateRepoManagerForFork 获取或创建fork仓库管理器
+func (m *Manager) getOrCreateRepoManagerForFork(org, repo, repoURL string) *RepoManager {
+	orgRepo := fmt.Sprintf("%s/%s", org, repo)
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// 检查是否已存在
+	if repoManager, exists := m.repoManagers[orgRepo]; exists {
+		return repoManager
+	}
+
+	// 创建新的仓库管理器 - 使用提供的 repoURL
+	repoPath := filepath.Join(m.baseDir, orgRepo)
+	repoManager := NewRepoManager(repoPath, repoURL)
+	m.repoManagers[orgRepo] = repoManager
+
+	return repoManager
+}
+
 // extractPRNumberFromWorkspaceDir 从工作空间目录名中提取 PR 号或 Issue 号
 func (m *Manager) extractPRNumberFromWorkspaceDir(workspaceDir string) int {
 	// 工作空间目录格式:
@@ -542,8 +561,31 @@ func (m *Manager) GetWorkspaceByPR(pr *github.PullRequest) *models.Workspace {
 func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest) *models.Workspace {
 	log.Infof("Creating workspace from PR #%d", pr.GetNumber())
 
-	// 获取仓库 URL
-	repoURL := pr.GetBase().GetRepo().GetCloneURL()
+	// 检查是否是 fork 仓库的 PR
+	baseRepo := pr.GetBase().GetRepo()
+	headRepo := pr.GetHead().GetRepo()
+	isFork := baseRepo.GetHTMLURL() != headRepo.GetHTMLURL()
+
+	// 获取仓库 URL - 如果是fork，使用fork仓库的URL
+	var repoURL string
+	var workingOrg, workingRepo string
+	
+	if isFork {
+		// Fork PR：使用 fork 仓库的 URL 和信息
+		repoURL = headRepo.GetCloneURL()
+		workingOrg = headRepo.GetOwner().GetLogin()
+		workingRepo = headRepo.GetName()
+		log.Infof("Fork PR detected: %s/%s -> %s/%s", 
+			workingOrg, workingRepo, 
+			baseRepo.GetOwner().GetLogin(), baseRepo.GetName())
+	} else {
+		// 普通 PR：使用基础仓库的 URL
+		repoURL = baseRepo.GetCloneURL()
+		workingOrg = baseRepo.GetOwner().GetLogin()
+		workingRepo = baseRepo.GetName()
+		log.Infof("Regular PR detected in repository: %s/%s", workingOrg, workingRepo)
+	}
+
 	if repoURL == "" {
 		log.Errorf("Failed to get repository URL for PR #%d", pr.GetNumber())
 		return nil
@@ -554,13 +596,13 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest) *models.Workspac
 
 	// 生成 PR 工作空间目录名（与 repo 同级）
 	timestamp := time.Now().Unix()
-	repo := pr.GetBase().GetRepo().GetName()
+	repo := baseRepo.GetName()
 	prDir := fmt.Sprintf("%s-pr-%d-%d", repo, pr.GetNumber(), timestamp)
 
-	org := pr.GetBase().GetRepo().GetOwner().GetLogin()
+	org := baseRepo.GetOwner().GetLogin()
 
-	// 获取或创建仓库管理器
-	repoManager := m.getOrCreateRepoManager(org, repo)
+	// 获取或创建仓库管理器 - 对于fork，使用fork仓库的信息
+	repoManager := m.getOrCreateRepoManagerForFork(workingOrg, workingRepo, repoURL)
 
 	// 创建 worktree（不创建新分支，切换到现有分支）
 	worktree, err := repoManager.CreateWorktreeWithName(prDir, prBranch, false)
@@ -584,12 +626,18 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest) *models.Workspac
 	ws := &models.Workspace{
 		Org:         org,
 		Repo:        repo,
+		PRNumber:    pr.GetNumber(),
 		Path:        worktree.Worktree,
 		SessionPath: sessionPath,
 		Repository:  repoURL,
 		Branch:      worktree.Branch,
 		PullRequest: pr,
 		CreatedAt:   time.Now(),
+		// fork 相关字段
+		IsFork:         isFork,
+		ForkOrg:        workingOrg,
+		ForkRepo:       workingRepo,
+		ForkRepository: repoURL,
 	}
 
 	// 注册到内存映射
