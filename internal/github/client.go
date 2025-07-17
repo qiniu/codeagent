@@ -454,6 +454,46 @@ func (c *Client) GetReviewComments(pr *github.PullRequest, reviewID int64) ([]*g
 	return reviewComments, nil
 }
 
+// GetAllPRComments 获取 PR 的所有评论，包括一般评论和代码行评论
+func (c *Client) GetAllPRComments(pr *github.PullRequest) (*models.PRAllComments, error) {
+	prURL := pr.GetHTMLURL()
+	repoOwner, repoName := c.parseRepoURL(prURL)
+	if repoOwner == "" || repoName == "" {
+		return nil, fmt.Errorf("invalid repository URL: %s", prURL)
+	}
+
+	prNumber := pr.GetNumber()
+	log.Infof("Fetching all comments for PR #%d", prNumber)
+
+	// 获取一般 PR 评论 (Issue Comments)
+	issueComments, _, err := c.client.Issues.ListComments(context.Background(), repoOwner, repoName, prNumber, &github.IssueListCommentsOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PR issue comments: %w", err)
+	}
+
+	// 获取代码行评论 (Review Comments)
+	reviewComments, _, err := c.client.PullRequests.ListComments(context.Background(), repoOwner, repoName, prNumber, &github.PullRequestListCommentsOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PR review comments: %w", err)
+	}
+
+	// 获取 PR 的所有 reviews
+	reviews, _, err := c.client.PullRequests.ListReviews(context.Background(), repoOwner, repoName, prNumber, &github.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PR reviews: %w", err)
+	}
+
+	log.Infof("Found %d issue comments, %d review comments, %d reviews for PR #%d",
+		len(issueComments), len(reviewComments), len(reviews), prNumber)
+
+	return &models.PRAllComments{
+		PRBody:         pr.GetBody(),
+		IssueComments:  issueComments,
+		ReviewComments: reviewComments,
+		Reviews:        reviews,
+	}, nil
+}
+
 // parseRepoURL 解析仓库 URL 获取 owner 和 repo 名称
 func (c *Client) parseRepoURL(repoURL string) (owner, repo string) {
 	// 处理 HTTPS URL: https://github.com/owner/repo.git

@@ -380,14 +380,54 @@ func (a *Agent) ContinuePRWithArgs(ctx context.Context, event *github.IssueComme
 	}
 	log.Infof("Code client initialized successfully")
 
-	// 7. 构建 prompt，包含命令参数
+	// 7. 获取所有PR评论历史用于构建上下文
+	log.Infof("Fetching all PR comments for historical context")
+	allComments, err := a.github.GetAllPRComments(pr)
+	if err != nil {
+		log.Warnf("Failed to get PR comments for context: %v", err)
+		// 不返回错误，使用简单的prompt
+		allComments = &models.PRAllComments{}
+	}
+
+	// 8. 构建包含历史上下文的 prompt
 	var prompt string
+	var currentCommentID int64
+	if event.Comment != nil {
+		currentCommentID = event.Comment.GetID()
+	}
+	historicalContext := a.formatHistoricalComments(allComments, currentCommentID)
+	
 	if args != "" {
-		prompt = fmt.Sprintf("根据指令继续处理PR：\n\n%s", args)
-		log.Infof("Using custom prompt with args")
+		if historicalContext != "" {
+			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来处理当前指令：
+
+%s
+
+## 当前指令
+%s
+
+请根据上述PR描述、历史讨论和当前指令，进行相应的代码修改。注意：
+1. 当前指令是主要任务，历史信息仅作为上下文参考
+2. 请确保修改符合PR的整体目标和已有的讨论共识
+3. 如果发现与历史讨论有冲突，请优先执行当前指令并在回复中说明`, historicalContext, args)
+		} else {
+			prompt = fmt.Sprintf("根据指令继续处理PR：\n\n%s", args)
+		}
+		log.Infof("Using custom prompt with args and historical context")
 	} else {
-		prompt = "继续处理PR，分析代码变更并改进"
-		log.Infof("Using default prompt")
+		if historicalContext != "" {
+			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来继续处理PR：
+
+%s
+
+## 任务
+继续处理PR，分析代码变更并改进
+
+请根据上述PR描述和历史讨论，进行相应的代码修改和改进。`, historicalContext)
+		} else {
+			prompt = "继续处理PR，分析代码变更并改进"
+		}
+		log.Infof("Using default prompt with historical context")
 	}
 
 	// 8. 执行 AI 处理
@@ -506,12 +546,54 @@ func (a *Agent) FixPRWithArgs(ctx context.Context, event *github.IssueCommentEve
 		return err
 	}
 
-	// 4. 构建 prompt，包含命令参数
+	// 4. 获取所有PR评论历史用于构建上下文
+	log.Infof("Fetching all PR comments for historical context")
+	allComments, err := a.github.GetAllPRComments(pr)
+	if err != nil {
+		log.Warnf("Failed to get PR comments for context: %v", err)
+		// 不返回错误，使用简单的prompt
+		allComments = &models.PRAllComments{}
+	}
+
+	// 5. 构建包含历史上下文的 prompt
 	var prompt string
+	var currentCommentID int64
+	if event.Comment != nil {
+		currentCommentID = event.Comment.GetID()
+	}
+	historicalContext := a.formatHistoricalComments(allComments, currentCommentID)
+	
 	if args != "" {
-		prompt = fmt.Sprintf("根据指令修复代码问题：\n\n%s", args)
+		if historicalContext != "" {
+			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来修复代码问题：
+
+%s
+
+## 当前指令
+%s
+
+请根据上述PR描述、历史讨论和当前指令，进行相应的代码修复。注意：
+1. 当前指令是主要任务，历史信息仅作为上下文参考
+2. 请确保修复符合PR的整体目标和已有的讨论共识
+3. 如果发现与历史讨论有冲突，请优先执行当前指令并在回复中说明`, historicalContext, args)
+		} else {
+			prompt = fmt.Sprintf("根据指令修复代码问题：\n\n%s", args)
+		}
+		log.Infof("Using custom prompt with args and historical context")
 	} else {
-		prompt = "分析并修复代码问题"
+		if historicalContext != "" {
+			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来修复代码问题：
+
+%s
+
+## 任务
+分析并修复代码问题
+
+请根据上述PR描述和历史讨论，分析并修复相关的代码问题。`, historicalContext)
+		} else {
+			prompt = "分析并修复代码问题"
+		}
+		log.Infof("Using default prompt with historical context")
 	}
 
 	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
@@ -945,4 +1027,67 @@ func (a *Agent) promptWithRetry(ctx context.Context, code code.Code, prompt stri
 
 	log.Errorf("All prompt attempts failed after %d attempts", maxRetries)
 	return nil, fmt.Errorf("failed after %d attempts, last error: %w", maxRetries, lastErr)
+}
+
+// formatHistoricalComments 格式化历史评论，用于构建上下文
+func (a *Agent) formatHistoricalComments(allComments *models.PRAllComments, currentCommentID int64) string {
+	var contextParts []string
+	
+	// 添加 PR 描述
+	if allComments.PRBody != "" {
+		contextParts = append(contextParts, fmt.Sprintf("## PR 描述\n%s", allComments.PRBody))
+	}
+	
+	// 添加历史的一般评论（排除当前评论）
+	if len(allComments.IssueComments) > 0 {
+		var historyComments []string
+		for _, comment := range allComments.IssueComments {
+			if comment.GetID() != currentCommentID {
+				user := comment.GetUser().GetLogin()
+				body := comment.GetBody()
+				createdAt := comment.GetCreatedAt().Format("2006-01-02 15:04:05")
+				historyComments = append(historyComments, fmt.Sprintf("**%s** (%s):\n%s", user, createdAt, body))
+			}
+		}
+		if len(historyComments) > 0 {
+			contextParts = append(contextParts, fmt.Sprintf("## 历史评论\n%s", strings.Join(historyComments, "\n\n")))
+		}
+	}
+	
+	// 添加代码行评论
+	if len(allComments.ReviewComments) > 0 {
+		var reviewComments []string
+		for _, comment := range allComments.ReviewComments {
+			if comment.GetID() != currentCommentID {
+				user := comment.GetUser().GetLogin()
+				body := comment.GetBody()
+				path := comment.GetPath()
+				line := comment.GetLine()
+				createdAt := comment.GetCreatedAt().Format("2006-01-02 15:04:05")
+				reviewComments = append(reviewComments, fmt.Sprintf("**%s** (%s) - %s:%d:\n%s", user, createdAt, path, line, body))
+			}
+		}
+		if len(reviewComments) > 0 {
+			contextParts = append(contextParts, fmt.Sprintf("## 代码行评论\n%s", strings.Join(reviewComments, "\n\n")))
+		}
+	}
+	
+	// 添加 Review 评论
+	if len(allComments.Reviews) > 0 {
+		var reviews []string
+		for _, review := range allComments.Reviews {
+			if review.GetBody() != "" {
+				user := review.GetUser().GetLogin()
+				body := review.GetBody()
+				state := review.GetState()
+				createdAt := review.GetSubmittedAt().Format("2006-01-02 15:04:05")
+				reviews = append(reviews, fmt.Sprintf("**%s** (%s) - %s:\n%s", user, createdAt, state, body))
+			}
+		}
+		if len(reviews) > 0 {
+			contextParts = append(contextParts, fmt.Sprintf("## Review 评论\n%s", strings.Join(reviews, "\n\n")))
+		}
+	}
+	
+	return strings.Join(contextParts, "\n\n")
 }
