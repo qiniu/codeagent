@@ -52,12 +52,12 @@ func (a *Agent) StartCleanupRoutine() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		a.cleanupExpiredResouces()
+		a.cleanupExpiredResources()
 	}
 }
 
-// cleanupExpiredResouces 清理过期的工作空间
-func (a *Agent) cleanupExpiredResouces() {
+// cleanupExpiredResources 清理过期的工作空间
+func (a *Agent) cleanupExpiredResources() {
 	m := a.workspace
 
 	// 先收集过期的工作空间，避免在持有锁时调用可能获取锁的方法
@@ -141,10 +141,7 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	// 5. 创建 session 目录
 	// 从PR目录名中提取suffix
 	prDirName := filepath.Base(ws.Path)
-	var suffix string
-	// 目录格式：{aiModel}-{repo}-pr-{prNumber}-{timestamp}
-	expectedPrefix := fmt.Sprintf("%s-%s-pr-%d-", ws.AIModel, ws.Repo, pr.GetNumber())
-	suffix = strings.TrimPrefix(prDirName, expectedPrefix)
+	suffix := a.workspace.ExtractSuffixFromPRDir(ws.AIModel, ws.Repo, pr.GetNumber(), prDirName)
 
 	sessionPath, err := a.workspace.CreateSessionPath(filepath.Dir(ws.Path), ws.AIModel, ws.Repo, pr.GetNumber(), suffix)
 	if err != nil {

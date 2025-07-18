@@ -33,6 +33,48 @@ func keyWithAI(orgRepo string, prNumber int, aiModel string) string {
 	return fmt.Sprintf("%s/%s/%d", aiModel, orgRepo, prNumber)
 }
 
+// 目录格式相关的公共方法
+
+// GenerateIssueDirName 生成Issue目录名
+func (m *Manager) GenerateIssueDirName(aiModel, repo string, issueNumber int, timestamp int64) string {
+	return m.dirFormatter.generateIssueDirName(aiModel, repo, issueNumber, timestamp)
+}
+
+// GeneratePRDirName 生成PR目录名
+func (m *Manager) GeneratePRDirName(aiModel, repo string, prNumber int, timestamp int64) string {
+	return m.dirFormatter.generatePRDirName(aiModel, repo, prNumber, timestamp)
+}
+
+// GenerateSessionDirName 生成Session目录名
+func (m *Manager) GenerateSessionDirName(aiModel, repo string, prNumber int, timestamp int64) string {
+	return m.dirFormatter.generateSessionDirName(aiModel, repo, prNumber, timestamp)
+}
+
+// ParsePRDirName 解析PR目录名
+func (m *Manager) ParsePRDirName(dirName string) (*PRDirFormat, error) {
+	return m.dirFormatter.parsePRDirName(dirName)
+}
+
+// ExtractSuffixFromPRDir 从PR目录名中提取suffix
+func (m *Manager) ExtractSuffixFromPRDir(aiModel, repo string, prNumber int, dirName string) string {
+	return m.dirFormatter.extractSuffixFromPRDir(aiModel, repo, prNumber, dirName)
+}
+
+// ExtractSuffixFromIssueDir 从Issue目录名中提取suffix
+func (m *Manager) ExtractSuffixFromIssueDir(aiModel, repo string, issueNumber int, dirName string) string {
+	return m.dirFormatter.extractSuffixFromIssueDir(aiModel, repo, issueNumber, dirName)
+}
+
+// createSessionPath 创建Session目录路径
+func (m *Manager) createSessionPath(underPath, aiModel, repo string, prNumber int, suffix string) string {
+	return m.dirFormatter.createSessionPath(underPath, aiModel, repo, prNumber, suffix)
+}
+
+// createSessionPathWithTimestamp 创建Session目录路径（使用时间戳）
+func (m *Manager) createSessionPathWithTimestamp(underPath, aiModel, repo string, prNumber int, timestamp int64) string {
+	return m.dirFormatter.createSessionPathWithTimestamp(underPath, aiModel, repo, prNumber, timestamp)
+}
+
 // ExtractAIModelFromBranch 从分支名称中提取AI模型信息
 // 分支格式: codeagent/{aimodel}/{type}-{number}-{timestamp}
 func (m *Manager) ExtractAIModelFromBranch(branchName string) string {
@@ -60,12 +102,15 @@ func (m *Manager) ExtractAIModelFromBranch(branchName string) string {
 type Manager struct {
 	baseDir string
 
-	// key: org/repo/pr-number
+	// key: aimodel/org/repo/pr-number
 	workspaces map[string]*models.Workspace
 	// key: org/repo
 	repoManagers map[string]*RepoManager
 	mutex        sync.RWMutex
 	config       *config.Config
+
+	// 目录格式管理器
+	dirFormatter *dirFormatter
 }
 
 func NewManager(cfg *config.Config) *Manager {
@@ -74,6 +119,7 @@ func NewManager(cfg *config.Config) *Manager {
 		workspaces:   make(map[string]*models.Workspace),
 		repoManagers: make(map[string]*RepoManager),
 		config:       cfg,
+		dirFormatter: newDirFormatter(),
 	}
 
 	// 启动时恢复现有工作空间
@@ -140,11 +186,11 @@ func (m *Manager) cleanupWorkspaceWithWorktree(ws *models.Workspace) bool {
 
 	// 移除 worktree
 	worktreeRemoved := false
-	if err := repoManager.RemoveWorktree(entityNumber); err != nil {
-		log.Errorf("Failed to remove worktree for entity #%d: %v", entityNumber, err)
+	if err := repoManager.RemoveWorktreeWithAI(entityNumber, ws.AIModel); err != nil {
+		log.Errorf("Failed to remove worktree for entity #%d with AI model %s: %v", entityNumber, ws.AIModel, err)
 	} else {
 		worktreeRemoved = true
-		log.Infof("Successfully removed worktree for entity #%d", entityNumber)
+		log.Infof("Successfully removed worktree for entity #%d with AI model %s", entityNumber, ws.AIModel)
 	}
 
 	// 删除 session 目录
@@ -309,8 +355,9 @@ func (m *Manager) recoverPRWorkspace(org, repo, worktreePath, remoteURL string, 
 	}
 
 	// 创建对应的 session 目录（与 repo 同级）
-	// 新的session目录格式：{aiModel}-{repo}-session-{prNumber}-{timestamp}
-	sessionPath := filepath.Join(m.baseDir, org, fmt.Sprintf("%s-%s-session-%d-%s", aiModel, repo, prNumber, timestamp))
+	// session目录格式：{aiModel}-{repo}-session-{prNumber}-{timestamp}
+	timestampInt, _ := strconv.ParseInt(timestamp, 10, 64)
+	sessionPath := m.createSessionPathWithTimestamp(m.baseDir, aiModel, repo, prNumber, timestampInt)
 
 	// 恢复工作空间对象
 	ws := &models.Workspace{
@@ -363,42 +410,6 @@ func (m *Manager) getOrCreateRepoManager(org, repo string) *RepoManager {
 	m.repoManagers[orgRepo] = repoManager
 
 	return repoManager
-}
-
-// extractPRNumberFromWorkspaceDir 从工作空间目录名中提取 PR 号或 Issue 号
-func (m *Manager) extractPRNumberFromWorkspaceDir(workspaceDir string) int {
-	// 工作空间目录格式:
-	// - {repo}-pr-{number}-{timestamp} 例如: codeagent-pr-91-1752121132
-	// - {repo}-issue-{number}-{timestamp} 例如: codeagent-issue-11-1752121132
-	if strings.Contains(workspaceDir, "-pr-") {
-		return m.extractPRNumberFromPRDir(workspaceDir)
-	} else if strings.Contains(workspaceDir, "-issue-") {
-		// 对于 Issue 目录，提取 Issue 号
-		parts := strings.Split(workspaceDir, "-issue-")
-		if len(parts) >= 2 {
-			numberParts := strings.Split(parts[1], "-")
-			if len(numberParts) >= 1 {
-				if number, err := strconv.Atoi(numberParts[0]); err == nil {
-					return number
-				}
-			}
-		}
-	}
-	return 0
-}
-
-// extractRepoName 从仓库 URL 中提取仓库名
-func (m *Manager) extractRepoName(repoURL string) string {
-	// 移除 .git 后缀
-	repoURL = strings.TrimSuffix(repoURL, ".git")
-
-	// 分割 URL 获取最后一部分作为仓库名
-	parts := strings.Split(repoURL, "/")
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
-	}
-
-	return "unknown"
 }
 
 // extractOrgRepoPath 从仓库 URL 中提取 org/repo 路径
@@ -488,9 +499,9 @@ func (m *Manager) GetWorktreeCount() int {
 }
 
 func (m *Manager) CreateSessionPath(underPath, aiModel, repo string, prNumber int, suffix string) (string, error) {
-	// 新的session目录格式：{aiModel}-{repo}-session-{prNumber}-{timestamp}
+	// session目录格式：{aiModel}-{repo}-session-{prNumber}-{timestamp}
 	// 只保留时间戳部分，避免重复信息
-	sessionPath := filepath.Join(underPath, fmt.Sprintf("%s-%s-session-%d-%s", aiModel, repo, prNumber, suffix))
+	sessionPath := m.createSessionPath(underPath, aiModel, repo, prNumber, suffix)
 	if err := os.MkdirAll(sessionPath, 0755); err != nil {
 		log.Errorf("Failed to create session directory: %v", err)
 		return "", err
@@ -524,12 +535,7 @@ func (m *Manager) CreateWorkspaceFromIssueWithAI(issue *github.Issue, aiModel st
 	}
 
 	// 生成 Issue 工作空间目录名（与 repo 同级），包含AI模型信息
-	var issueDir string
-	if aiModel != "" {
-		issueDir = fmt.Sprintf("%s-%s-issue-%d-%d", aiModel, repo, issue.GetNumber(), timestamp)
-	} else {
-		issueDir = fmt.Sprintf("%s-issue-%d-%d", repo, issue.GetNumber(), timestamp)
-	}
+	issueDir := m.GenerateIssueDirName(aiModel, repo, issue.GetNumber(), timestamp)
 
 	// 获取或创建仓库管理器
 	repoManager := m.getOrCreateRepoManager(org, repo)
@@ -561,19 +567,10 @@ func (m *Manager) CreateWorkspaceFromIssueWithAI(issue *github.Issue, aiModel st
 
 // MoveIssueToPR 使用 git worktree move 将 Issue 工作空间移动到 PR 工作空间
 func (m *Manager) MoveIssueToPR(ws *models.Workspace, prNumber int) error {
-	// 根据是否有AI模型来构建新的命名
-	var oldPrefix, newWorktreeName string
-	if ws.AIModel != "" {
-		// 有AI模型的情况: aimodel-repo-issue-number-timestamp -> aimodel-repo-pr-number-timestamp
-		oldPrefix = fmt.Sprintf("%s-%s-issue-%d-", ws.AIModel, ws.Repo, ws.Issue.GetNumber())
-		issueSuffix := strings.TrimPrefix(filepath.Base(ws.Path), oldPrefix)
-		newWorktreeName = fmt.Sprintf("%s-%s-pr-%d-%s", ws.AIModel, ws.Repo, prNumber, issueSuffix)
-	} else {
-		// 没有AI模型的情况: repo-issue-number-timestamp -> repo-pr-number-timestamp
-		oldPrefix = fmt.Sprintf("%s-issue-%d-", ws.Repo, ws.Issue.GetNumber())
-		issueSuffix := strings.TrimPrefix(filepath.Base(ws.Path), oldPrefix)
-		newWorktreeName = fmt.Sprintf("%s-pr-%d-%s", ws.Repo, prNumber, issueSuffix)
-	}
+	// 构建新的命名: aimodel-repo-issue-number-timestamp -> aimodel-repo-pr-number-timestamp
+	oldPrefix := fmt.Sprintf("%s-%s-issue-%d-", ws.AIModel, ws.Repo, ws.Issue.GetNumber())
+	issueSuffix := strings.TrimPrefix(filepath.Base(ws.Path), oldPrefix)
+	newWorktreeName := fmt.Sprintf("%s-%s-pr-%d-%s", ws.AIModel, ws.Repo, prNumber, issueSuffix)
 
 	newWorktreePath := filepath.Join(filepath.Dir(ws.Path), newWorktreeName)
 	log.Infof("try to move workspace from %s to %s", ws.Path, newWorktreePath)
@@ -605,7 +602,7 @@ func (m *Manager) MoveIssueToPR(ws *models.Workspace, prNumber int) error {
 		Worktree: ws.Path,
 		Branch:   ws.Branch,
 	}
-	repoManager.RegisterWorktree(prNumber, worktree)
+	repoManager.RegisterWorktreeWithAI(prNumber, ws.AIModel, worktree)
 	return nil
 }
 
@@ -670,12 +667,7 @@ func (m *Manager) CreateWorkspaceFromPRWithAI(pr *github.PullRequest, aiModel st
 	// 生成 PR 工作空间目录名（与 repo 同级），包含AI模型信息
 	timestamp := time.Now().Unix()
 	repo := pr.GetBase().GetRepo().GetName()
-	var prDir string
-	if aiModel != "" {
-		prDir = fmt.Sprintf("%s-%s-pr-%d-%d", aiModel, repo, pr.GetNumber(), timestamp)
-	} else {
-		prDir = fmt.Sprintf("%s-pr-%d-%d", repo, pr.GetNumber(), timestamp)
-	}
+	prDir := m.GeneratePRDirName(aiModel, repo, pr.GetNumber(), timestamp)
 
 	org := pr.GetBase().GetRepo().GetOwner().GetLogin()
 
@@ -690,10 +682,12 @@ func (m *Manager) CreateWorkspaceFromPRWithAI(pr *github.PullRequest, aiModel st
 	}
 
 	// 注册worktree 到内存中
-	repoManager.RegisterWorktree(pr.GetNumber(), worktree)
+	repoManager.RegisterWorktreeWithAI(pr.GetNumber(), aiModel, worktree)
 
 	// 创建 session 目录
-	suffix := strings.TrimPrefix(filepath.Base(worktree.Worktree), fmt.Sprintf("%s-pr-%d-", repo, pr.GetNumber()))
+	// 从PR目录名中提取suffix，支持新的目录格式：{aiModel}-{repo}-pr-{prNumber}-{timestamp}
+	prDirName := filepath.Base(worktree.Worktree)
+	suffix := m.ExtractSuffixFromPRDir(aiModel, repo, pr.GetNumber(), prDirName)
 	sessionPath, err := m.CreateSessionPath(filepath.Dir(repoManager.GetRepoPath()), aiModel, repo, pr.GetNumber(), suffix)
 	if err != nil {
 		log.Errorf("Failed to create session directory: %v", err)
@@ -705,6 +699,7 @@ func (m *Manager) CreateWorkspaceFromPRWithAI(pr *github.PullRequest, aiModel st
 		Org:         org,
 		Repo:        repo,
 		AIModel:     aiModel,
+		PRNumber:    pr.GetNumber(),
 		Path:        worktree.Worktree,
 		SessionPath: sessionPath,
 		Repository:  repoURL,
@@ -805,7 +800,9 @@ func (m *Manager) validateWorkspaceForPR(ws *models.Workspace, pr *github.PullRe
 
 // extractPRNumberFromPRDir 从 PR 目录名提取 PR 号
 func (m *Manager) extractPRNumberFromPRDir(prDir string) int {
-	// PR 目录格式: {repo}-pr-{number}-{timestamp}
+	// PR 目录格式:
+	// - {aiModel}-{repo}-pr-{number}-{timestamp} (有AI模型)
+	// - {repo}-pr-{number}-{timestamp} (无AI模型)
 	if strings.Contains(prDir, "-pr-") {
 		parts := strings.Split(prDir, "-pr-")
 		if len(parts) >= 2 {
@@ -822,7 +819,9 @@ func (m *Manager) extractPRNumberFromPRDir(prDir string) int {
 
 // extractIssueNumberFromIssueDir 从 Issue 目录名提取 Issue 号
 func (m *Manager) extractIssueNumberFromIssueDir(issueDir string) int {
-	// Issue 目录格式: {repo}-issue-{number}-{timestamp}
+	// Issue 目录格式:
+	// - {aiModel}-{repo}-issue-{number}-{timestamp} (有AI模型)
+	// - {repo}-issue-{number}-{timestamp} (无AI模型)
 	if strings.Contains(issueDir, "-issue-") {
 		parts := strings.Split(issueDir, "-issue-")
 		if len(parts) >= 2 {
