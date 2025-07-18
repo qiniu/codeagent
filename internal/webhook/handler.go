@@ -26,10 +26,7 @@ func NewHandler(cfg *config.Config, agent *agent.Agent) *Handler {
 }
 
 // parseCommandArgs 解析命令参数，提取AI模型和其他参数
-func parseCommandArgs(comment, command string) (aiModel, args string) {
-	// 默认使用配置中的AI模型
-	aiModel = ""
-	
+func parseCommandArgs(comment, command string, defaultAIModel string) (aiModel, args string) {
 	// 提取命令参数
 	commandArgs := strings.TrimSpace(strings.TrimPrefix(comment, command))
 	
@@ -41,7 +38,8 @@ func parseCommandArgs(comment, command string) (aiModel, args string) {
 		aiModel = "gemini"
 		args = strings.TrimSpace(strings.TrimPrefix(commandArgs, "-gemini"))
 	} else {
-		// 没有指定AI模型，使用所有参数作为args
+		// 没有指定AI模型，使用默认配置
+		aiModel = defaultAIModel
 		args = commandArgs
 	}
 	
@@ -161,7 +159,7 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 			log.Infof("Received /continue command for PR #%d: %s", issueNumber, issueTitle)
 
 			// 解析AI模型参数
-			aiModel, args := parseCommandArgs(comment, "/continue")
+			aiModel, args := parseCommandArgs(comment, "/continue", h.config.CodeProvider)
 			log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
 			// 异步执行继续任务
@@ -182,7 +180,7 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 			log.Infof("Received /fix command for PR #%d: %s", issueNumber, issueTitle)
 
 			// 解析AI模型参数
-			aiModel, args := parseCommandArgs(comment, "/fix")
+			aiModel, args := parseCommandArgs(comment, "/fix", h.config.CodeProvider)
 			log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
 			// 异步执行修复任务
@@ -208,7 +206,7 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 			event.Issue.GetHTMLURL(), issueTitle)
 
 		// 解析AI模型参数
-		aiModel, args := parseCommandArgs(comment, "/code")
+		aiModel, args := parseCommandArgs(comment, "/code", h.config.CodeProvider)
 		log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
 		// 异步执行 Agent 任务
@@ -264,7 +262,7 @@ func (h *Handler) handlePRReviewComment(ctx context.Context, w http.ResponseWrit
 		log.Infof("Received /continue command in PR review comment for PR #%d: %s", prNumber, prTitle)
 
 		// 解析AI模型参数
-		aiModel, args := parseCommandArgs(comment, "/continue")
+		aiModel, args := parseCommandArgs(comment, "/continue", h.config.CodeProvider)
 		log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
 		// 异步执行继续任务
@@ -285,7 +283,7 @@ func (h *Handler) handlePRReviewComment(ctx context.Context, w http.ResponseWrit
 		log.Infof("Received /fix command in PR review comment for PR #%d: %s", prNumber, prTitle)
 
 		// 解析AI模型参数
-		aiModel, args := parseCommandArgs(comment, "/fix")
+		aiModel, args := parseCommandArgs(comment, "/fix", h.config.CodeProvider)
 		log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
 		// 异步执行修复任务
@@ -351,10 +349,10 @@ func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, bod
 
 		if strings.HasPrefix(reviewBody, "/continue") {
 			command = "/continue"
-			aiModel, args = parseCommandArgs(reviewBody, "/continue")
+			aiModel, args = parseCommandArgs(reviewBody, "/continue", h.config.CodeProvider)
 		} else {
 			command = "/fix"
-			aiModel, args = parseCommandArgs(reviewBody, "/fix")
+			aiModel, args = parseCommandArgs(reviewBody, "/fix", h.config.CodeProvider)
 		}
 
 		log.Infof("Received %s command in PR review for PR #%d: %s", command, prNumber, prTitle)

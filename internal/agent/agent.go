@@ -72,19 +72,23 @@ func (a *Agent) cleanupExpiredResouces() {
 
 	// 清理过期的工作空间 和 code session
 	for _, ws := range expiredWorkspaces {
+		log.Infof("Cleaning up expired workspace: %s (AI model: %s, PR: %d)", ws.Path, ws.AIModel, ws.PRNumber)
+		
 		// 关闭 code session
 		err := a.sessionManager.CloseSession(ws)
 		if err != nil {
-			log.Errorf("Failed to close session for workspace: %s", ws.Path)
+			log.Errorf("Failed to close session for workspace: %s (AI model: %s)", ws.Path, ws.AIModel)
+		} else {
+			log.Infof("Closed session for workspace: %s (AI model: %s)", ws.Path, ws.AIModel)
 		}
 
 		// 清理工作空间
 		b := m.CleanupWorkspace(ws)
 		if !b {
-			log.Errorf("Failed to clean up expired workspace : %s", ws.Path)
+			log.Errorf("Failed to clean up expired workspace: %s (AI model: %s)", ws.Path, ws.AIModel)
 			continue
 		}
-		log.Infof("Cleaned up expired workspace: %s", ws.Path)
+		log.Infof("Cleaned up expired workspace: %s (AI model: %s)", ws.Path, ws.AIModel)
 	}
 
 }
@@ -363,7 +367,18 @@ func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueC
 	}
 	log.Infof("PR information fetched successfully")
 
-	// 4. 获取或创建 PR 工作空间，包含AI模型信息
+	// 4. 如果没有指定AI模型，从PR分支中提取
+	if aiModel == "" {
+		branchName := pr.GetHead().GetRef()
+		aiModel = a.workspace.ExtractAIModelFromBranch(branchName)
+		if aiModel == "" {
+			// 如果无法从分支中提取，使用默认配置
+			aiModel = a.config.CodeProvider
+		}
+		log.Infof("Extracted AI model from branch: %s", aiModel)
+	}
+
+	// 5. 获取或创建 PR 工作空间，包含AI模型信息
 	log.Infof("Getting or creating workspace for PR with AI model: %s", aiModel)
 	ws := a.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
 	if ws == nil {
@@ -559,7 +574,18 @@ func (a *Agent) ContinuePRFromReviewCommentWithAI(ctx context.Context, event *gi
 	// 1. 从工作空间管理器获取 PR 信息
 	pr := event.PullRequest
 
-	// 2. 获取或创建 PR 工作空间，包含AI模型信息
+	// 2. 如果没有指定AI模型，从PR分支中提取
+	if aiModel == "" {
+		branchName := pr.GetHead().GetRef()
+		aiModel = a.workspace.ExtractAIModelFromBranch(branchName)
+		if aiModel == "" {
+			// 如果无法从分支中提取，使用默认配置
+			aiModel = a.config.CodeProvider
+		}
+		log.Infof("Extracted AI model from branch: %s", aiModel)
+	}
+
+	// 3. 获取或创建 PR 工作空间，包含AI模型信息
 	ws := a.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR continue from review comment")
@@ -655,7 +681,18 @@ func (a *Agent) FixPRFromReviewCommentWithAI(ctx context.Context, event *github.
 	// 1. 从工作空间管理器获取 PR 信息
 	pr := event.PullRequest
 
-	// 2. 获取或创建 PR 工作空间，包含AI模型信息
+	// 2. 如果没有指定AI模型，从PR分支中提取
+	if aiModel == "" {
+		branchName := pr.GetHead().GetRef()
+		aiModel = a.workspace.ExtractAIModelFromBranch(branchName)
+		if aiModel == "" {
+			// 如果无法从分支中提取，使用默认配置
+			aiModel = a.config.CodeProvider
+		}
+		log.Infof("Extracted AI model from branch: %s", aiModel)
+	}
+
+	// 3. 获取或创建 PR 工作空间，包含AI模型信息
 	ws := a.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR fix from review comment")
@@ -752,7 +789,18 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUserAndAI(ctx context.Context, eve
 	// 1. 从工作空间管理器获取 PR 信息
 	pr := event.PullRequest
 
-	// 2. 获取指定 review 的所有 comments
+	// 2. 如果没有指定AI模型，从PR分支中提取
+	if aiModel == "" {
+		branchName := pr.GetHead().GetRef()
+		aiModel = a.workspace.ExtractAIModelFromBranch(branchName)
+		if aiModel == "" {
+			// 如果无法从分支中提取，使用默认配置
+			aiModel = a.config.CodeProvider
+		}
+		log.Infof("Extracted AI model from branch: %s", aiModel)
+	}
+
+	// 3. 获取指定 review 的所有 comments
 	reviewComments, err := a.github.GetReviewComments(pr, reviewID)
 	if err != nil {
 		log.Errorf("Failed to get review comments: %v", err)
@@ -761,7 +809,7 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUserAndAI(ctx context.Context, eve
 
 	log.Infof("Found %d review comments for review %d", len(reviewComments), reviewID)
 
-	// 3. 获取或创建 PR 工作空间，包含AI模型信息
+	// 4. 获取或创建 PR 工作空间，包含AI模型信息
 	ws := a.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR batch processing from review")
@@ -893,33 +941,40 @@ func (a *Agent) CleanupAfterPRMerged(ctx context.Context, pr *github.PullRequest
 	prNumber := pr.GetNumber()
 	log.Infof("Starting cleanup after PR #%d merged", prNumber)
 
-	// 获取 workspace
-	ws := a.workspace.GetWorkspaceByPR(pr)
-	if ws == nil {
-		log.Infof("No workspace found for PR: %s, skip cleanup", pr.GetHTMLURL())
+	// 获取所有与该PR相关的工作空间（可能有多个不同AI模型的工作空间）
+	workspaces := a.workspace.GetAllWorkspacesByPR(pr)
+	if len(workspaces) == 0 {
+		log.Infof("No workspaces found for PR: %s, skip cleanup", pr.GetHTMLURL())
 		return nil
 	}
-	log.Infof("Found workspace for cleanup: %s", ws.Path)
+	log.Infof("Found %d workspaces for cleanup", len(workspaces))
 
-	// 清理执行的 code session
-	log.Infof("Closing code session")
-	err := a.sessionManager.CloseSession(ws)
-	if err != nil {
-		log.Errorf("Failed to close code session for PR #%d: %v", prNumber, err)
-		return fmt.Errorf("failed to close code session for PR #%d: %v", prNumber, err)
+	// 清理所有工作空间
+	for _, ws := range workspaces {
+		log.Infof("Cleaning up workspace: %s (AI model: %s)", ws.Path, ws.AIModel)
+		
+		// 清理执行的 code session
+		log.Infof("Closing code session for AI model: %s", ws.AIModel)
+		err := a.sessionManager.CloseSession(ws)
+		if err != nil {
+			log.Errorf("Failed to close code session for PR #%d with AI model %s: %v", prNumber, ws.AIModel, err)
+			// 不返回错误，继续清理其他工作空间
+		} else {
+			log.Infof("Code session closed successfully for AI model: %s", ws.AIModel)
+		}
+
+		// 清理 worktree,session 目录 和 对应的内存映射
+		log.Infof("Cleaning up workspace for AI model: %s", ws.AIModel)
+		b := a.workspace.CleanupWorkspace(ws)
+		if !b {
+			log.Errorf("Failed to cleanup workspace for PR #%d with AI model %s", prNumber, ws.AIModel)
+			// 不返回错误，继续清理其他工作空间
+		} else {
+			log.Infof("Workspace cleaned up successfully for AI model: %s", ws.AIModel)
+		}
 	}
-	log.Infof("Code session closed successfully")
 
-	// 清理 worktree,session 目录 和 对应的内存映射
-	log.Infof("Cleaning up workspace")
-	b := a.workspace.CleanupWorkspace(ws)
-	if !b {
-		log.Errorf("Failed to cleanup workspace for PR #%d", prNumber)
-		return fmt.Errorf("failed to cleanup workspace for PR #%d", prNumber)
-	}
-	log.Infof("Workspace cleaned up successfully")
-
-	log.Infof("Cleanup after PR merged completed: PR #%d, workspace: %s", prNumber, ws.Path)
+	log.Infof("Cleanup after PR merged completed: PR #%d, cleaned %d workspaces", prNumber, len(workspaces))
 	return nil
 }
 

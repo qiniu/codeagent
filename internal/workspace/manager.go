@@ -33,6 +33,30 @@ func keyWithAI(orgRepo string, prNumber int, aiModel string) string {
 	return fmt.Sprintf("%s/%s/%d", aiModel, orgRepo, prNumber)
 }
 
+// ExtractAIModelFromBranch 从分支名称中提取AI模型信息
+// 分支格式: codeagent/{aimodel}/{type}-{number}-{timestamp}
+func (m *Manager) ExtractAIModelFromBranch(branchName string) string {
+	// 检查是否是 codeagent 分支
+	if !strings.HasPrefix(branchName, BranchPrefix+"/") {
+		return ""
+	}
+	
+	// 移除 codeagent/ 前缀
+	branchWithoutPrefix := strings.TrimPrefix(branchName, BranchPrefix+"/")
+	
+	// 分割获取 aimodel 部分
+	parts := strings.Split(branchWithoutPrefix, "/")
+	if len(parts) >= 2 {
+		aiModel := parts[0]
+		// 验证是否是有效的AI模型
+		if aiModel == "claude" || aiModel == "gemini" {
+			return aiModel
+		}
+	}
+	
+	return ""
+}
+
 type Manager struct {
 	baseDir string
 
@@ -196,7 +220,7 @@ func (m *Manager) recoverExistingWorkspaces() {
 				continue
 			}
 
-			// 提取仓库名和AI模型
+			// 提取仓库名和AI模型 - 要求目录必须带aimodel信息
 			var repoName, aiModel string
 			if strings.Contains(parts[0], "-") {
 				// 包含AI模型: aimodel-repo
@@ -205,13 +229,13 @@ func (m *Manager) recoverExistingWorkspaces() {
 					aiModel = aiModelParts[0]
 					repoName = aiModelParts[1]
 				} else {
-					log.Warnf("Invalid PR workspace directory name with AI model: %s", dirName)
+					log.Errorf("Invalid PR workspace directory name with AI model: %s, skipping", dirName)
 					continue
 				}
 			} else {
-				// 不包含AI模型: repo
-				repoName = parts[0]
-				aiModel = ""
+				// 不包含AI模型的目录，直接跳过
+				log.Errorf("PR workspace directory must contain AI model info: %s, skipping", dirName)
+				continue
 			}
 
 			// 提取 PR 号
@@ -586,6 +610,28 @@ func (m *Manager) MoveIssueToPR(ws *models.Workspace, prNumber int) error {
 
 func (m *Manager) GetWorkspaceByPR(pr *github.PullRequest) *models.Workspace {
 	return m.GetWorkspaceByPRAndAI(pr, "")
+}
+
+// GetAllWorkspacesByPR 获取PR的所有工作空间（所有AI模型）
+func (m *Manager) GetAllWorkspacesByPR(pr *github.PullRequest) []*models.Workspace {
+	orgRepoPath := fmt.Sprintf("%s/%s", pr.GetBase().GetRepo().GetOwner().GetLogin(), pr.GetBase().GetRepo().GetName())
+	prNumber := pr.GetNumber()
+	
+	var workspaces []*models.Workspace
+	
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	
+	// 遍历所有工作空间，找到与该PR相关的
+	for key, ws := range m.workspaces {
+		// 检查是否是该PR的工作空间
+		if ws.PRNumber == prNumber && 
+		   fmt.Sprintf("%s/%s", ws.Org, ws.Repo) == orgRepoPath {
+			workspaces = append(workspaces, ws)
+		}
+	}
+	
+	return workspaces
 }
 
 func (m *Manager) GetWorkspaceByPRAndAI(pr *github.PullRequest, aiModel string) *models.Workspace {
