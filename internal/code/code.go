@@ -30,7 +30,7 @@ func New(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	} else {
 		provider = cfg.CodeProvider
 	}
-	
+
 	// 根据 code provider 和 use_docker 配置创建相应的代码提供者
 	switch provider {
 	case ProviderClaude:

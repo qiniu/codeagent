@@ -40,10 +40,10 @@ func (m *Manager) ExtractAIModelFromBranch(branchName string) string {
 	if !strings.HasPrefix(branchName, BranchPrefix+"/") {
 		return ""
 	}
-	
+
 	// 移除 codeagent/ 前缀
 	branchWithoutPrefix := strings.TrimPrefix(branchName, BranchPrefix+"/")
-	
+
 	// 分割获取 aimodel 部分
 	parts := strings.Split(branchWithoutPrefix, "/")
 	if len(parts) >= 2 {
@@ -53,7 +53,7 @@ func (m *Manager) ExtractAIModelFromBranch(branchName string) string {
 			return aiModel
 		}
 	}
-	
+
 	return ""
 }
 
@@ -289,16 +289,14 @@ func (m *Manager) recoverExistingWorkspaces() {
 func (m *Manager) recoverPRWorkspace(org, repo, worktreePath, remoteURL string, prNumber int, aiModel string) error {
 	// 从 worktree 路径提取 PR 信息
 	worktreeDir := filepath.Base(worktreePath)
-	var timestamp, sessionSuffix string
-	
+	var timestamp string
+
 	if aiModel != "" {
 		// 有AI模型的情况: aimodel-repo-pr-number-timestamp
 		timestamp = strings.TrimPrefix(worktreeDir, aiModel+"-"+repo+"-pr-"+strconv.Itoa(prNumber)+"-")
-		sessionSuffix = strings.TrimPrefix(worktreeDir, aiModel+"-"+repo+"-pr-")
 	} else {
 		// 没有AI模型的情况: repo-pr-number-timestamp
 		timestamp = strings.TrimPrefix(worktreeDir, repo+"-pr-"+strconv.Itoa(prNumber)+"-")
-		sessionSuffix = strings.TrimPrefix(worktreeDir, repo+"-pr-")
 	}
 
 	// 将 timestamp 字符串转换为时间
@@ -311,7 +309,8 @@ func (m *Manager) recoverPRWorkspace(org, repo, worktreePath, remoteURL string, 
 	}
 
 	// 创建对应的 session 目录（与 repo 同级）
-	sessionPath := filepath.Join(m.baseDir, org, fmt.Sprintf("%s-session-%s", repo, sessionSuffix))
+	// 新的session目录格式：{aiModel}-{repo}-session-{prNumber}-{timestamp}
+	sessionPath := filepath.Join(m.baseDir, org, fmt.Sprintf("%s-%s-session-%d-%s", aiModel, repo, prNumber, timestamp))
 
 	// 恢复工作空间对象
 	ws := &models.Workspace{
@@ -488,8 +487,10 @@ func (m *Manager) GetWorktreeCount() int {
 	return total
 }
 
-func (m *Manager) CreateSessionPath(underPath, repo string, prNumber int, suffix string) (string, error) {
-	sessionPath := filepath.Join(underPath, fmt.Sprintf("%s-session-%d-%s", repo, prNumber, suffix))
+func (m *Manager) CreateSessionPath(underPath, aiModel, repo string, prNumber int, suffix string) (string, error) {
+	// 新的session目录格式：{aiModel}-{repo}-session-{prNumber}-{timestamp}
+	// 只保留时间戳部分，避免重复信息
+	sessionPath := filepath.Join(underPath, fmt.Sprintf("%s-%s-session-%d-%s", aiModel, repo, prNumber, suffix))
 	if err := os.MkdirAll(sessionPath, 0755); err != nil {
 		log.Errorf("Failed to create session directory: %v", err)
 		return "", err
@@ -616,21 +617,21 @@ func (m *Manager) GetWorkspaceByPR(pr *github.PullRequest) *models.Workspace {
 func (m *Manager) GetAllWorkspacesByPR(pr *github.PullRequest) []*models.Workspace {
 	orgRepoPath := fmt.Sprintf("%s/%s", pr.GetBase().GetRepo().GetOwner().GetLogin(), pr.GetBase().GetRepo().GetName())
 	prNumber := pr.GetNumber()
-	
+
 	var workspaces []*models.Workspace
-	
+
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	// 遍历所有工作空间，找到与该PR相关的
-	for key, ws := range m.workspaces {
+	for _, ws := range m.workspaces {
 		// 检查是否是该PR的工作空间
-		if ws.PRNumber == prNumber && 
-		   fmt.Sprintf("%s/%s", ws.Org, ws.Repo) == orgRepoPath {
+		if ws.PRNumber == prNumber &&
+			fmt.Sprintf("%s/%s", ws.Org, ws.Repo) == orgRepoPath {
 			workspaces = append(workspaces, ws)
 		}
 	}
-	
+
 	return workspaces
 }
 
@@ -693,7 +694,7 @@ func (m *Manager) CreateWorkspaceFromPRWithAI(pr *github.PullRequest, aiModel st
 
 	// 创建 session 目录
 	suffix := strings.TrimPrefix(filepath.Base(worktree.Worktree), fmt.Sprintf("%s-pr-%d-", repo, pr.GetNumber()))
-	sessionPath, err := m.CreateSessionPath(filepath.Dir(repoManager.GetRepoPath()), repo, pr.GetNumber(), suffix)
+	sessionPath, err := m.CreateSessionPath(filepath.Dir(repoManager.GetRepoPath()), aiModel, repo, pr.GetNumber(), suffix)
 	if err != nil {
 		log.Errorf("Failed to create session directory: %v", err)
 		return nil

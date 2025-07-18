@@ -29,7 +29,7 @@ func NewHandler(cfg *config.Config, agent *agent.Agent) *Handler {
 func parseCommandArgs(comment, command string, defaultAIModel string) (aiModel, args string) {
 	// 提取命令参数
 	commandArgs := strings.TrimSpace(strings.TrimPrefix(comment, command))
-	
+
 	// 检查是否包含AI模型参数
 	if strings.HasPrefix(commandArgs, "-claude") {
 		aiModel = "claude"
@@ -42,7 +42,7 @@ func parseCommandArgs(comment, command string, defaultAIModel string) (aiModel, 
 		aiModel = defaultAIModel
 		args = commandArgs
 	}
-	
+
 	return aiModel, args
 }
 

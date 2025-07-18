@@ -73,7 +73,7 @@ func (a *Agent) cleanupExpiredResouces() {
 	// 清理过期的工作空间 和 code session
 	for _, ws := range expiredWorkspaces {
 		log.Infof("Cleaning up expired workspace: %s (AI model: %s, PR: %d)", ws.Path, ws.AIModel, ws.PRNumber)
-		
+
 		// 关闭 code session
 		err := a.sessionManager.CloseSession(ws)
 		if err != nil {
@@ -139,8 +139,14 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	ws.PRNumber = pr.GetNumber()
 
 	// 5. 创建 session 目录
-	suffix := strings.TrimPrefix(filepath.Base(ws.Path), fmt.Sprintf("%s-pr-%d-", ws.Repo, pr.GetNumber()))
-	sessionPath, err := a.workspace.CreateSessionPath(filepath.Dir(ws.Path), ws.Repo, pr.GetNumber(), suffix)
+	// 从PR目录名中提取suffix
+	prDirName := filepath.Base(ws.Path)
+	var suffix string
+	// 目录格式：{aiModel}-{repo}-pr-{prNumber}-{timestamp}
+	expectedPrefix := fmt.Sprintf("%s-%s-pr-%d-", ws.AIModel, ws.Repo, pr.GetNumber())
+	suffix = strings.TrimPrefix(prDirName, expectedPrefix)
+
+	sessionPath, err := a.workspace.CreateSessionPath(filepath.Dir(ws.Path), ws.AIModel, ws.Repo, pr.GetNumber(), suffix)
 	if err != nil {
 		log.Errorf("Failed to create session directory: %v", err)
 		return err
@@ -952,7 +958,7 @@ func (a *Agent) CleanupAfterPRMerged(ctx context.Context, pr *github.PullRequest
 	// 清理所有工作空间
 	for _, ws := range workspaces {
 		log.Infof("Cleaning up workspace: %s (AI model: %s)", ws.Path, ws.AIModel)
-		
+
 		// 清理执行的 code session
 		log.Infof("Closing code session for AI model: %s", ws.AIModel)
 		err := a.sessionManager.CloseSession(ws)
