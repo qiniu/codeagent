@@ -23,7 +23,8 @@ func NewSessionManager(cfg *config.Config) *SessionManager {
 
 // GetSession retrieves an existing Code session or creates a new one.
 func (sm *SessionManager) GetSession(workspace *models.Workspace) (Code, error) {
-	key := fmt.Sprintf("%s-%d", workspace.Repository, workspace.PRNumber)
+	// 新的session key包含AI模型信息：aimodel-org-repo-pr-number
+	key := fmt.Sprintf("%s-%s-%s-%d", workspace.AIModel, workspace.Org, workspace.Repo, workspace.PRNumber)
 	sm.mu.RLock()
 	c, ok := sm.codes[key]
 	sm.mu.RUnlock()
@@ -52,7 +53,8 @@ func (sm *SessionManager) GetSession(workspace *models.Workspace) (Code, error) 
 func (sm *SessionManager) CloseSession(workspace *models.Workspace) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	key := fmt.Sprintf("%s-%d", workspace.Repository, workspace.PullRequest.GetNumber())
+	// 新的session key包含AI模型信息：aimodel-org-repo-pr-number
+	key := fmt.Sprintf("%s-%s-%s-%d", workspace.AIModel, workspace.Org, workspace.Repo, workspace.PRNumber)
 
 	if c, ok := sm.codes[key]; ok {
 		delete(sm.codes, key)

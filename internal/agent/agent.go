@@ -91,15 +91,20 @@ func (a *Agent) cleanupExpiredResouces() {
 
 // ProcessIssueComment 处理 Issue 评论事件，包含完整的仓库信息
 func (a *Agent) ProcessIssueComment(ctx context.Context, event *github.IssueCommentEvent) error {
+	return a.ProcessIssueCommentWithAI(ctx, event, "", "")
+}
+
+// ProcessIssueCommentWithAI 处理 Issue 评论事件，支持指定AI模型
+func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.IssueCommentEvent, aiModel, args string) error {
 	log := xlog.NewWith(ctx)
 
 	issueNumber := event.Issue.GetNumber()
 	issueTitle := event.Issue.GetTitle()
 
-	log.Infof("Starting issue comment processing: issue=#%d, title=%s", issueNumber, issueTitle)
+	log.Infof("Starting issue comment processing: issue=#%d, title=%s, AI model=%s", issueNumber, issueTitle, aiModel)
 
-	// 1. 创建 Issue 工作空间
-	ws := a.workspace.CreateWorkspaceFromIssue(event.Issue)
+	// 1. 创建 Issue 工作空间，包含AI模型信息
+	ws := a.workspace.CreateWorkspaceFromIssueWithAI(event.Issue, aiModel)
 	if ws == nil {
 		log.Errorf("Failed to create workspace from issue")
 		return fmt.Errorf("failed to create workspace from issue")
@@ -301,10 +306,15 @@ func extractErrorInfo(output string) string {
 
 // processPRWithArgs 处理PR的通用函数，支持不同的操作模式
 func (a *Agent) processPRWithArgs(ctx context.Context, event *github.IssueCommentEvent, args string, mode string) error {
+	return a.processPRWithArgsAndAI(ctx, event, "", args, mode)
+}
+
+// processPRWithArgsAndAI 处理PR的通用函数，支持不同的操作模式和AI模型
+func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueCommentEvent, aiModel, args string, mode string) error {
 	log := xlog.NewWith(ctx)
 
 	prNumber := event.Issue.GetNumber()
-	log.Infof("%s PR #%d with args: %s", mode, prNumber, args)
+	log.Infof("%s PR #%d with AI model %s and args: %s", mode, prNumber, aiModel, args)
 
 	// 1. 验证这是一个 PR 评论（仅对continue操作）
 	if mode == "Continue" && event.Issue.PullRequestLinks == nil {
@@ -353,9 +363,9 @@ func (a *Agent) processPRWithArgs(ctx context.Context, event *github.IssueCommen
 	}
 	log.Infof("PR information fetched successfully")
 
-	// 4. 获取或创建 PR 工作空间
-	log.Infof("Getting or creating workspace for PR")
-	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
+	// 4. 获取或创建 PR 工作空间，包含AI模型信息
+	log.Infof("Getting or creating workspace for PR with AI model: %s", aiModel)
+	ws := a.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
 	if ws == nil {
 		log.Errorf("Failed to get or create workspace for PR %s", strings.ToLower(mode))
 		return fmt.Errorf("failed to get or create workspace for PR %s", strings.ToLower(mode))
@@ -509,6 +519,11 @@ func (a *Agent) ContinuePRWithArgs(ctx context.Context, event *github.IssueComme
 	return a.processPRWithArgs(ctx, event, args, "Continue")
 }
 
+// ContinuePRWithArgsAndAI 继续处理 PR 中的任务，支持命令参数和AI模型
+func (a *Agent) ContinuePRWithArgsAndAI(ctx context.Context, event *github.IssueCommentEvent, aiModel, args string) error {
+	return a.processPRWithArgsAndAI(ctx, event, aiModel, args, "Continue")
+}
+
 // FixPR 修复 PR 中的问题
 func (a *Agent) FixPR(ctx context.Context, pr *github.PullRequest) error {
 	return a.FixPRWithArgs(ctx, &github.IssueCommentEvent{
@@ -524,18 +539,28 @@ func (a *Agent) FixPRWithArgs(ctx context.Context, event *github.IssueCommentEve
 	return a.processPRWithArgs(ctx, event, args, "Fix")
 }
 
+// FixPRWithArgsAndAI 修复 PR 中的问题，支持命令参数和AI模型
+func (a *Agent) FixPRWithArgsAndAI(ctx context.Context, event *github.IssueCommentEvent, aiModel, args string) error {
+	return a.processPRWithArgsAndAI(ctx, event, aiModel, args, "Fix")
+}
+
 // ContinuePRFromReviewComment 从 PR 代码行评论继续处理任务
 func (a *Agent) ContinuePRFromReviewComment(ctx context.Context, event *github.PullRequestReviewCommentEvent, args string) error {
+	return a.ContinuePRFromReviewCommentWithAI(ctx, event, "", args)
+}
+
+// ContinuePRFromReviewCommentWithAI 从 PR 代码行评论继续处理任务，支持AI模型
+func (a *Agent) ContinuePRFromReviewCommentWithAI(ctx context.Context, event *github.PullRequestReviewCommentEvent, aiModel, args string) error {
 	log := xlog.NewWith(ctx)
 
 	prNumber := event.PullRequest.GetNumber()
-	log.Infof("Continue PR #%d from review comment with args: %s", prNumber, args)
+	log.Infof("Continue PR #%d from review comment with AI model %s and args: %s", prNumber, aiModel, args)
 
 	// 1. 从工作空间管理器获取 PR 信息
 	pr := event.PullRequest
 
-	// 2. 获取或创建 PR 工作空间
-	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
+	// 2. 获取或创建 PR 工作空间，包含AI模型信息
+	ws := a.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR continue from review comment")
 	}
@@ -617,16 +642,21 @@ func (a *Agent) ContinuePRFromReviewComment(ctx context.Context, event *github.P
 
 // FixPRFromReviewComment 从 PR 代码行评论修复问题
 func (a *Agent) FixPRFromReviewComment(ctx context.Context, event *github.PullRequestReviewCommentEvent, args string) error {
+	return a.FixPRFromReviewCommentWithAI(ctx, event, "", args)
+}
+
+// FixPRFromReviewCommentWithAI 从 PR 代码行评论修复问题，支持AI模型
+func (a *Agent) FixPRFromReviewCommentWithAI(ctx context.Context, event *github.PullRequestReviewCommentEvent, aiModel, args string) error {
 	log := xlog.NewWith(ctx)
 
 	prNumber := event.PullRequest.GetNumber()
-	log.Infof("Fix PR #%d from review comment with args: %s", prNumber, args)
+	log.Infof("Fix PR #%d from review comment with AI model %s and args: %s", prNumber, aiModel, args)
 
 	// 1. 从工作空间管理器获取 PR 信息
 	pr := event.PullRequest
 
-	// 2. 获取或创建 PR 工作空间
-	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
+	// 2. 获取或创建 PR 工作空间，包含AI模型信息
+	ws := a.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR fix from review comment")
 	}
@@ -708,11 +738,16 @@ func (a *Agent) FixPRFromReviewComment(ctx context.Context, event *github.PullRe
 
 // ProcessPRFromReviewWithTriggerUser 从 PR review 批量处理多个 review comments 并在反馈中@用户
 func (a *Agent) ProcessPRFromReviewWithTriggerUser(ctx context.Context, event *github.PullRequestReviewEvent, command string, args string, triggerUser string) error {
+	return a.ProcessPRFromReviewWithTriggerUserAndAI(ctx, event, command, "", args, triggerUser)
+}
+
+// ProcessPRFromReviewWithTriggerUserAndAI 从 PR review 批量处理多个 review comments 并在反馈中@用户，支持AI模型
+func (a *Agent) ProcessPRFromReviewWithTriggerUserAndAI(ctx context.Context, event *github.PullRequestReviewEvent, command string, aiModel, args string, triggerUser string) error {
 	log := xlog.NewWith(ctx)
 
 	prNumber := event.PullRequest.GetNumber()
 	reviewID := event.Review.GetID()
-	log.Infof("Processing PR #%d from review %d with command: %s, args: %s, triggerUser: %s", prNumber, reviewID, command, args, triggerUser)
+	log.Infof("Processing PR #%d from review %d with command: %s, AI model: %s, args: %s, triggerUser: %s", prNumber, reviewID, command, aiModel, args, triggerUser)
 
 	// 1. 从工作空间管理器获取 PR 信息
 	pr := event.PullRequest
@@ -726,8 +761,8 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUser(ctx context.Context, event *g
 
 	log.Infof("Found %d review comments for review %d", len(reviewComments), reviewID)
 
-	// 3. 获取或创建 PR 工作空间
-	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
+	// 3. 获取或创建 PR 工作空间，包含AI模型信息
+	ws := a.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR batch processing from review")
 	}

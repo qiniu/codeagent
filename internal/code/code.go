@@ -23,8 +23,16 @@ type Code interface {
 }
 
 func New(workspace *models.Workspace, cfg *config.Config) (Code, error) {
+	// 优先使用workspace中指定的AI模型，如果没有则使用配置中的默认模型
+	var provider string
+	if workspace.AIModel != "" {
+		provider = workspace.AIModel
+	} else {
+		provider = cfg.CodeProvider
+	}
+	
 	// 根据 code provider 和 use_docker 配置创建相应的代码提供者
-	switch cfg.CodeProvider {
+	switch provider {
 	case ProviderClaude:
 		// Claude 目前只支持 Docker 模式
 		if !cfg.UseDocker {
@@ -37,6 +45,6 @@ func New(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 		}
 		return NewGeminiLocal(workspace, cfg)
 	default:
-		return nil, fmt.Errorf("unsupported code provider: %s", cfg.CodeProvider)
+		return nil, fmt.Errorf("unsupported code provider: %s", provider)
 	}
 }
