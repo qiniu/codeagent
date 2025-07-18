@@ -9,6 +9,7 @@ import (
 
 	"github.com/qbox/codeagent/internal/agent"
 	"github.com/qbox/codeagent/internal/config"
+	"github.com/qbox/codeagent/pkg/signature"
 
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/reqid"
@@ -26,9 +27,38 @@ func NewHandler(cfg *config.Config, agent *agent.Agent) *Handler {
 
 // HandleWebhook 通用 Webhook 处理器
 func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
-	// 1. 验证 Webhook 签名（此处省略，建议用 X-Hub-Signature 校验）
+	// 1. 读取请求体 (需要在签名验证前读取)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
 
-	// 2. 获取事件类型
+	// 2. 验证 Webhook 签名
+	if h.config.Server.WebhookSecret != "" {
+		// 优先使用 SHA-256 签名
+		sig256 := r.Header.Get("X-Hub-Signature-256")
+		if sig256 != "" {
+			if err := signature.ValidateGitHubSignature(sig256, body, h.config.Server.WebhookSecret); err != nil {
+				http.Error(w, "invalid signature", http.StatusUnauthorized)
+				return
+			}
+		} else {
+			// 如果没有 SHA-256 签名，尝试 SHA-1 签名 (已弃用但仍支持)
+			sig1 := r.Header.Get("X-Hub-Signature")
+			if sig1 != "" {
+				if err := signature.ValidateGitHubSignatureSHA1(sig1, body, h.config.Server.WebhookSecret); err != nil {
+					http.Error(w, "invalid signature", http.StatusUnauthorized)
+					return
+				}
+			} else {
+				http.Error(w, "missing signature", http.StatusUnauthorized)
+				return
+			}
+		}
+	}
+
+	// 3. 获取事件类型
 	eventType := r.Header.Get("X-GitHub-Event")
 	if eventType == "" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -36,7 +66,7 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. 创建追踪 ID 和上下文
+	// 4. 创建追踪 ID 和上下文
 	// 使用 X-GitHub-Delivery header 作为 trace ID，截短到前8位
 	deliveryID := r.Header.Get("X-GitHub-Delivery")
 	var traceID string
@@ -52,16 +82,6 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	ctx := reqid.NewContext(context.Background(), traceID)
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Received webhook event: %s", eventType)
-
-	// 4. 读取请求体
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		xl.Errorf("Failed to read request body: %v", err)
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("invalid body"))
-		return
-	}
-
 	xl.Debugf("Request body size: %d bytes", len(body))
 
 	// 5. 根据事件类型分发处理

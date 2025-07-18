@@ -3,6 +3,8 @@
 
 server:
   port: 8888
+  # GitHub webhook 签名验证密钥，用于验证请求的真实性
+  # 需要与 GitHub webhook 配置中的 secret 保持一致
   webhook_secret: your-webhook-secret-here
 
 github:
