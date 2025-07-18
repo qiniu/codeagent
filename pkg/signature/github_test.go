@@ -18,11 +18,11 @@ func TestValidateGitHubSignature(t *testing.T) {
 	validSig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 
 	tests := []struct {
-		name      string
-		signature string
-		payload   []byte
-		secret    string
-		wantErr   bool
+		name        string
+		signature   string
+		payload     []byte
+		secret      string
+		wantErr     bool
 		expectedErr error
 	}{
 		{
@@ -33,35 +33,35 @@ func TestValidateGitHubSignature(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "invalid signature",
-			signature: "sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-			payload:   payload,
-			secret:    "wrong-secret",
-			wantErr:   true,
+			name:        "invalid signature",
+			signature:   "sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			payload:     payload,
+			secret:      "wrong-secret",
+			wantErr:     true,
 			expectedErr: ErrInvalidSignature,
 		},
 		{
-			name:      "missing signature",
-			signature: "",
-			payload:   payload,
-			secret:    secret,
-			wantErr:   true,
+			name:        "missing signature",
+			signature:   "",
+			payload:     payload,
+			secret:      secret,
+			wantErr:     true,
 			expectedErr: ErrMissingSignature,
 		},
 		{
-			name:      "invalid format",
-			signature: "invalid-format",
-			payload:   payload,
-			secret:    secret,
-			wantErr:   true,
+			name:        "invalid format",
+			signature:   "invalid-format",
+			payload:     payload,
+			secret:      secret,
+			wantErr:     true,
 			expectedErr: ErrInvalidFormat,
 		},
 		{
-			name:      "wrong secret",
-			signature: validSig,
-			payload:   payload,
-			secret:    "wrong-secret",
-			wantErr:   true,
+			name:        "wrong secret",
+			signature:   validSig,
+			payload:     payload,
+			secret:      "wrong-secret",
+			wantErr:     true,
 			expectedErr: ErrInvalidSignature,
 		},
 	}
@@ -90,11 +90,11 @@ func TestValidateGitHubSignatureSHA1(t *testing.T) {
 	validSig := "sha1=" + hex.EncodeToString(mac.Sum(nil))
 
 	tests := []struct {
-		name      string
-		signature string
-		payload   []byte
-		secret    string
-		wantErr   bool
+		name        string
+		signature   string
+		payload     []byte
+		secret      string
+		wantErr     bool
 		expectedErr error
 	}{
 		{
@@ -105,27 +105,27 @@ func TestValidateGitHubSignatureSHA1(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "invalid SHA-1 signature",
-			signature: "sha1=0123456789abcdef01234567",
-			payload:   payload,
-			secret:    "wrong-secret",
-			wantErr:   true,
+			name:        "invalid SHA-1 signature",
+			signature:   "sha1=0123456789abcdef01234567",
+			payload:     payload,
+			secret:      "wrong-secret",
+			wantErr:     true,
 			expectedErr: ErrInvalidSignature,
 		},
 		{
-			name:      "missing SHA-1 signature",
-			signature: "",
-			payload:   payload,
-			secret:    secret,
-			wantErr:   true,
+			name:        "missing SHA-1 signature",
+			signature:   "",
+			payload:     payload,
+			secret:      secret,
+			wantErr:     true,
 			expectedErr: ErrMissingSignature,
 		},
 		{
-			name:      "invalid SHA-1 format",
-			signature: "invalid-format",
-			payload:   payload,
-			secret:    secret,
-			wantErr:   true,
+			name:        "invalid SHA-1 format",
+			signature:   "invalid-format",
+			payload:     payload,
+			secret:      secret,
+			wantErr:     true,
 			expectedErr: ErrInvalidFormat,
 		},
 	}

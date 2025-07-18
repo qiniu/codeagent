@@ -33,7 +33,7 @@ func ValidateGitHubSignature(signature string, payload []byte, secret string) er
 
 	// 提取签名部分
 	sig := strings.TrimPrefix(signature, prefix)
-	
+
 	// 解码十六进制签名
 	expectedSig, err := hex.DecodeString(sig)
 	if err != nil {
@@ -70,7 +70,7 @@ func ValidateGitHubSignatureSHA1(signature string, payload []byte, secret string
 
 	// 提取签名部分
 	sig := strings.TrimPrefix(signature, prefix)
-	
+
 	// 解码十六进制签名
 	expectedSig, err := hex.DecodeString(sig)
 	if err != nil {
