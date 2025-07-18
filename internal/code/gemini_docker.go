@@ -50,7 +50,8 @@ func extractRepoName(repoURL string) string {
 func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	// 解析仓库信息，只获取仓库名，不包含完整URL
 	repoName := extractRepoName(workspace.Repository)
-	containerName := fmt.Sprintf("gemini-%s-%d", repoName, workspace.PRNumber)
+	// 新的容器命名规则：gemini-组织-仓库-PR号
+	containerName := fmt.Sprintf("gemini-%s-%s-%d", workspace.Org, repoName, workspace.PRNumber)
 
 	// 检查是否已经有对应的容器在运行
 	if isContainerRunning(containerName) {

@@ -25,6 +25,27 @@ func NewHandler(cfg *config.Config, agent *agent.Agent) *Handler {
 	return &Handler{config: cfg, agent: agent}
 }
 
+// parseCommandArgs 解析命令参数，提取AI模型和其他参数
+func parseCommandArgs(comment, command string, defaultAIModel string) (aiModel, args string) {
+	// 提取命令参数
+	commandArgs := strings.TrimSpace(strings.TrimPrefix(comment, command))
+	
+	// 检查是否包含AI模型参数
+	if strings.HasPrefix(commandArgs, "-claude") {
+		aiModel = "claude"
+		args = strings.TrimSpace(strings.TrimPrefix(commandArgs, "-claude"))
+	} else if strings.HasPrefix(commandArgs, "-gemini") {
+		aiModel = "gemini"
+		args = strings.TrimSpace(strings.TrimPrefix(commandArgs, "-gemini"))
+	} else {
+		// 没有指定AI模型，使用默认配置
+		aiModel = defaultAIModel
+		args = commandArgs
+	}
+	
+	return aiModel, args
+}
+
 // HandleWebhook 通用 Webhook 处理器
 func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	// 1. 读取请求体 (需要在签名验证前读取)
@@ -137,20 +158,20 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 		if strings.HasPrefix(comment, "/continue") {
 			log.Infof("Received /continue command for PR #%d: %s", issueNumber, issueTitle)
 
-			// 提取命令参数
-			commandArgs := strings.TrimSpace(strings.TrimPrefix(comment, "/continue"))
-			log.Debugf("Command args: %s", commandArgs)
+			// 解析AI模型参数
+			aiModel, args := parseCommandArgs(comment, "/continue", h.config.CodeProvider)
+			log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
 			// 异步执行继续任务
-			go func(event *github.IssueCommentEvent, args string, traceCtx context.Context) {
+			go func(event *github.IssueCommentEvent, aiModel, args string, traceCtx context.Context) {
 				traceLog := xlog.NewWith(traceCtx)
-				traceLog.Infof("Starting PR continue task")
-				if err := h.agent.ContinuePRWithArgs(traceCtx, event, args); err != nil {
+				traceLog.Infof("Starting PR continue task with AI model: %s", aiModel)
+				if err := h.agent.ContinuePRWithArgsAndAI(traceCtx, event, aiModel, args); err != nil {
 					traceLog.Errorf("Agent continue PR error: %v", err)
 				} else {
 					traceLog.Infof("PR continue task completed successfully")
 				}
-			}(&event, commandArgs, ctx)
+			}(&event, aiModel, args, ctx)
 
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("pr continue started"))
@@ -158,20 +179,20 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 		} else if strings.HasPrefix(comment, "/fix") {
 			log.Infof("Received /fix command for PR #%d: %s", issueNumber, issueTitle)
 
-			// 提取命令参数
-			commandArgs := strings.TrimSpace(strings.TrimPrefix(comment, "/fix"))
-			log.Debugf("Command args: %s", commandArgs)
+			// 解析AI模型参数
+			aiModel, args := parseCommandArgs(comment, "/fix", h.config.CodeProvider)
+			log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
 			// 异步执行修复任务
-			go func(event *github.IssueCommentEvent, args string, traceCtx context.Context) {
+			go func(event *github.IssueCommentEvent, aiModel, args string, traceCtx context.Context) {
 				traceLog := xlog.NewWith(traceCtx)
-				traceLog.Infof("Starting PR fix task")
-				if err := h.agent.FixPRWithArgs(traceCtx, event, args); err != nil {
+				traceLog.Infof("Starting PR fix task with AI model: %s", aiModel)
+				if err := h.agent.FixPRWithArgsAndAI(traceCtx, event, aiModel, args); err != nil {
 					traceLog.Errorf("Agent fix PR error: %v", err)
 				} else {
 					traceLog.Infof("PR fix task completed successfully")
 				}
-			}(&event, commandArgs, ctx)
+			}(&event, aiModel, args, ctx)
 
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("pr fix started"))
@@ -184,16 +205,20 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 		log.Infof("Received /code command for Issue: %s, title: %s",
 			event.Issue.GetHTMLURL(), issueTitle)
 
+		// 解析AI模型参数
+		aiModel, args := parseCommandArgs(comment, "/code", h.config.CodeProvider)
+		log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
+
 		// 异步执行 Agent 任务
-		go func(event *github.IssueCommentEvent, traceCtx context.Context) {
+		go func(event *github.IssueCommentEvent, aiModel, args string, traceCtx context.Context) {
 			traceLog := xlog.NewWith(traceCtx)
-			traceLog.Infof("Starting issue processing task")
-			if err := h.agent.ProcessIssueComment(traceCtx, event); err != nil {
+			traceLog.Infof("Starting issue processing task with AI model: %s", aiModel)
+			if err := h.agent.ProcessIssueCommentWithAI(traceCtx, event, aiModel, args); err != nil {
 				traceLog.Errorf("Agent process issue error: %v", err)
 			} else {
 				traceLog.Infof("Issue processing task completed successfully")
 			}
-		}(&event, ctx)
+		}(&event, aiModel, args, ctx)
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("issue processing started"))
@@ -236,20 +261,20 @@ func (h *Handler) handlePRReviewComment(ctx context.Context, w http.ResponseWrit
 	if strings.HasPrefix(comment, "/continue") {
 		log.Infof("Received /continue command in PR review comment for PR #%d: %s", prNumber, prTitle)
 
-		// 提取命令参数
-		commandArgs := strings.TrimSpace(strings.TrimPrefix(comment, "/continue"))
-		log.Debugf("Command args: %s", commandArgs)
+		// 解析AI模型参数
+		aiModel, args := parseCommandArgs(comment, "/continue", h.config.CodeProvider)
+		log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
 		// 异步执行继续任务
-		go func(event *github.PullRequestReviewCommentEvent, args string, traceCtx context.Context) {
+		go func(event *github.PullRequestReviewCommentEvent, aiModel, args string, traceCtx context.Context) {
 			traceLog := xlog.NewWith(traceCtx)
-			traceLog.Infof("Starting PR continue from review comment task")
-			if err := h.agent.ContinuePRFromReviewComment(traceCtx, event, args); err != nil {
+			traceLog.Infof("Starting PR continue from review comment task with AI model: %s", aiModel)
+			if err := h.agent.ContinuePRFromReviewCommentWithAI(traceCtx, event, aiModel, args); err != nil {
 				traceLog.Errorf("Agent continue PR from review comment error: %v", err)
 			} else {
 				traceLog.Infof("PR continue from review comment task completed successfully")
 			}
-		}(&event, commandArgs, ctx)
+		}(&event, aiModel, args, ctx)
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("pr continue from review comment started"))
@@ -257,20 +282,20 @@ func (h *Handler) handlePRReviewComment(ctx context.Context, w http.ResponseWrit
 	} else if strings.HasPrefix(comment, "/fix") {
 		log.Infof("Received /fix command in PR review comment for PR #%d: %s", prNumber, prTitle)
 
-		// 提取命令参数
-		commandArgs := strings.TrimSpace(strings.TrimPrefix(comment, "/fix"))
-		log.Debugf("Command args: %s", commandArgs)
+		// 解析AI模型参数
+		aiModel, args := parseCommandArgs(comment, "/fix", h.config.CodeProvider)
+		log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
 		// 异步执行修复任务
-		go func(event *github.PullRequestReviewCommentEvent, args string, traceCtx context.Context) {
+		go func(event *github.PullRequestReviewCommentEvent, aiModel, args string, traceCtx context.Context) {
 			traceLog := xlog.NewWith(traceCtx)
-			traceLog.Infof("Starting PR fix from review comment task")
-			if err := h.agent.FixPRFromReviewComment(traceCtx, event, args); err != nil {
+			traceLog.Infof("Starting PR fix from review comment task with AI model: %s", aiModel)
+			if err := h.agent.FixPRFromReviewCommentWithAI(traceCtx, event, aiModel, args); err != nil {
 				traceLog.Errorf("Agent fix PR from review comment error: %v", err)
 			} else {
 				traceLog.Infof("PR fix from review comment task completed successfully")
 			}
-		}(&event, commandArgs, ctx)
+		}(&event, aiModel, args, ctx)
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("pr fix from review comment started"))
@@ -319,18 +344,19 @@ func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, bod
 	// 检查 review body 是否包含 /continue 或 /fix 命令
 	if strings.HasPrefix(reviewBody, "/continue") || strings.HasPrefix(reviewBody, "/fix") {
 		var command string
-		var commandArgs string
+		var aiModel string
+		var args string
 
 		if strings.HasPrefix(reviewBody, "/continue") {
 			command = "/continue"
-			commandArgs = strings.TrimSpace(strings.TrimPrefix(reviewBody, "/continue"))
+			aiModel, args = parseCommandArgs(reviewBody, "/continue", h.config.CodeProvider)
 		} else {
 			command = "/fix"
-			commandArgs = strings.TrimSpace(strings.TrimPrefix(reviewBody, "/fix"))
+			aiModel, args = parseCommandArgs(reviewBody, "/fix", h.config.CodeProvider)
 		}
 
 		log.Infof("Received %s command in PR review for PR #%d: %s", command, prNumber, prTitle)
-		log.Debugf("Command args: %s", commandArgs)
+		log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
 		// 获取触发用户信息，用于在AI反馈中@用户
 		triggerUser := ""
@@ -339,15 +365,15 @@ func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, bod
 		}
 
 		// 异步执行批量处理任务
-		go func(event *github.PullRequestReviewEvent, cmd string, args string, triggerUser string, traceCtx context.Context) {
+		go func(event *github.PullRequestReviewEvent, cmd string, aiModel, args string, triggerUser string, traceCtx context.Context) {
 			traceLog := xlog.NewWith(traceCtx)
-			traceLog.Infof("Starting PR batch processing from review task")
-			if err := h.agent.ProcessPRFromReviewWithTriggerUser(traceCtx, event, cmd, args, triggerUser); err != nil {
+			traceLog.Infof("Starting PR batch processing from review task with AI model: %s", aiModel)
+			if err := h.agent.ProcessPRFromReviewWithTriggerUserAndAI(traceCtx, event, cmd, aiModel, args, triggerUser); err != nil {
 				traceLog.Errorf("Agent process PR from review error: %v", err)
 			} else {
 				traceLog.Infof("PR batch processing from review task completed successfully")
 			}
-		}(&event, command, commandArgs, triggerUser, ctx)
+		}(&event, command, aiModel, args, triggerUser, ctx)
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("pr batch processing from review started"))

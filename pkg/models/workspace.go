@@ -13,6 +13,8 @@ type Workspace struct {
 	Repo string `json:"repo"`
 	// PR number
 	PRNumber int `json:"pr_number"`
+	// AI model name (claude or gemini)
+	AIModel string `json:"ai_model"`
 	// workspace path in local file system
 	Path string `json:"path"`
 	// session path in local file system
