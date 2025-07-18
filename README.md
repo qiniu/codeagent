@@ -11,7 +11,7 @@ CodeAgent 是一个基于 Go 语言开发的自动化代码生成系统，通过
 - 💻 **本地 CLI 模式**: 支持本地 Claude CLI 和 Gemini CLI，无需 Docker
 - 🧹 **自动清理**: 智能管理临时工作空间，避免资源泄露
 - 📊 **状态监控**: 实时监控系统状态和执行进度
-- 🔒 **安全可靠**: 完善的错误处理和重试机制
+- 🔒 **安全可靠**: 完善的错误处理和重试机制，支持 GitHub Webhook 签名验证
 - 🧠 **上下文感知**: Gemini CLI 模式自动构建完整上下文，提升代码质量
 
 ## 系统架构
@@ -122,7 +122,43 @@ use_docker: true # 是否使用 Docker，false 表示使用本地 CLI
   - `true`: 使用 Docker 容器（推荐用于生产环境）
   - `false`: 使用本地 CLI（推荐用于开发环境）
 
-**注意**: 敏感信息（如 token、api_key）应该通过命令行参数或环境变量设置，而不是写在配置文件中。
+**注意**: 敏感信息（如 token、api_key、webhook_secret）应该通过命令行参数或环境变量设置，而不是写在配置文件中。
+
+### 安全配置
+
+#### Webhook 签名验证
+
+为了防止 webhook 接口被恶意利用，CodeAgent 支持 GitHub Webhook 签名验证功能：
+
+1. **配置 webhook secret**:
+   ```bash
+   # 方式1: 环境变量（推荐）
+   export WEBHOOK_SECRET="your-strong-secret-here"
+   
+   # 方式2: 命令行参数
+   go run ./cmd/server --webhook-secret "your-strong-secret-here"
+   ```
+
+2. **GitHub Webhook 设置**:
+   - 在 GitHub 仓库设置中添加 Webhook
+   - URL: `https://your-domain.com/hook`
+   - Content type: `application/json`
+   - Secret: 输入与 `WEBHOOK_SECRET` 相同的值
+   - 选择事件: `Issue comments`, `Pull request reviews`, `Pull requests`
+
+3. **签名验证机制**:
+   - 支持 SHA-256 签名验证（优先）
+   - 向下兼容 SHA-1 签名验证
+   - 使用恒定时间比较防止时间攻击
+   - 如果未配置 `webhook_secret`，则跳过签名验证（仅用于开发环境）
+
+#### 安全建议
+
+- 使用强密码作为 webhook secret（建议 32 字符以上）
+- 在生产环境中务必配置 webhook secret
+- 使用 HTTPS 保护 webhook 端点
+- 定期轮换 API 密钥和 webhook secret
+- 限制 GitHub Token 的权限范围
 
 ### 本地运行
 
@@ -229,7 +265,8 @@ curl http://localhost:8888/health
 3. **配置 GitHub Webhook**
    - URL: `http://your-domain.com/hook`
    - 事件: `Issue comments`, `Pull request reviews`
-   - 密钥: 与配置文件中的 `webhook_secret` 一致
+   - 密钥: 与配置文件中的 `webhook_secret` 一致（用于签名验证）
+   - 推荐使用 HTTPS 和强密码来保证安全性
 
 ### 使用示例
 
