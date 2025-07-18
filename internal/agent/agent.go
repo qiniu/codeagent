@@ -353,7 +353,7 @@ func (a *Agent) processPRWithArgs(ctx context.Context, event *github.IssueCommen
 	}
 	log.Infof("PR information fetched successfully")
 
-	// 4. 获取或创建 PR 工作空间
+	// 4. 获取或创建 PR 工作空间（自动检测fork）
 	log.Infof("Getting or creating workspace for PR")
 	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
 	if ws == nil {
@@ -361,6 +361,12 @@ func (a *Agent) processPRWithArgs(ctx context.Context, event *github.IssueCommen
 		return fmt.Errorf("failed to get or create workspace for PR %s", strings.ToLower(mode))
 	}
 	log.Infof("Workspace ready: %s", ws.Path)
+
+	// 5. 如果是fork PR，使用专门的fork处理流程
+	if ws.ForkInfo != nil {
+		log.Infof("Using fork collaboration workflow for PR #%d", prNumber)
+		return a.processForkPRWithArgs(ctx, pr, args, mode)
+	}
 
 	// 5. 拉取远端最新代码
 	log.Infof("Pulling latest changes from remote")
@@ -540,6 +546,11 @@ func (a *Agent) ContinuePRFromReviewComment(ctx context.Context, event *github.P
 		return fmt.Errorf("failed to get or create workspace for PR continue from review comment")
 	}
 
+	// 2.1 如果是fork PR，使用fork流程
+	if ws.ForkInfo != nil {
+		return a.processForkPRFromReviewComment(ctx, pr, event.Comment, args, "Continue")
+	}
+
 	// 3. 拉取远端最新代码
 	if err := a.github.PullLatestChanges(ws, pr); err != nil {
 		log.Errorf("Failed to pull latest changes: %v", err)
@@ -629,6 +640,11 @@ func (a *Agent) FixPRFromReviewComment(ctx context.Context, event *github.PullRe
 	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR fix from review comment")
+	}
+
+	// 2.1 如果是fork PR，使用fork流程
+	if ws.ForkInfo != nil {
+		return a.processForkPRFromReviewComment(ctx, pr, event.Comment, args, "Fix")
 	}
 
 	// 3. 拉取远端最新代码
@@ -730,6 +746,11 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUser(ctx context.Context, event *g
 	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR batch processing from review")
+	}
+
+	// 3.1 如果是fork PR，使用fork流程
+	if ws.ForkInfo != nil {
+		return a.processForkPRFromReviewWithTriggerUser(ctx, pr, event.Review, reviewComments, command, args, triggerUser)
 	}
 
 	// 4. 拉取远端最新代码
@@ -983,4 +1004,329 @@ func (a *Agent) formatHistoricalComments(allComments *models.PRAllComments, curr
 	}
 
 	return strings.Join(contextParts, "\n\n")
+}
+
+// processForkPRWithArgs 处理fork仓库PR的协作请求
+func (a *Agent) processForkPRWithArgs(ctx context.Context, pr *github.PullRequest, args string, mode string) error {
+	log := xlog.NewWith(ctx)
+
+	prNumber := pr.GetNumber()
+	log.Infof("%s fork PR #%d with args: %s", mode, prNumber, args)
+
+	// 1. 获取或创建 fork PR 工作空间
+	log.Infof("Getting or creating workspace for fork PR")
+	ws := a.workspace.GetOrCreateWorkspaceForForkPR(pr)
+	if ws == nil {
+		log.Errorf("Failed to get or create workspace for fork PR %s", strings.ToLower(mode))
+		return fmt.Errorf("failed to get or create workspace for fork PR %s", strings.ToLower(mode))
+	}
+	log.Infof("Fork workspace ready: %s", ws.Path)
+
+	// 2. 拉取远端最新代码
+	log.Infof("Pulling latest changes from remote")
+	if err := a.github.PullLatestChanges(ws, pr); err != nil {
+		log.Warnf("Failed to pull latest changes: %v", err)
+		// 不返回错误，继续执行，因为可能是网络问题
+	} else {
+		log.Infof("Latest changes pulled successfully")
+	}
+
+	// 3. 初始化 code client
+	log.Infof("Initializing code client")
+	codeClient, err := a.sessionManager.GetSession(ws)
+	if err != nil {
+		log.Errorf("Failed to create code session: %v", err)
+		return fmt.Errorf("failed to create code session: %w", err)
+	}
+	log.Infof("Code client initialized successfully")
+
+	// 4. 获取所有PR评论历史用于构建上下文
+	log.Infof("Fetching all PR comments for historical context")
+	allComments, err := a.github.GetAllPRComments(pr)
+	if err != nil {
+		log.Warnf("Failed to get PR comments for context: %v", err)
+		// 不返回错误，使用简单的prompt
+		allComments = &models.PRAllComments{}
+	}
+
+	// 5. 构建包含历史上下文的 prompt
+	historicalContext := a.formatHistoricalComments(allComments, 0)
+	
+	// 添加fork仓库协作的特殊提示
+	forkContext := fmt.Sprintf("## Fork 仓库协作信息\n- 这是一个来自 fork 仓库的 PR 协作请求\n- Fork 仓库：%s/%s\n- Fork 分支：%s\n- 协作分支：%s\n\n请根据以下指令在 fork 仓库中创建协作分支进行开发：", 
+		ws.ForkInfo.Owner, ws.ForkInfo.Repo, ws.ForkInfo.Branch, ws.ForkInfo.CollabBranch)
+	
+	fullContext := fmt.Sprintf("%s\n\n%s", forkContext, historicalContext)
+	
+	// 根据模式生成不同的 prompt
+	prompt := a.buildPrompt(mode, args, fullContext)
+	
+	log.Infof("Using %s prompt for fork PR with args and historical context", strings.ToLower(mode))
+
+	// 6. 执行 AI 处理
+	log.Infof("Executing AI processing for fork PR %s", strings.ToLower(mode))
+	resp, err := a.promptWithRetry(ctx, codeClient, prompt, 3)
+	if err != nil {
+		log.Errorf("Failed to process fork PR %s: %v", strings.ToLower(mode), err)
+		return fmt.Errorf("failed to process fork PR %s: %w", strings.ToLower(mode), err)
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		log.Errorf("Failed to read output for fork PR %s: %v", strings.ToLower(mode), err)
+		return fmt.Errorf("failed to read output for fork PR %s: %w", strings.ToLower(mode), err)
+	}
+
+	log.Infof("AI processing completed for fork PR, output length: %d", len(output))
+	log.Debugf("Fork PR %s Output: %s", mode, string(output))
+
+	// 7. 创建fork仓库的协作分支
+	log.Infof("Creating collaboration branch in fork repository")
+	if err := a.github.CreateForkCollaborationBranch(ws); err != nil {
+		log.Errorf("Failed to create collaboration branch: %v", err)
+		return fmt.Errorf("failed to create collaboration branch: %w", err)
+	}
+
+	// 8. 提交变更并推送到 fork 仓库
+	result := &models.ExecutionResult{
+		Output: string(output),
+		Error:  "",
+	}
+
+	log.Infof("Committing and pushing changes to fork repository")
+	if err := a.github.CommitAndPushToFork(ws, result, codeClient); err != nil {
+		log.Errorf("Failed to commit and push changes to fork: %v", err)
+		return fmt.Errorf("failed to commit and push changes to fork: %w", err)
+	}
+	log.Infof("Changes committed and pushed to fork repository successfully")
+
+	// 9. 创建fork仓库的协作PR
+	log.Infof("Creating collaboration PR in fork repository")
+	forkPR, err := a.github.CreateForkCollaborationPR(ws, pr, string(output))
+	if err != nil {
+		log.Errorf("Failed to create collaboration PR in fork: %v", err)
+		return fmt.Errorf("failed to create collaboration PR in fork: %w", err)
+	}
+
+	// 10. 在原PR中创建评论，通知fork仓库管理者
+	notificationComment := fmt.Sprintf(`## 🤖 CodeAgent 协作通知
+
+我已经根据您的指令在 fork 仓库中创建了协作 PR：
+
+**协作 PR：** %s
+
+**处理内容：**
+%s
+
+---
+📋 **下一步操作：**
+1. 请在 fork 仓库中审核协作 PR
+2. 合并协作 PR 后，修改将自动同步到此 PR
+3. 如有问题，可以在协作 PR 中继续讨论
+
+*由 CodeAgent 自动创建*`, forkPR.GetHTMLURL(), string(output))
+
+	log.Infof("Creating notification comment in original PR")
+	if err = a.github.CreatePullRequestComment(pr, notificationComment); err != nil {
+		log.Errorf("Failed to create notification comment: %v", err)
+		return fmt.Errorf("failed to create notification comment: %w", err)
+	}
+	log.Infof("Notification comment created successfully")
+
+	log.Infof("Successfully processed fork PR #%d, created collaboration PR: %s", prNumber, forkPR.GetHTMLURL())
+	return nil
+}
+
+// processForkPRFromReviewComment 处理fork仓库PR的代码行评论
+func (a *Agent) processForkPRFromReviewComment(ctx context.Context, pr *github.PullRequest, comment *github.PullRequestComment, args string, mode string) error {
+	log := xlog.NewWith(ctx)
+
+	prNumber := pr.GetNumber()
+	log.Infof("%s fork PR #%d from review comment with args: %s", mode, prNumber, args)
+
+	// 获取工作空间
+	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
+	if ws == nil || ws.ForkInfo == nil {
+		return fmt.Errorf("failed to get fork workspace for PR %s from review comment", strings.ToLower(mode))
+	}
+
+	// 初始化 code client
+	codeClient, err := a.sessionManager.GetSession(ws)
+	if err != nil {
+		return fmt.Errorf("failed to get code client for fork PR %s from review comment: %w", strings.ToLower(mode), err)
+	}
+
+	// 构建包含评论上下文的 prompt
+	startLine := comment.GetStartLine()
+	endLine := comment.GetLine()
+
+	var lineRangeInfo string
+	if startLine != 0 && endLine != 0 && startLine != endLine {
+		lineRangeInfo = fmt.Sprintf("行号范围：%d-%d", startLine, endLine)
+	} else {
+		lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
+	}
+
+	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n%s", comment.GetBody(), comment.GetPath(), lineRangeInfo)
+	
+	// 添加fork仓库协作的特殊提示
+	forkContext := fmt.Sprintf("## Fork 仓库协作信息\n- 这是一个来自 fork 仓库的 PR 协作请求\n- Fork 仓库：%s/%s\n- Fork 分支：%s\n- 协作分支：%s\n\n", 
+		ws.ForkInfo.Owner, ws.ForkInfo.Repo, ws.ForkInfo.Branch, ws.ForkInfo.CollabBranch)
+	
+	var prompt string
+	if args != "" {
+		prompt = fmt.Sprintf("%s根据代码行评论和指令%s：\n\n%s\n\n指令：%s", forkContext, strings.ToLower(mode), commentContext, args)
+	} else {
+		prompt = fmt.Sprintf("%s根据代码行评论%s：\n\n%s", forkContext, strings.ToLower(mode), commentContext)
+	}
+
+	// 执行 AI 处理
+	resp, err := a.promptWithRetry(ctx, codeClient, prompt, 3)
+	if err != nil {
+		return fmt.Errorf("failed to prompt for fork PR %s from review comment: %w", strings.ToLower(mode), err)
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		return fmt.Errorf("failed to read output for fork PR %s from review comment: %w", strings.ToLower(mode), err)
+	}
+
+	// 创建fork仓库的协作分支
+	if err := a.github.CreateForkCollaborationBranch(ws); err != nil {
+		return fmt.Errorf("failed to create collaboration branch: %w", err)
+	}
+
+	// 提交变更并推送到 fork 仓库
+	result := &models.ExecutionResult{Output: string(output)}
+	if err := a.github.CommitAndPushToFork(ws, result, codeClient); err != nil {
+		return fmt.Errorf("failed to commit and push to fork: %w", err)
+	}
+
+	// 创建fork仓库的协作PR
+	forkPR, err := a.github.CreateForkCollaborationPR(ws, pr, string(output))
+	if err != nil {
+		return fmt.Errorf("failed to create collaboration PR in fork: %w", err)
+	}
+
+	// 回复原始评论
+	responseComment := fmt.Sprintf("🤖 已在 fork 仓库中创建协作 PR：%s\n\n%s", forkPR.GetHTMLURL(), string(output))
+	if err = a.github.ReplyToReviewComment(pr, comment.GetID(), responseComment); err != nil {
+		return fmt.Errorf("failed to reply to review comment: %w", err)
+	}
+
+	log.Infof("Successfully processed fork PR #%d from review comment, created collaboration PR: %s", prNumber, forkPR.GetHTMLURL())
+	return nil
+}
+
+// processForkPRFromReviewWithTriggerUser 处理fork仓库PR的批量Review处理
+func (a *Agent) processForkPRFromReviewWithTriggerUser(ctx context.Context, pr *github.PullRequest, review *github.PullRequestReview, reviewComments []*github.PullRequestComment, command string, args string, triggerUser string) error {
+	log := xlog.NewWith(ctx)
+
+	prNumber := pr.GetNumber()
+	reviewID := review.GetID()
+	log.Infof("Processing fork PR #%d from review %d with command: %s, args: %s, triggerUser: %s", prNumber, reviewID, command, args, triggerUser)
+
+	// 获取工作空间
+	ws := a.workspace.GetOrCreateWorkspaceForPR(pr)
+	if ws == nil || ws.ForkInfo == nil {
+		return fmt.Errorf("failed to get fork workspace for PR batch processing from review")
+	}
+
+	// 初始化 code client
+	codeClient, err := a.sessionManager.GetSession(ws)
+	if err != nil {
+		return fmt.Errorf("failed to get code client for fork PR batch processing from review: %w", err)
+	}
+
+	// 构建批量处理的 prompt
+	var commentContexts []string
+
+	// 添加 review body 作为总体上下文
+	if review.GetBody() != "" {
+		commentContexts = append(commentContexts, fmt.Sprintf("Review 总体说明：%s", review.GetBody()))
+	}
+
+	// 为每个 comment 构建详细上下文
+	for i, comment := range reviewComments {
+		startLine := comment.GetStartLine()
+		endLine := comment.GetLine()
+		filePath := comment.GetPath()
+		commentBody := comment.GetBody()
+
+		var lineRangeInfo string
+		if startLine != 0 && endLine != 0 && startLine != endLine {
+			lineRangeInfo = fmt.Sprintf("行号范围：%d-%d", startLine, endLine)
+		} else {
+			lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
+		}
+
+		commentContext := fmt.Sprintf("评论 %d：\n文件：%s\n%s\n内容：%s", i+1, filePath, lineRangeInfo, commentBody)
+		commentContexts = append(commentContexts, commentContext)
+	}
+
+	// 组合所有上下文
+	allComments := strings.Join(commentContexts, "\n\n")
+	
+	// 添加fork仓库协作的特殊提示
+	forkContext := fmt.Sprintf("## Fork 仓库协作信息\n- 这是一个来自 fork 仓库的 PR 协作请求\n- Fork 仓库：%s/%s\n- Fork 分支：%s\n- 协作分支：%s\n\n", 
+		ws.ForkInfo.Owner, ws.ForkInfo.Repo, ws.ForkInfo.Branch, ws.ForkInfo.CollabBranch)
+
+	var prompt string
+	mode := strings.TrimPrefix(command, "/")
+	if args != "" {
+		prompt = fmt.Sprintf("%s请根据以下 PR Review 的批量评论和指令%s代码：\n\n%s\n\n指令：%s\n\n请一次性处理所有评论中提到的问题，回复要简洁明了。", forkContext, mode, allComments, args)
+	} else {
+		prompt = fmt.Sprintf("%s请根据以下 PR Review 的批量评论%s代码：\n\n%s\n\n请一次性处理所有评论中提到的问题，回复要简洁明了。", forkContext, mode, allComments)
+	}
+
+	// 执行 AI 处理
+	resp, err := a.promptWithRetry(ctx, codeClient, prompt, 3)
+	if err != nil {
+		return fmt.Errorf("failed to prompt for fork PR batch processing from review: %w", err)
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		return fmt.Errorf("failed to read output for fork PR batch processing from review: %w", err)
+	}
+
+	// 创建fork仓库的协作分支
+	if err := a.github.CreateForkCollaborationBranch(ws); err != nil {
+		return fmt.Errorf("failed to create collaboration branch: %w", err)
+	}
+
+	// 提交变更并推送到 fork 仓库
+	result := &models.ExecutionResult{Output: string(output)}
+	if err := a.github.CommitAndPushToFork(ws, result, codeClient); err != nil {
+		return fmt.Errorf("failed to commit and push to fork: %w", err)
+	}
+
+	// 创建fork仓库的协作PR
+	forkPR, err := a.github.CreateForkCollaborationPR(ws, pr, string(output))
+	if err != nil {
+		return fmt.Errorf("failed to create collaboration PR in fork: %w", err)
+	}
+
+	// 创建评论，包含@用户提及
+	var responseBody string
+	if triggerUser != "" {
+		if len(reviewComments) == 0 {
+			responseBody = fmt.Sprintf("@%s 已在 fork 仓库中创建协作 PR：%s\n\n已根据 review 说明处理：\n\n%s", triggerUser, forkPR.GetHTMLURL(), string(output))
+		} else {
+			responseBody = fmt.Sprintf("@%s 已在 fork 仓库中创建协作 PR：%s\n\n已批量处理此次 review 的 %d 个评论：\n\n%s", triggerUser, forkPR.GetHTMLURL(), len(reviewComments), string(output))
+		}
+	} else {
+		if len(reviewComments) == 0 {
+			responseBody = fmt.Sprintf("已在 fork 仓库中创建协作 PR：%s\n\n已根据 review 说明处理：\n\n%s", forkPR.GetHTMLURL(), string(output))
+		} else {
+			responseBody = fmt.Sprintf("已在 fork 仓库中创建协作 PR：%s\n\n已批量处理此次 review 的 %d 个评论：\n\n%s", forkPR.GetHTMLURL(), len(reviewComments), string(output))
+		}
+	}
+
+	if err = a.github.CreatePullRequestComment(pr, responseBody); err != nil {
+		return fmt.Errorf("failed to create PR comment for fork batch processing result: %w", err)
+	}
+
+	log.Infof("Successfully processed fork PR #%d from review %d with %d comments, created collaboration PR: %s", prNumber, reviewID, len(reviewComments), forkPR.GetHTMLURL())
+	return nil
 }

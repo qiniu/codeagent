@@ -636,3 +636,159 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// IsForkPR 检查 PR 是否来自 fork 仓库
+func (c *Client) IsForkPR(pr *github.PullRequest) bool {
+	return pr.GetHead().GetRepo().GetFork()
+}
+
+// CreateForkCollaborationPR 为 fork 仓库创建协作 PR
+func (c *Client) CreateForkCollaborationPR(workspace *models.Workspace, originalPR *github.PullRequest, commitMessage string) (*github.PullRequest, error) {
+	if workspace.ForkInfo == nil {
+		return nil, fmt.Errorf("workspace does not have fork info")
+	}
+
+	forkOwner := workspace.ForkInfo.Owner
+	forkRepo := workspace.ForkInfo.Repo
+	collabBranch := workspace.ForkInfo.CollabBranch
+
+	// 创建 PR 到 fork 仓库
+	prTitle := fmt.Sprintf("CodeAgent协作: %s", originalPR.GetTitle())
+	prBody := fmt.Sprintf(`## CodeAgent 协作 PR
+
+这是由 CodeAgent 创建的协作 PR，用于在原 PR 基础上继续开发。
+
+### 原 PR 信息
+- 原 PR: %s
+- 原分支: %s
+- 目标分支: %s
+
+### 修改内容
+%s
+
+---
+*此 PR 由 CodeAgent 自动创建，等待您审核并合并*
+
+合并后，修改将自动同步到原 PR: %s`,
+		originalPR.GetHTMLURL(),
+		workspace.ForkInfo.Branch,
+		workspace.ForkInfo.Branch,
+		commitMessage,
+		originalPR.GetHTMLURL())
+
+	newPR := &github.NewPullRequest{
+		Title: &prTitle,
+		Body:  &prBody,
+		Head:  &collabBranch,
+		Base:  &workspace.ForkInfo.Branch,
+	}
+
+	pr, _, err := c.client.PullRequests.Create(context.Background(), forkOwner, forkRepo, newPR)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create collaboration PR in fork repo: %w", err)
+	}
+
+	log.Infof("Created collaboration PR in fork repo: %s", pr.GetHTMLURL())
+	return pr, nil
+}
+
+// CreateForkCollaborationBranch 在 fork 仓库创建协作分支
+func (c *Client) CreateForkCollaborationBranch(workspace *models.Workspace) error {
+	if workspace.ForkInfo == nil {
+		return fmt.Errorf("workspace does not have fork info")
+	}
+
+	log.Infof("Creating collaboration branch in fork repo: %s", workspace.ForkInfo.CollabBranch)
+
+	// 检查 Git 配置
+	c.checkGitConfig(workspace.Path)
+
+	// 创建协作分支
+	cmd := exec.Command("git", "checkout", "-b", workspace.ForkInfo.CollabBranch)
+	cmd.Dir = workspace.Path
+	checkoutOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to create collaboration branch: %w\nCommand output: %s", err, string(checkoutOutput))
+	}
+
+	// 推送协作分支到 fork 仓库
+	forkRemote := fmt.Sprintf("https://github.com/%s/%s.git", workspace.ForkInfo.Owner, workspace.ForkInfo.Repo)
+	
+	// 添加 fork 仓库作为 remote
+	cmd = exec.Command("git", "remote", "add", "fork", forkRemote)
+	cmd.Dir = workspace.Path
+	remoteOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		// remote 可能已存在，检查是否是这个原因
+		if !strings.Contains(string(remoteOutput), "already exists") {
+			return fmt.Errorf("failed to add fork remote: %w\nCommand output: %s", err, string(remoteOutput))
+		}
+	}
+
+	// 推送协作分支到 fork 仓库
+	cmd = exec.Command("git", "push", "-u", "fork", workspace.ForkInfo.CollabBranch)
+	cmd.Dir = workspace.Path
+	pushOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to push collaboration branch to fork: %w\nCommand output: %s", err, string(pushOutput))
+	}
+
+	log.Infof("Created and pushed collaboration branch: %s", workspace.ForkInfo.CollabBranch)
+	return nil
+}
+
+// CommitAndPushToFork 提交并推送到 fork 仓库
+func (c *Client) CommitAndPushToFork(workspace *models.Workspace, result *models.ExecutionResult, codeClient code.Code) error {
+	if workspace.ForkInfo == nil {
+		return fmt.Errorf("workspace does not have fork info")
+	}
+
+	// 检查是否有文件变更
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = workspace.Path
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to check git status: %w", err)
+	}
+
+	if strings.TrimSpace(string(output)) == "" {
+		log.Infof("No changes detected in workspace")
+		return nil
+	}
+
+	// 添加所有变更
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = workspace.Path
+	addOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to add changes: %w\nCommand output: %s", err, string(addOutput))
+	}
+
+	// 生成 commit message
+	commitMsg, err := c.generateCommitMessage(workspace, result, codeClient)
+	if err != nil {
+		log.Errorf("Failed to generate commit message with AI, using fallback: %v", err)
+		summary := extractSummaryFromOutput(result.Output)
+		commitMsg = fmt.Sprintf("feat: CodeAgent collaboration - %s\n\n%s", 
+			workspace.PullRequest.GetTitle(), summary)
+	}
+
+	// 提交变更
+	cmd = exec.Command("git", "commit", "-m", commitMsg)
+	cmd.Dir = workspace.Path
+	commitOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to commit changes: %w\nCommand output: %s", err, string(commitOutput))
+	}
+
+	// 推送到 fork 仓库的协作分支
+	cmd = exec.Command("git", "push", "fork", workspace.ForkInfo.CollabBranch)
+	cmd.Dir = workspace.Path
+	pushOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to push to fork collaboration branch: %w\nCommand output: %s", err, string(pushOutput))
+	}
+
+	log.Infof("Committed and pushed changes to fork repo collaboration branch")
+	return nil
+}

@@ -24,6 +24,22 @@ type Workspace struct {
 	Issue       *github.Issue       `json:"issue"`
 	PullRequest *github.PullRequest `json:"pull_request"`
 	CreatedAt   time.Time           `json:"created_at"`
+	// fork repository info (for fork PR collaboration)
+	ForkInfo *ForkInfo `json:"fork_info,omitempty"`
+}
+
+// ForkInfo contains information about the fork repository
+type ForkInfo struct {
+	// fork repository owner
+	Owner string `json:"owner"`
+	// fork repository name
+	Repo string `json:"repo"`
+	// fork repository URL
+	URL string `json:"url"`
+	// original branch name in fork repo
+	Branch string `json:"branch"`
+	// collaboration branch name in fork repo (created by CodeAgent)
+	CollabBranch string `json:"collab_branch"`
 }
 
 type ExecutionResult struct {

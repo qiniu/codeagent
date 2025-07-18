@@ -616,9 +616,22 @@ func (m *Manager) GetOrCreateWorkspaceForPR(pr *github.PullRequest) *models.Work
 		m.CleanupWorkspace(ws)
 	}
 
-	// 2. 创建新的工作空间
+	// 2. 检查是否是fork仓库的PR
+	if m.isForkPR(pr) {
+		log.Infof("Detected fork PR #%d, creating fork workspace", pr.GetNumber())
+		return m.CreateWorkspaceFromForkPR(pr)
+	}
+
+	// 3. 创建新的工作空间（普通PR）
 	log.Infof("Creating new workspace for PR #%d", pr.GetNumber())
 	return m.CreateWorkspaceFromPR(pr)
+}
+
+// isForkPR 检查PR是否来自fork仓库
+func (m *Manager) isForkPR(pr *github.PullRequest) bool {
+	headRepoOwner := pr.GetHead().GetRepo().GetOwner().GetLogin()
+	baseRepoOwner := pr.GetBase().GetRepo().GetOwner().GetLogin()
+	return headRepoOwner != baseRepoOwner
 }
 
 // validateWorkspaceForPR 验证工作空间是否对应正确的 PR 分支
@@ -723,4 +736,139 @@ func (m *Manager) GetExpiredWorkspaces() []*models.Workspace {
 	m.mutex.RUnlock()
 
 	return expiredWorkspaces
+}
+
+// CreateWorkspaceFromForkPR 从 fork 仓库的 PR 创建工作空间
+func (m *Manager) CreateWorkspaceFromForkPR(pr *github.PullRequest) *models.Workspace {
+	log.Infof("Creating workspace from fork PR #%d", pr.GetNumber())
+
+	// 获取主仓库信息
+	baseRepo := pr.GetBase().GetRepo()
+	baseOrg := baseRepo.GetOwner().GetLogin()
+	baseRepoName := baseRepo.GetName()
+	baseRepoURL := baseRepo.GetCloneURL()
+
+	// 获取fork仓库信息
+	headRepo := pr.GetHead().GetRepo()
+	forkOrg := headRepo.GetOwner().GetLogin()
+	forkRepoName := headRepo.GetName()
+	forkRepoURL := headRepo.GetCloneURL()
+	forkBranch := pr.GetHead().GetRef()
+
+	// 生成协作分支名
+	timestamp := time.Now().Unix()
+	collabBranch := fmt.Sprintf("%s/collab-pr-%d-%d", BranchPrefix, pr.GetNumber(), timestamp)
+
+	// 生成 PR 工作空间目录名
+	prDir := fmt.Sprintf("%s-pr-%d-%d", baseRepoName, pr.GetNumber(), timestamp)
+
+	// 获取或创建主仓库管理器
+	repoManager := m.getOrCreateRepoManager(baseOrg, baseRepoName)
+
+	// 创建 worktree（基于主仓库的目标分支）
+	baseBranch := pr.GetBase().GetRef()
+	worktree, err := repoManager.CreateWorktreeWithName(prDir, baseBranch, false)
+	if err != nil {
+		log.Errorf("Failed to create worktree for fork PR #%d: %v", pr.GetNumber(), err)
+		return nil
+	}
+
+	// 在工作空间中添加 fork 仓库作为远程仓库
+	err = m.setupForkRemote(worktree.Worktree, forkRepoURL, forkBranch)
+	if err != nil {
+		log.Errorf("Failed to setup fork remote for PR #%d: %v", pr.GetNumber(), err)
+		return nil
+	}
+
+	// 创建 session 目录
+	suffix := strings.TrimPrefix(filepath.Base(worktree.Worktree), fmt.Sprintf("%s-pr-%d-", baseRepoName, pr.GetNumber()))
+	sessionPath, err := m.CreateSessionPath(filepath.Dir(repoManager.GetRepoPath()), baseRepoName, pr.GetNumber(), suffix)
+	if err != nil {
+		log.Errorf("Failed to create session directory: %v", err)
+		return nil
+	}
+
+	// 创建 ForkInfo
+	forkInfo := &models.ForkInfo{
+		Owner:        forkOrg,
+		Repo:         forkRepoName,
+		URL:          forkRepoURL,
+		Branch:       forkBranch,
+		CollabBranch: collabBranch,
+	}
+
+	// 创建工作空间对象
+	ws := &models.Workspace{
+		Org:         baseOrg,
+		Repo:        baseRepoName,
+		PRNumber:    pr.GetNumber(),
+		Path:        worktree.Worktree,
+		SessionPath: sessionPath,
+		Repository:  baseRepoURL,
+		Branch:      worktree.Branch,
+		PullRequest: pr,
+		ForkInfo:    forkInfo,
+		CreatedAt:   time.Now(),
+	}
+
+	// 注册到内存映射
+	prKey := key(fmt.Sprintf("%s/%s", baseOrg, baseRepoName), pr.GetNumber())
+	m.mutex.Lock()
+	m.workspaces[prKey] = ws
+	m.mutex.Unlock()
+
+	log.Infof("Created workspace from fork PR #%d: %s", pr.GetNumber(), ws.Path)
+	return ws
+}
+
+// setupForkRemote 在工作空间中设置 fork 仓库的远程仓库
+func (m *Manager) setupForkRemote(workspacePath, forkRepoURL, forkBranch string) error {
+	// 添加 fork 仓库作为远程仓库
+	cmd := exec.Command("git", "remote", "add", "fork", forkRepoURL)
+	cmd.Dir = workspacePath
+	remoteOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		// 检查是否是因为 remote 已存在
+		if !strings.Contains(string(remoteOutput), "already exists") {
+			return fmt.Errorf("failed to add fork remote: %w\nOutput: %s", err, string(remoteOutput))
+		}
+	}
+
+	// 获取 fork 仓库的所有分支
+	cmd = exec.Command("git", "fetch", "fork")
+	cmd.Dir = workspacePath
+	fetchOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to fetch fork remote: %w\nOutput: %s", err, string(fetchOutput))
+	}
+
+	// 切换到 fork 仓库的分支
+	cmd = exec.Command("git", "checkout", "-B", forkBranch, fmt.Sprintf("fork/%s", forkBranch))
+	cmd.Dir = workspacePath
+	checkoutOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to checkout fork branch: %w\nOutput: %s", err, string(checkoutOutput))
+	}
+
+	log.Infof("Successfully setup fork remote and checked out branch: %s", forkBranch)
+	return nil
+}
+
+// GetOrCreateWorkspaceForForkPR 获取或创建 fork PR 的工作空间
+func (m *Manager) GetOrCreateWorkspaceForForkPR(pr *github.PullRequest) *models.Workspace {
+	// 1. 先尝试从内存中获取
+	ws := m.GetWorkspaceByPR(pr)
+	if ws != nil {
+		// 验证工作空间是否有效
+		if m.validateWorkspaceForPR(ws, pr) {
+			return ws
+		}
+		// 如果验证失败，清理旧的工作空间
+		log.Infof("Workspace validation failed for fork PR #%d, cleaning up old workspace", pr.GetNumber())
+		m.CleanupWorkspace(ws)
+	}
+
+	// 2. 创建新的工作空间
+	log.Infof("Creating new workspace for fork PR #%d", pr.GetNumber())
+	return m.CreateWorkspaceFromForkPR(pr)
 }
