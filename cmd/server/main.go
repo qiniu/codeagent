@@ -34,6 +34,13 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// 打印加载的配置
+	configJSON, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		log.Fatalf("Failed to marshal config to JSON: %v", err)
+	}
+	log.Infof("Loaded configuration:\n%s", string(configJSON))
+
 	// 命令行参数优先级高于环境变量和配置文件
 	if *githubToken != "" {
 		cfg.GitHub.Token = *githubToken
