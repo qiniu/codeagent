@@ -19,7 +19,7 @@ import (
 type RepoManager struct {
 	repoPath  string
 	repoURL   string
-	worktrees map[int]*WorktreeInfo
+	worktrees map[string]*WorktreeInfo // key: "aiModel-prNumber" 或 "prNumber" (向后兼容)
 	mutex     sync.RWMutex
 }
 
@@ -38,12 +38,20 @@ type WorktreeInfo struct {
 	Branch   string
 }
 
+// generateWorktreeKey 生成 worktree 的 key
+func generateWorktreeKey(aiModel string, prNumber int) string {
+	if aiModel != "" {
+		return fmt.Sprintf("%s-%d", aiModel, prNumber)
+	}
+	return fmt.Sprintf("%d", prNumber)
+}
+
 // NewRepoManager 创建新的仓库管理器
 func NewRepoManager(repoPath, repoURL string) *RepoManager {
 	return &RepoManager{
 		repoPath:  repoPath,
 		repoURL:   repoURL,
-		worktrees: make(map[int]*WorktreeInfo),
+		worktrees: make(map[string]*WorktreeInfo),
 	}
 }
 
@@ -100,132 +108,33 @@ func (r *RepoManager) isInitialized() bool {
 	return err == nil
 }
 
-// GetWorktree 获取指定 PR 的 worktree
+// GetWorktree 获取指定 PR 的 worktree（向后兼容，默认无AI模型）
 func (r *RepoManager) GetWorktree(prNumber int) *WorktreeInfo {
+	return r.GetWorktreeWithAI(prNumber, "")
+}
+
+// GetWorktreeWithAI 获取指定 PR 和 AI 模型的 worktree
+func (r *RepoManager) GetWorktreeWithAI(prNumber int, aiModel string) *WorktreeInfo {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
-	return r.worktrees[prNumber]
+	key := generateWorktreeKey(aiModel, prNumber)
+	return r.worktrees[key]
 }
 
-// CreateWorktree 为指定 PR 创建 worktree
-func (r *RepoManager) CreateWorktree(prNumber int, branch string, createNewBranch bool) (*WorktreeInfo, error) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	log.Infof("Creating worktree for PR #%d, branch: %s, createNewBranch: %v", prNumber, branch, createNewBranch)
-
-	// 检查是否已存在
-	if existing := r.worktrees[prNumber]; existing != nil {
-		log.Infof("Worktree for PR #%d already exists: %s", prNumber, existing.Worktree)
-		return existing, nil
-	}
-
-	// 确保仓库已初始化
-	if !r.isInitialized() {
-		log.Infof("Repository not initialized, initializing: %s", r.repoPath)
-		if err := r.Initialize(); err != nil {
-			return nil, err
-		}
-	} else {
-		// 仓库已存在，确保主仓库代码是最新的
-		if err := r.updateMainRepository(); err != nil {
-			log.Warnf("Failed to update main repository: %v", err)
-			// 不因为更新失败而阻止worktree创建，但记录警告
-		}
-	}
-
-	// 创建 worktree 路径
-	worktreePath := filepath.Join(r.repoPath, fmt.Sprintf("pr-%d", prNumber))
-	log.Infof("Worktree path: %s", worktreePath)
-
-	// 创建 worktree
-	var cmd *exec.Cmd
-	if createNewBranch {
-		// 创建新分支的 worktree
-		// 首先检查默认分支是什么
-		log.Infof("Checking default branch for new branch creation")
-		defaultBranchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-		defaultBranchCmd.Dir = r.repoPath
-		defaultBranchOutput, err := defaultBranchCmd.Output()
-		if err != nil {
-			log.Warnf("Failed to get default branch, using 'main': %v", err)
-			defaultBranchOutput = []byte("main")
-		}
-		defaultBranch := strings.TrimSpace(string(defaultBranchOutput))
-		if defaultBranch == "" {
-			defaultBranch = "main"
-		}
-
-		log.Infof("Creating new branch worktree: git worktree add -b %s %s %s", branch, worktreePath, defaultBranch)
-		cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, defaultBranch)
-	} else {
-		// 创建现有分支的 worktree
-		// 首先检查远程分支是否存在
-		log.Infof("Checking if remote branch exists: origin/%s", branch)
-		checkCmd := exec.Command("git", "ls-remote", "--heads", "origin", branch)
-		checkCmd.Dir = r.repoPath
-		checkOutput, err := checkCmd.CombinedOutput()
-		if err != nil {
-			log.Warnf("Failed to check remote branch: %v, output: %s", err, string(checkOutput))
-		} else if strings.TrimSpace(string(checkOutput)) == "" {
-			log.Warnf("Remote branch origin/%s does not exist, will create new branch", branch)
-			// 如果远程分支不存在，创建新分支
-			defaultBranchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-			defaultBranchCmd.Dir = r.repoPath
-			defaultBranchOutput, err := defaultBranchCmd.Output()
-			if err != nil {
-				log.Warnf("Failed to get default branch, using 'main': %v", err)
-				defaultBranchOutput = []byte("main")
-			}
-			defaultBranch := strings.TrimSpace(string(defaultBranchOutput))
-			if defaultBranch == "" {
-				defaultBranch = "main"
-			}
-			cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, defaultBranch)
-		} else {
-			log.Infof("Remote branch exists, creating worktree: git worktree add %s origin/%s", worktreePath, branch)
-			cmd = exec.Command("git", "worktree", "add", worktreePath, fmt.Sprintf("origin/%s", branch))
-		}
-	}
-
-	if cmd == nil {
-		// 如果还没有设置命令，使用默认的创建新分支方式
-		log.Infof("Using default new branch creation: git worktree add -b %s %s main", branch, worktreePath)
-		cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, "main")
-	}
-
-	cmd.Dir = r.repoPath
-
-	log.Infof("Executing command: %s", strings.Join(cmd.Args, " "))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Errorf("Failed to create worktree: %v, output: %s", err, string(output))
-		return nil, fmt.Errorf("failed to create worktree: %w, output: %s", err, string(output))
-	}
-
-	log.Infof("Worktree creation output: %s", string(output))
-
-	// 创建 worktree 信息
-	worktree := &WorktreeInfo{
-		Worktree: worktreePath,
-		Branch:   branch,
-	}
-
-	// 注册到映射
-	r.worktrees[prNumber] = worktree
-
-	log.Infof("Successfully created worktree for PR #%d: %s", prNumber, worktreePath)
-	return worktree, nil
-}
-
-// RemoveWorktree 移除指定 PR 的 worktree
+// RemoveWorktree 移除指定 PR 的 worktree（向后兼容，默认无AI模型）
 func (r *RepoManager) RemoveWorktree(prNumber int) error {
+	return r.RemoveWorktreeWithAI(prNumber, "")
+}
+
+// RemoveWorktreeWithAI 移除指定 PR 和 AI 模型的 worktree
+func (r *RepoManager) RemoveWorktreeWithAI(prNumber int, aiModel string) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	worktree := r.worktrees[prNumber]
+	key := generateWorktreeKey(aiModel, prNumber)
+	worktree := r.worktrees[key]
 	if worktree == nil {
-		log.Infof("Worktree for PR #%d not found in memory, skipping removal", prNumber)
+		log.Infof("Worktree for PR #%d with AI model %s not found in memory, skipping removal", prNumber, aiModel)
 		return nil // 已经不存在
 	}
 
@@ -233,7 +142,7 @@ func (r *RepoManager) RemoveWorktree(prNumber int) error {
 	if _, err := os.Stat(worktree.Worktree); os.IsNotExist(err) {
 		log.Infof("Worktree directory %s does not exist, removing from memory only", worktree.Worktree)
 		// 目录不存在，只从内存中移除
-		delete(r.worktrees, prNumber)
+		delete(r.worktrees, key)
 		return nil
 	}
 
@@ -250,9 +159,9 @@ func (r *RepoManager) RemoveWorktree(prNumber int) error {
 	}
 
 	// 从映射中移除
-	delete(r.worktrees, prNumber)
+	delete(r.worktrees, key)
 
-	log.Infof("Removed worktree for PR #%d from memory", prNumber)
+	log.Infof("Removed worktree for PR #%d with AI model %s from memory", prNumber, aiModel)
 	return nil
 }
 
@@ -443,11 +352,17 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 	return worktree, nil
 }
 
-// 注册单个 worktree 到内存
+// RegisterWorktree 注册单个 worktree 到内存（向后兼容，默认无AI模型）
 func (r *RepoManager) RegisterWorktree(prNumber int, worktree *WorktreeInfo) {
+	r.RegisterWorktreeWithAI(prNumber, "", worktree)
+}
+
+// RegisterWorktreeWithAI 注册单个 worktree 到内存（支持AI模型）
+func (r *RepoManager) RegisterWorktreeWithAI(prNumber int, aiModel string, worktree *WorktreeInfo) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	r.worktrees[prNumber] = worktree
+	key := generateWorktreeKey(aiModel, prNumber)
+	r.worktrees[key] = worktree
 }
 
 // GetRepoPath 获取仓库路径
@@ -564,11 +479,33 @@ func (r *RepoManager) RestoreWorktrees() error {
 		// 只处理含 -pr- 的 worktree 目录
 		base := filepath.Base(wt.Worktree)
 		if strings.Contains(base, "-pr-") {
-			parts := strings.Split(base, "-pr-")
-			numberParts := strings.Split(parts[1], "-")
-			prNumber, err := strconv.Atoi(numberParts[0])
-			if err == nil {
-				r.RegisterWorktree(prNumber, wt)
+			// 解析目录名格式：{aiModel}-{repo}-pr-{prNumber}-{timestamp}
+			// 找到 "pr" 的位置
+			parts := strings.Split(base, "-")
+			prIndex := -1
+			for i, part := range parts {
+				if part == "pr" {
+					prIndex = i
+					break
+				}
+			}
+
+			if prIndex != -1 && prIndex >= 2 && prIndex < len(parts)-2 {
+				// 提取AI模型和PR编号
+				aiModel := strings.Join(parts[:prIndex-1], "-")
+				_ = parts[prIndex-1] // repo name, not used but extracted for clarity
+				prNumber, err := strconv.Atoi(parts[prIndex+1])
+				if err == nil {
+					// 验证AI模型是否有效
+					if aiModel == "gemini" || aiModel == "claude" {
+						r.RegisterWorktreeWithAI(prNumber, aiModel, wt)
+						log.Infof("Restored worktree for PR #%d with AI model %s: %s", prNumber, aiModel, wt.Worktree)
+					} else {
+						// 向后兼容：如果没有有效的AI模型，使用默认方式注册
+						r.RegisterWorktree(prNumber, wt)
+						log.Infof("Restored worktree for PR #%d (no AI model): %s", prNumber, wt.Worktree)
+					}
+				}
 			}
 		}
 	}
