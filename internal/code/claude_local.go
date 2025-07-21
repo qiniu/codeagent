@@ -60,7 +60,6 @@ func (c *claudeLocal) Prompt(message string) (*Response, error) {
 func (c *claudeLocal) executeClaudeLocal(prompt string) ([]byte, error) {
 	// 构建 claude CLI 命令
 	args := []string{
-		"--dangerously-skip-permissions",
 		"-p",
 		prompt,
 	}
