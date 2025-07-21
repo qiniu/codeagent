@@ -37,11 +37,13 @@ show_help() {
     echo "选项:"
     echo "  -p, --provider PROVIDER    代码提供者 (claude|gemini) [默认: gemini]"
     echo "  -d, --docker               使用 Docker 模式 [默认: 本地 CLI 模式]"
+    echo "  -i, --interactive          启用交互式 Docker 模式 (仅适用于 Claude Docker)"
     echo "  -h, --help                 显示此帮助信息"
     echo ""
     echo "示例:"
     echo "  $0                          # Gemini + 本地 CLI 模式"
     echo "  $0 -p claude -d             # Claude + Docker 模式"
+    echo "  $0 -p claude -d -i          # Claude + Docker 交互式模式"
     echo "  $0 -p gemini -d             # Gemini + Docker 模式"
     echo "  $0 -p claude                # Claude + 本地 CLI 模式"
 }
@@ -50,6 +52,7 @@ show_help() {
 parse_args() {
     PROVIDER="gemini"
     USE_DOCKER=false
+    INTERACTIVE=false
     
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -59,6 +62,10 @@ parse_args() {
                 ;;
             -d|--docker)
                 USE_DOCKER=true
+                shift
+                ;;
+            -i|--interactive)
+                INTERACTIVE=true
                 shift
                 ;;
             -h|--help)
@@ -78,6 +85,18 @@ parse_args() {
         print_error "不支持的代码提供者: $PROVIDER"
         print_error "支持的选项: claude, gemini"
         exit 1
+    fi
+    
+    # 验证交互式模式只能用于Claude Docker
+    if [[ "$INTERACTIVE" = true ]]; then
+        if [[ "$PROVIDER" != "claude" ]]; then
+            print_error "交互式模式只支持 Claude 提供者"
+            exit 1
+        fi
+        if [[ "$USE_DOCKER" != true ]]; then
+            print_error "交互式模式需要启用 Docker 模式"
+            exit 1
+        fi
     fi
 }
 
@@ -167,11 +186,13 @@ check_go_env() {
 set_env_vars() {
     export CODE_PROVIDER="$PROVIDER"
     export USE_DOCKER="$USE_DOCKER"
+    export CLAUDE_INTERACTIVE="$INTERACTIVE"
     export PORT=${PORT:-8888}
     
     print_info "设置环境变量:"
     print_info "  CODE_PROVIDER=$PROVIDER"
     print_info "  USE_DOCKER=$USE_DOCKER"
+    print_info "  CLAUDE_INTERACTIVE=$INTERACTIVE"
     print_info "  PORT=$PORT"
 }
 
@@ -214,6 +235,9 @@ main() {
     print_info "配置信息:"
     print_info "  代码提供者: $PROVIDER"
     print_info "  执行方式: $([ "$USE_DOCKER" = true ] && echo "Docker" || echo "本地 CLI")"
+    if [[ "$INTERACTIVE" = true ]]; then
+        print_info "  模式: 交互式"
+    fi
     echo ""
     
     # 检查环境

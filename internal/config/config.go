@@ -46,6 +46,7 @@ type ClaudeConfig struct {
 	APIKey         string        `yaml:"api_key"`
 	ContainerImage string        `yaml:"container_image"`
 	Timeout        time.Duration `yaml:"timeout"`
+	Interactive    bool          `yaml:"interactive"`
 }
 
 type DockerConfig struct {
@@ -135,6 +136,7 @@ func loadFromEnv() *Config {
 			APIKey:         os.Getenv("CLAUDE_API_KEY"),
 			ContainerImage: getEnvOrDefault("CLAUDE_IMAGE", "anthropic/claude-code:latest"),
 			Timeout:        30 * time.Minute,
+			Interactive:    getEnvBoolOrDefault("CLAUDE_INTERACTIVE", false),
 		},
 		Gemini: GeminiConfig{
 			APIKey:             os.Getenv("GEMINI_API_KEY"),

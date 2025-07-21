@@ -35,6 +35,10 @@ func New(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	switch provider {
 	case ProviderClaude:
 		if cfg.UseDocker {
+			// 检查是否启用交互式模式
+			if cfg.Claude.Interactive {
+				return NewClaudeInteractive(workspace, cfg)
+			}
 			return NewClaudeDocker(workspace, cfg)
 		}
 		return NewClaudeLocal(workspace, cfg)
