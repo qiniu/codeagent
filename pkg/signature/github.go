@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/qiniu/x/log"
 )
 
 var (
@@ -84,6 +86,7 @@ func ValidateGitHubSignatureSHA1(signature string, payload []byte, secret string
 
 	// 使用恒定时间比较防止时间攻击
 	if !hmac.Equal(expectedSig, computedSig) {
+		log.Errorf("invalid signature: %s, %s", string(expectedSig), string(computedSig))
 		return ErrInvalidSignature
 	}
 
