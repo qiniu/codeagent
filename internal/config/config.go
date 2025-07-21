@@ -21,9 +21,10 @@ type Config struct {
 }
 
 type GeminiConfig struct {
-	APIKey         string        `yaml:"api_key"`
-	Timeout        time.Duration `yaml:"timeout"`
-	ContainerImage string        `yaml:"container_image"`
+	APIKey             string        `yaml:"api_key"`
+	Timeout            time.Duration `yaml:"timeout"`
+	ContainerImage     string        `yaml:"container_image"`
+	GoogleCloudProject string        `yaml:"google_cloud_project"`
 }
 
 type ServerConfig struct {
@@ -85,6 +86,9 @@ func (c *Config) loadFromEnv() {
 	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
 		c.Gemini.APIKey = apiKey
 	}
+	if project := os.Getenv("GOOGLE_CLOUD_PROJECT"); project != "" {
+		c.Gemini.GoogleCloudProject = project
+	}
 	if provider := os.Getenv("CODE_PROVIDER"); provider != "" {
 		c.CodeProvider = provider
 	} else {
@@ -133,9 +137,10 @@ func loadFromEnv() *Config {
 			Timeout:        30 * time.Minute,
 		},
 		Gemini: GeminiConfig{
-			APIKey:         os.Getenv("GEMINI_API_KEY"),
-			ContainerImage: getEnvOrDefault("GEMINI_IMAGE", "google-gemini/gemini-cli:latest"),
-			Timeout:        30 * time.Minute,
+			APIKey:             os.Getenv("GEMINI_API_KEY"),
+			ContainerImage:     getEnvOrDefault("GEMINI_IMAGE", "google-gemini/gemini-cli:latest"),
+			Timeout:            30 * time.Minute,
+			GoogleCloudProject: os.Getenv("GOOGLE_CLOUD_PROJECT"),
 		},
 		Docker: DockerConfig{
 			Socket:  getEnvOrDefault("DOCKER_SOCKET", "unix:///var/run/docker.sock"),
