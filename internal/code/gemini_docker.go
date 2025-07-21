@@ -46,6 +46,14 @@ func extractRepoName(repoURL string) string {
 	return "repo"
 }
 
+// getGoogleCloudProject 获取 Google Cloud 项目ID，优先使用配置文件中的值
+func getGoogleCloudProject(cfg *config.Config, repoName string) string {
+	if cfg.Gemini.GoogleCloudProject != "" {
+		return cfg.Gemini.GoogleCloudProject
+	}
+	return repoName
+}
+
 // NewGeminiDocker 创建 Docker Gemini CLI 实现
 func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	// 解析仓库信息，只获取仓库名，不包含完整URL
@@ -63,7 +71,14 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	// 确保路径存在
 	workspacePath, _ := filepath.Abs(workspace.Path)
 	sessionPath, _ := filepath.Abs(workspace.SessionPath)
-	geminiConfigPath := filepath.Join(os.Getenv("HOME"), ".gemini")
+
+	// 确定gemini配置路径
+	var geminiConfigPath string
+	if home := os.Getenv("HOME"); home != "" {
+		geminiConfigPath, _ = filepath.Abs(filepath.Join(home, ".gemini"))
+	} else {
+		geminiConfigPath = "/home/codeagent/.gemini"
+	}
 
 	// 检查是否使用了/tmp目录（在macOS上可能导致挂载问题）
 	if strings.HasPrefix(workspacePath, "/tmp/") {
@@ -93,7 +108,7 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"--rm",                  // 容器运行完后自动删除
 		"-d",                    // 后台运行
 		"--name", containerName, // 设置容器名称
-		"-e", "GOOGLE_CLOUD_PROJECT=" + repoName, // 设置 Google Cloud 项目环境变量
+		"-e", "GOOGLE_CLOUD_PROJECT=" + getGoogleCloudProject(cfg, repoName), // 设置 Google Cloud 项目环境变量
 		"-e", "GEMINI_API_KEY=" + cfg.Gemini.APIKey,
 		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // 挂载工作空间
 		"-v", fmt.Sprintf("%s:/home/codeagent/.gemini", geminiConfigPath), // 挂载 gemini 认证信息
