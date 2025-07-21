@@ -34,9 +34,11 @@ CodeAgent 现在支持两种运行模式：
 ```
 internal/code/
 ├── code.go           # 工厂函数，根据配置选择实现
-├── claude.go         # Claude 本地 CLI 实现
-├── gemini.go         # Gemini 本地 CLI 实现
-└── gemini_docker.go  # Gemini Docker 实现
+├── claude_docker.go  # Claude Docker 实现
+├── claude_local.go   # Claude 本地 CLI 实现
+├── gemini_docker.go  # Gemini Docker 实现
+├── gemini_local.go   # Gemini 本地 CLI 实现
+└── session.go        # 会话管理
 ```
 
 #### 实现方式对比
