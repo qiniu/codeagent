@@ -1,8 +1,8 @@
 package code
 
 import (
-	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/qbox/codeagent/internal/config"
 	"github.com/qbox/codeagent/pkg/models"
@@ -21,12 +23,12 @@ import (
 type claudeInteractive struct {
 	containerName string
 	cmd           *exec.Cmd
-	stdin         io.WriteCloser
-	stdout        io.ReadCloser
-	stderr        io.ReadCloser
+	ptyMaster     *os.File
 	mutex         sync.Mutex
 	session       *InteractiveSession
 	closed        bool
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
 // InteractiveSession 管理交互式会话
@@ -74,53 +76,52 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 		return nil, fmt.Errorf("workspace path does not exist: %s", workspacePath)
 	}
 
-	// 构建 Docker 命令 - 使用交互式模式
+	// 构建 Docker 命令 - 使用交互式PTY模式
 	args := []string{
 		"run",
-		"-i",                    // 保持STDIN开放
+		"-it",                   // 保持STDIN开放并分配伪终端
 		"--rm",                  // 容器停止后自动删除
 		"--name", containerName, // 设置容器名称
 		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // 挂载工作空间
 		"-v", fmt.Sprintf("%s:/home/codeagent/.claude", claudeConfigPath), // 挂载 claude 认证信息
 		"-w", "/workspace", // 设置工作目录
+		"-e", "TERM=xterm-256color", // 设置终端类型
 		cfg.Claude.ContainerImage, // 使用配置的 Claude 镜像
-		"claude",           // 启动claude CLI
+		"claude",                  // 启动claude CLI
 	}
 
 	// 打印调试信息
 	log.Infof("Starting interactive Docker container: docker %s", strings.Join(args, " "))
 
+	// 创建PTY主从设备
+	ptyMaster, ptySlave, err := createPTY()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PTY: %w", err)
+	}
+
 	cmd := exec.Command("docker", args...)
-
-	// 获取stdin、stdout、stderr管道
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get stdin pipe: %w", err)
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		stdin.Close()
-		return nil, fmt.Errorf("failed to get stdout pipe: %w", err)
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		stdin.Close()
-		stdout.Close()
-		return nil, fmt.Errorf("failed to get stderr pipe: %w", err)
+	cmd.Stdin = ptySlave
+	cmd.Stdout = ptySlave
+	cmd.Stderr = ptySlave
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true, // 创建新的进程组
 	}
 
 	// 启动容器
 	if err := cmd.Start(); err != nil {
-		stdin.Close()
-		stdout.Close()
-		stderr.Close()
+		ptyMaster.Close()
+		ptySlave.Close()
 		log.Errorf("Failed to start interactive Docker container: %v", err)
 		return nil, fmt.Errorf("failed to start interactive Docker container: %w", err)
 	}
 
+	// 关闭从设备，只保留主设备
+	ptySlave.Close()
+
 	log.Infof("Interactive Docker container started successfully: %s", containerName)
+
+	// 创建上下文用于取消操作
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// 创建会话信息
 	session := &InteractiveSession{
@@ -134,11 +135,11 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 	claudeInteractive := &claudeInteractive{
 		containerName: containerName,
 		cmd:           cmd,
-		stdin:         stdin,
-		stdout:        stdout,
-		stderr:        stderr,
+		ptyMaster:     ptyMaster,
 		session:       session,
 		closed:        false,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 
 	// 等待Claude CLI初始化完成
@@ -150,41 +151,114 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 	return claudeInteractive, nil
 }
 
-// waitForReady 等待Claude CLI准备就绪
+// createPTY 创建PTY主从设备对
+func createPTY() (master, slave *os.File, err error) {
+	// 打开PTY主设备
+	master, err = os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open PTY master: %w", err)
+	}
+
+	// 解锁PTY
+	if err := grantpt(master); err != nil {
+		master.Close()
+		return nil, nil, fmt.Errorf("failed to grantpt: %w", err)
+	}
+
+	// 解锁PTY
+	if err := unlockpt(master); err != nil {
+		master.Close()
+		return nil, nil, fmt.Errorf("failed to unlockpt: %w", err)
+	}
+
+	// 获取从设备名称
+	slaveName, err := ptsname(master)
+	if err != nil {
+		master.Close()
+		return nil, nil, fmt.Errorf("failed to get slave name: %w", err)
+	}
+
+	// 打开PTY从设备
+	slave, err = os.OpenFile(slaveName, os.O_RDWR, 0)
+	if err != nil {
+		master.Close()
+		return nil, nil, fmt.Errorf("failed to open PTY slave: %w", err)
+	}
+
+	return master, slave, nil
+}
+
+// PTY相关的系统调用常数
+const (
+	TIOCSPTLCK = 0x40045431
+	TIOCGPTN   = 0x80045430
+)
+
+func grantpt(f *os.File) error {
+	zero := 0
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), TIOCSPTLCK, uintptr(unsafe.Pointer(&zero)))
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
+func unlockpt(f *os.File) error {
+	zero := 0
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), TIOCSPTLCK, uintptr(unsafe.Pointer(&zero)))
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
+func ptsname(f *os.File) (string, error) {
+	var n int
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), TIOCGPTN, uintptr(unsafe.Pointer(&n)))
+	if errno != 0 {
+		return "", errno
+	}
+	return fmt.Sprintf("/dev/pts/%d", n), nil
+}
+
 func (c *claudeInteractive) waitForReady() error {
-	// 发送一个简单的测试消息
-	testMessage := "Hello, are you ready?"
-	
+	// 等待Claude CLI启动
+	time.Sleep(2 * time.Second)
+
+	// 发送一个简单的测试消息来检测是否准备就绪
+	testMessage := "Hello\n"
+
 	// 设置超时
-	timeout := time.NewTimer(30 * time.Second)
-	defer timeout.Stop()
+	ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
+	defer cancel()
 
 	done := make(chan error, 1)
-	
+
 	go func() {
 		// 发送测试消息
-		if _, err := c.stdin.Write([]byte(testMessage + "\n")); err != nil {
+		if _, err := c.ptyMaster.Write([]byte(testMessage)); err != nil {
 			done <- fmt.Errorf("failed to send test message: %w", err)
 			return
 		}
 
-		// 读取响应
-		scanner := bufio.NewScanner(c.stdout)
-		for scanner.Scan() {
-			line := scanner.Text()
-			log.Infof("Claude initialization response: %s", line)
-			// 如果看到Claude的响应，说明已经准备就绪
-			if strings.Contains(line, "Hello") || strings.Contains(line, "ready") || len(line) > 10 {
-				done <- nil
+		// 读取响应 - 使用较短的超时
+		buffer := make([]byte, 4096)
+		c.ptyMaster.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, err := c.ptyMaster.Read(buffer)
+		if err != nil {
+			if !strings.Contains(err.Error(), "timeout") {
+				done <- fmt.Errorf("error reading initialization response: %w", err)
 				return
 			}
 		}
-		
-		if err := scanner.Err(); err != nil {
-			done <- fmt.Errorf("error reading initialization response: %w", err)
-		} else {
-			done <- fmt.Errorf("no valid response received during initialization")
+
+		if n > 0 {
+			response := string(buffer[:n])
+			log.Infof("Claude initialization response: %s", strings.TrimSpace(response))
 		}
+
+		// PTY连接成功就认为准备就绪
+		done <- nil
 	}()
 
 	select {
@@ -192,51 +266,49 @@ func (c *claudeInteractive) waitForReady() error {
 		if err != nil {
 			return err
 		}
-		log.Infof("Claude CLI is ready for interactive mode")
+		log.Infof("Claude CLI is ready for interactive PTY mode")
 		return nil
-	case <-timeout.C:
+	case <-ctx.Done():
 		return fmt.Errorf("timeout waiting for Claude CLI to be ready")
 	}
 }
 
 // connectToExistingContainer 连接到现有的交互式容器
 func connectToExistingContainer(containerName string, workspace *models.Workspace) (Code, error) {
-	// 通过docker exec连接到现有容器
+	// 通过docker exec连接到现有容器，使用PTY模式
 	args := []string{
 		"exec",
-		"-i",
+		"-it",
 		containerName,
 		"claude",
 	}
 
+	// 创建PTY主从设备对
+	ptyMaster, ptySlave, err := createPTY()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PTY for existing container: %w", err)
+	}
+
 	cmd := exec.Command("docker", args...)
-
-	// 获取stdin、stdout、stderr管道
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get stdin pipe for existing container: %w", err)
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		stdin.Close()
-		return nil, fmt.Errorf("failed to get stdout pipe for existing container: %w", err)
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		stdin.Close()
-		stdout.Close()
-		return nil, fmt.Errorf("failed to get stderr pipe for existing container: %w", err)
+	cmd.Stdin = ptySlave
+	cmd.Stdout = ptySlave
+	cmd.Stderr = ptySlave
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
 	}
 
 	// 启动exec命令
 	if err := cmd.Start(); err != nil {
-		stdin.Close()
-		stdout.Close()
-		stderr.Close()
+		ptyMaster.Close()
+		ptySlave.Close()
 		return nil, fmt.Errorf("failed to connect to existing container: %w", err)
 	}
+
+	// 关闭从设备，只保留主设备
+	ptySlave.Close()
+
+	// 创建上下文用于取消操作
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// 创建会话信息
 	session := &InteractiveSession{
@@ -250,11 +322,11 @@ func connectToExistingContainer(containerName string, workspace *models.Workspac
 	return &claudeInteractive{
 		containerName: containerName,
 		cmd:           cmd,
-		stdin:         stdin,
-		stdout:        stdout,
-		stderr:        stderr,
+		ptyMaster:     ptyMaster,
 		session:       session,
 		closed:        false,
+		ctx:           ctx,
+		cancel:        cancel,
 	}, nil
 }
 
@@ -272,16 +344,16 @@ func (c *claudeInteractive) Prompt(message string) (*Response, error) {
 
 	log.Infof("Sending interactive message #%d to Claude: %s", c.session.MessageCount, truncateMessage(message, 100))
 
-	// 发送消息到Claude CLI
-	if _, err := c.stdin.Write([]byte(message + "\n")); err != nil {
+	// 发送消息到Claude CLI通过PTY
+	if _, err := c.ptyMaster.Write([]byte(message + "\n")); err != nil {
 		return nil, fmt.Errorf("failed to send message to Claude: %w", err)
 	}
 
 	// 创建响应读取器
 	responseReader := &InteractiveResponseReader{
-		stdout:  c.stdout,
-		stderr:  c.stderr,
-		session: c.session,
+		ptyMaster: c.ptyMaster,
+		session:   c.session,
+		ctx:       c.ctx,
 	}
 
 	return &Response{Out: responseReader}, nil
@@ -289,22 +361,34 @@ func (c *claudeInteractive) Prompt(message string) (*Response, error) {
 
 // InteractiveResponseReader 处理交互式响应读取
 type InteractiveResponseReader struct {
-	stdout  io.ReadCloser
-	stderr  io.ReadCloser
-	session *InteractiveSession
-	buffer  bytes.Buffer
-	done    bool
+	ptyMaster *os.File
+	session   *InteractiveSession
+	buffer    bytes.Buffer
+	done      bool
+	ctx       context.Context
+	mutex     sync.Mutex
 }
 
 func (r *InteractiveResponseReader) Read(p []byte) (n int, err error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
 	if r.done {
 		return 0, io.EOF
 	}
 
-	// 从stdout读取数据
+	// 设置读取超时
+	r.ptyMaster.SetReadDeadline(time.Now().Add(10 * time.Second))
+
+	// 从PTY主设备读取数据
 	buffer := make([]byte, 4096)
-	n, err = r.stdout.Read(buffer)
+	n, err = r.ptyMaster.Read(buffer)
 	if err != nil {
+		if strings.Contains(err.Error(), "timeout") {
+			// 超时可能表示响应完成
+			r.done = true
+			return 0, io.EOF
+		}
 		if err == io.EOF {
 			r.done = true
 		}
@@ -315,7 +399,7 @@ func (r *InteractiveResponseReader) Read(p []byte) (n int, err error) {
 	r.buffer.Write(buffer[:n])
 	copy(p, buffer[:n])
 
-	// 检查是否是响应结束标记（这里可以根据需要自定义）
+	// 检查是否是响应结束标记
 	if r.isResponseComplete(buffer[:n]) {
 		r.done = true
 		return n, io.EOF
@@ -326,18 +410,21 @@ func (r *InteractiveResponseReader) Read(p []byte) (n int, err error) {
 
 // isResponseComplete 检查响应是否完成
 func (r *InteractiveResponseReader) isResponseComplete(data []byte) bool {
-	// 简单的检查：如果看到特定的结束标记或者长时间没有新数据
-	// 这里可以根据Claude Code的输出特征来优化
+	// Claude Code的交互式会话通常在完成一个任务后会返回提示符
+	// 这里检查常见的结束模式
 	responseText := string(data)
-	
-	// 检查常见的结束模式
-	if strings.Contains(responseText, "\n\n") && 
-	   (strings.Contains(responseText, "Complete") || 
-		strings.Contains(responseText, "Done") ||
-		len(responseText) > 1000) {
+	bufferText := r.buffer.String()
+
+	// 检查Claude Code特有的结束模式
+	if strings.Contains(responseText, "$ ") || // 命令提示符
+		strings.Contains(responseText, "> ") || // 输入提示符
+		strings.Contains(bufferText, "Complete") ||
+		strings.Contains(bufferText, "Done") ||
+		strings.Contains(bufferText, "Error:") ||
+		(len(bufferText) > 2000 && strings.Contains(responseText, "\n")) { // 长响应且有换行
 		return true
 	}
-	
+
 	return false
 }
 
@@ -353,15 +440,14 @@ func (c *claudeInteractive) Close() error {
 
 	log.Infof("Closing interactive Claude session %s (messages: %d)", c.session.ID, c.session.MessageCount)
 
-	// 关闭输入输出管道
-	if c.stdin != nil {
-		c.stdin.Close()
+	// 取消上下文
+	if c.cancel != nil {
+		c.cancel()
 	}
-	if c.stdout != nil {
-		c.stdout.Close()
-	}
-	if c.stderr != nil {
-		c.stderr.Close()
+
+	// 关闭PTY主设备
+	if c.ptyMaster != nil {
+		c.ptyMaster.Close()
 	}
 
 	// 终止进程
@@ -386,3 +472,4 @@ func truncateMessage(message string, maxLen int) string {
 	}
 	return message[:maxLen] + "..."
 }
+
