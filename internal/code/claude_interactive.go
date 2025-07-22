@@ -82,6 +82,7 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 		"-i",                    // 保持STDIN开放
 		"--rm",                  // 容器停止后自动删除
 		"--name", containerName, // 设置容器名称
+		"--entrypoint", "claude", // 直接使用claude作为entrypoint
 		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // 挂载工作空间
 		"-v", fmt.Sprintf("%s:/home/codeagent/.claude", claudeConfigPath), // 挂载 claude 认证信息
 		"-w", "/workspace", // 设置工作目录
@@ -96,8 +97,8 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_BASE_URL=%s", cfg.Claude.BaseURL))
 	}
 
-	// 添加容器镜像和命令
-	args = append(args, cfg.Claude.ContainerImage, "claude")
+	// 添加容器镜像 - 不需要额外命令，因为使用了--entrypoint
+	args = append(args, cfg.Claude.ContainerImage)
 
 	// 打印调试信息
 	log.Infof("Starting interactive Docker container: docker %s", strings.Join(args, " "))
@@ -130,6 +131,9 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 	}
 
 	log.Infof("Interactive Docker container started successfully: %s", containerName)
+	log.Infof("Container process ID: %d", cmd.Process.Pid)
+	log.Infof("stdin pipe type: %T", stdin)
+	log.Infof("stdout pipe type: %T", stdout)
 
 	// 创建上下文用于取消操作
 	ctx, cancel := context.WithCancel(context.Background())
@@ -156,7 +160,6 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 
 	// 等待Claude CLI初始化完成
 	if err := claudeInteractive.waitForReady(); err != nil {
-		claudeInteractive.Close()
 		return nil, fmt.Errorf("claude CLI initialization failed: %w", err)
 	}
 
@@ -164,33 +167,13 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 }
 
 func (c *claudeInteractive) waitForReady() error {
-	// 等待Claude CLI启动 - 使用更长的等待时间
+	// 等待Claude CLI启动
 	log.Infof("Waiting for Claude CLI to initialize...")
 	time.Sleep(5 * time.Second)
 
-	// 设置超时
-	ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
-	defer cancel()
-
-	done := make(chan error, 1)
-
-	go func() {
-		// 简单地等待一段时间，然后认为准备就绪
-		// Claude CLI的启动时间可能因系统而异
-		time.Sleep(2 * time.Second)
-		done <- nil
-	}()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			return err
-		}
-		log.Infof("Claude CLI is ready for interactive mode")
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("timeout waiting for Claude CLI to be ready")
-	}
+	// 简单地认为准备就绪，让第一个Prompt来真正测试
+	log.Infof("Claude CLI initialization completed (will test on first prompt)")
+	return nil
 }
 
 // connectToExistingContainer 连接到现有的交互式容器
@@ -268,15 +251,24 @@ func (c *claudeInteractive) Prompt(message string) (*Response, error) {
 	log.Infof("Sending interactive message #%d to Claude: %s", c.session.MessageCount, message)
 
 	// 发送消息到Claude CLI通过stdin
-	if _, err := c.stdin.Write([]byte(message + "\n")); err != nil {
+	messageBytes := []byte(message + "\n")
+	log.Debugf("Writing %d bytes to stdin: %s", len(messageBytes), strings.TrimSpace(string(messageBytes)))
+
+	if _, err := c.stdin.Write(messageBytes); err != nil {
 		return nil, fmt.Errorf("failed to send message to Claude: %w", err)
 	}
+
+	log.Debugf("Successfully wrote message to stdin")
 
 	// 确保消息被发送
 	if flusher, ok := c.stdin.(interface{ Flush() error }); ok {
 		if err := flusher.Flush(); err != nil {
 			log.Warnf("Failed to flush stdin: %v", err)
+		} else {
+			log.Debugf("Successfully flushed stdin")
 		}
+	} else {
+		log.Debugf("stdin does not support Flush()")
 	}
 
 	// 给Claude一些时间开始处理消息
@@ -413,11 +405,27 @@ func (c *claudeInteractive) Close() error {
 		c.cmd.Wait()
 	}
 
-	// 停止并删除容器
-	stopCmd := exec.Command("docker", "rm", "-f", c.containerName)
-	if err := stopCmd.Run(); err != nil {
-		log.Warnf("Failed to remove container %s: %v", c.containerName, err)
+	// 检查容器状态，但不删除容器（便于调试）
+	log.Infof("Checking container status for debugging: %s", c.containerName)
+
+	// 检查容器是否还在运行
+	checkCmd := exec.Command("docker", "ps", "--filter", fmt.Sprintf("name=%s", c.containerName), "--format", "{{.Names}}")
+	output, err := checkCmd.Output()
+	if err != nil {
+		log.Warnf("Failed to check container status: %v", err)
+	} else {
+		containerStatus := strings.TrimSpace(string(output))
+		if containerStatus == c.containerName {
+			log.Infof("Container %s is still running - keeping it for debugging", c.containerName)
+			log.Infof("You can manually inspect it with: docker logs %s", c.containerName)
+			log.Infof("You can manually test it with: echo '/help' | docker exec -i %s claude", c.containerName)
+		} else {
+			log.Infof("Container %s is not running (status: %s)", c.containerName, containerStatus)
+		}
 	}
+
+	// 注意：不删除容器，便于调试问题
+	log.Infof("Container %s left running for debugging purposes", c.containerName)
 
 	return nil
 }
