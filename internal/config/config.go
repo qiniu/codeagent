@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -70,11 +71,17 @@ func Load(configPath string) (*Config, error) {
 		// 从环境变量覆盖敏感配置
 		config.loadFromEnv()
 
+		// 将相对路径转换为绝对路径
+		config.resolvePaths(filepath.Dir(configPath))
+
 		return &config, nil
 	}
 
 	// 如果文件不存在，从环境变量创建配置
-	return loadFromEnv(), nil
+	config := loadFromEnv()
+	// 将相对路径转换为绝对路径（相对于当前工作目录）
+	config.resolvePaths(".")
+	return config, nil
 }
 
 func (c *Config) loadFromEnv() {
@@ -150,6 +157,20 @@ func loadFromEnv() *Config {
 		},
 		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
 		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", true),
+	}
+}
+
+// resolvePaths 将配置中的相对路径转换为绝对路径
+func (c *Config) resolvePaths(configDir string) {
+	// 处理工作空间基础目录
+	if c.Workspace.BaseDir != "" {
+		// 如果路径不是绝对路径，则相对于配置文件目录解析
+		if !filepath.IsAbs(c.Workspace.BaseDir) {
+			absPath, err := filepath.Abs(filepath.Join(configDir, c.Workspace.BaseDir))
+			if err == nil {
+				c.Workspace.BaseDir = absPath
+			}
+		}
 	}
 }
 
