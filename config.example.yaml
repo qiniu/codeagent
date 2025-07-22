@@ -17,8 +17,10 @@ workspace:
 
 claude:
   api_key: your-claude-api-key-here
+  base_url: https://api.anthropic.com # 可选，默认为官方 API 地址
   container_image: anthropic/claude-code:latest
   timeout: 30m
+  interactive: true # 是否启用交互式模式
 
 gemini:
   api_key: your-gemini-api-key-here

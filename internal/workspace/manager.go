@@ -224,7 +224,7 @@ func (m *Manager) recoverExistingWorkspaces() {
 	log.Infof("Starting to recover existing workspaces by scanning directory names from %s", m.baseDir)
 
 	entries, err := os.ReadDir(m.baseDir)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		log.Errorf("Failed to read base directory: %v", err)
 		return
 	}
