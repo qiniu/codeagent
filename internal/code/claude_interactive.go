@@ -164,11 +164,9 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 }
 
 func (c *claudeInteractive) waitForReady() error {
-	// 等待Claude CLI启动
-	time.Sleep(2 * time.Second)
-
-	// 发送一个简单的测试消息来检测是否准备就绪
-	testMessage := "Hello\n"
+	// 等待Claude CLI启动 - 使用更长的等待时间
+	log.Infof("Waiting for Claude CLI to initialize...")
+	time.Sleep(5 * time.Second)
 
 	// 设置超时
 	ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
@@ -177,29 +175,9 @@ func (c *claudeInteractive) waitForReady() error {
 	done := make(chan error, 1)
 
 	go func() {
-		// 发送测试消息
-		if _, err := c.stdin.Write([]byte(testMessage)); err != nil {
-			done <- fmt.Errorf("failed to send test message: %w", err)
-			return
-		}
-
-		// 读取响应 - 使用较短的超时
-		buffer := make([]byte, 4096)
-		c.stdout.(*os.File).SetReadDeadline(time.Now().Add(5 * time.Second))
-		n, err := c.stdout.Read(buffer)
-		if err != nil {
-			if !strings.Contains(err.Error(), "timeout") {
-				done <- fmt.Errorf("error reading initialization response: %w", err)
-				return
-			}
-		}
-
-		if n > 0 {
-			response := string(buffer[:n])
-			log.Infof("Claude initialization response: %s", strings.TrimSpace(response))
-		}
-
-		// 连接成功就认为准备就绪
+		// 简单地等待一段时间，然后认为准备就绪
+		// Claude CLI的启动时间可能因系统而异
+		time.Sleep(2 * time.Second)
 		done <- nil
 	}()
 
@@ -287,12 +265,24 @@ func (c *claudeInteractive) Prompt(message string) (*Response, error) {
 	c.session.LastActivity = time.Now()
 	c.session.MessageCount++
 
-	log.Infof("Sending interactive message #%d to Claude: %s", c.session.MessageCount, truncateMessage(message, 100))
+	log.Infof("Sending interactive message #%d to Claude: %s", c.session.MessageCount, message)
 
 	// 发送消息到Claude CLI通过stdin
 	if _, err := c.stdin.Write([]byte(message + "\n")); err != nil {
 		return nil, fmt.Errorf("failed to send message to Claude: %w", err)
 	}
+
+	// 确保消息被发送
+	if flusher, ok := c.stdin.(interface{ Flush() error }); ok {
+		if err := flusher.Flush(); err != nil {
+			log.Warnf("Failed to flush stdin: %v", err)
+		}
+	}
+
+	// 给Claude一些时间开始处理消息
+	time.Sleep(500 * time.Millisecond)
+
+	log.Debugf("Creating InteractiveResponseReader for message #%d", c.session.MessageCount)
 
 	// 创建响应读取器
 	responseReader := &InteractiveResponseReader{
@@ -322,53 +312,70 @@ func (r *InteractiveResponseReader) Read(p []byte) (n int, err error) {
 		return 0, io.EOF
 	}
 
-	// 设置读取超时
-	if file, ok := r.stdout.(*os.File); ok {
-		file.SetReadDeadline(time.Now().Add(10 * time.Second))
-	}
-
 	// 从stdout读取数据
 	buffer := make([]byte, 4096)
 	n, err = r.stdout.Read(buffer)
+
+	log.Debugf("InteractiveResponseReader: Read %d bytes, error: %v, buffer size: %d", n, err, r.buffer.Len())
+
 	if err != nil {
-		if strings.Contains(err.Error(), "timeout") {
-			// 超时可能表示响应完成
-			r.done = true
-			return 0, io.EOF
-		}
 		if err == io.EOF {
 			r.done = true
+			log.Infof("InteractiveResponseReader: EOF reached, total buffer size: %d", r.buffer.Len())
 		}
 		return 0, err
+	}
+
+	// 如果没有读取到数据，返回0而不是错误
+	if n == 0 {
+		log.Debugf("InteractiveResponseReader: No data read, waiting...")
+		return 0, nil
 	}
 
 	// 将数据写入缓冲区和返回给调用者
 	r.buffer.Write(buffer[:n])
 	copy(p, buffer[:n])
 
-	// 检查是否是响应结束标记
+	// 简化响应完成检测 - 只在非常明确的情况下才结束
 	if r.isResponseComplete(buffer[:n]) {
 		r.done = true
+		log.Infof("InteractiveResponseReader: Response complete detected, total buffer size: %d", r.buffer.Len())
 		return n, io.EOF
 	}
 
 	return n, nil
 }
 
-// isResponseComplete 检查响应是否完成
+// isResponseComplete 检查响应是否完成 - 简化版本
 func (r *InteractiveResponseReader) isResponseComplete(data []byte) bool {
-	// Claude Code的交互式会话通常在完成一个任务后会返回提示符
-	// 这里检查常见的结束模式
 	responseText := string(data)
 	bufferText := r.buffer.String()
 
-	// 检查Claude Code特有的结束模式
-	if strings.Contains(responseText, "$ ") || // 命令提示符
-		strings.Contains(responseText, "> ") || // 输入提示符
+	log.Debugf("InteractiveResponseReader: Checking response completion - responseText: %s, bufferText length: %d",
+		strings.TrimSpace(responseText), len(bufferText))
+
+	// 只有在缓冲区足够大时才检查完成标记
+	if len(bufferText) < 500 {
+		return false
+	}
+
+	// 只检查非常明确的结束标记
+	if strings.Contains(responseText, "claude>") || // Claude CLI提示符
 		strings.Contains(bufferText, "Complete") ||
 		strings.Contains(bufferText, "Done") ||
 		strings.Contains(bufferText, "Error:") ||
-		(len(bufferText) > 2000 && strings.Contains(responseText, "\n")) { // 长响应且有换行
+		strings.Contains(bufferText, "Finished") ||
+		// 检查是否有明显的任务完成标记
+		(strings.Contains(bufferText, "## 改动摘要") && strings.Contains(bufferText, "## 具体改动")) {
+		log.Debugf("InteractiveResponseReader: Response complete detected - found completion marker")
+		log.Debugf("InteractiveResponseReader: Buffer content (last 200 chars): %s",
+			bufferText[func() int {
+				if len(bufferText)-200 > 0 {
+					return len(bufferText) - 200
+				} else {
+					return 0
+				}
+			}():])
 		return true
 	}
 
@@ -413,12 +420,4 @@ func (c *claudeInteractive) Close() error {
 	}
 
 	return nil
-}
-
-// truncateMessage 截断长消息用于日志显示
-func truncateMessage(message string, maxLen int) string {
-	if len(message) <= maxLen {
-		return message
-	}
-	return message[:maxLen] + "..."
 }
