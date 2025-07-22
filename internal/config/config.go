@@ -45,6 +45,7 @@ type WorkspaceConfig struct {
 
 type ClaudeConfig struct {
 	APIKey         string        `yaml:"api_key"`
+	BaseURL        string        `yaml:"base_url"`
 	ContainerImage string        `yaml:"container_image"`
 	Timeout        time.Duration `yaml:"timeout"`
 	Interactive    bool          `yaml:"interactive"`
@@ -89,6 +90,12 @@ func (c *Config) loadFromEnv() {
 		c.GitHub.Token = token
 	}
 	if apiKey := os.Getenv("CLAUDE_API_KEY"); apiKey != "" {
+		c.Claude.APIKey = apiKey
+	}
+	if baseURL := os.Getenv("ANTHROPIC_BASE_URL"); baseURL != "" {
+		c.Claude.BaseURL = baseURL
+	}
+	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
 		c.Claude.APIKey = apiKey
 	}
 	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
@@ -140,7 +147,8 @@ func loadFromEnv() *Config {
 			CleanupAfter: 24 * time.Hour,
 		},
 		Claude: ClaudeConfig{
-			APIKey:         os.Getenv("CLAUDE_API_KEY"),
+			APIKey:         os.Getenv("ANTHROPIC_API_KEY"),
+			BaseURL:        os.Getenv("ANTHROPIC_BASE_URL"),
 			ContainerImage: getEnvOrDefault("CLAUDE_IMAGE", "anthropic/claude-code:latest"),
 			Timeout:        30 * time.Minute,
 			Interactive:    getEnvBoolOrDefault("CLAUDE_INTERACTIVE", false),
