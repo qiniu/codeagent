@@ -18,7 +18,6 @@ type geminiDocker struct {
 	containerName string
 }
 
-
 // getGoogleCloudProject 获取 Google Cloud 项目ID，优先使用配置文件中的值
 func getGoogleCloudProject(cfg *config.Config, repoName string) string {
 	if cfg.Gemini.GoogleCloudProject != "" {
