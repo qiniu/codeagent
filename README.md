@@ -1,62 +1,29 @@
 # CodeAgent
 
-CodeAgent 是一个基于 Go 语言开发的自动化代码生成系统，通过 GitHub Webhook 接收 `/code` 命令，自动为 Issue 生成代码并创建 Pull Request。
+CodeAgent 是一个基于 AI 的代码代理，能够自动处理 GitHub Issue 和 Pull Request，生成代码修改建议。
 
 ## 功能特性
 
-- 🤖 **智能代码生成**: 基于 Issue 描述自动生成代码
-- 🔄 **GitHub 集成**: 通过 Webhook 接收命令，自动创建 PR
-- ⚡ **即时响应**: 立即创建分支和 PR，提供进度跟踪
-- 🐳 **容器化执行**: 使用 Docker 容器隔离执行环境
-- 💻 **本地 CLI 模式**: 支持本地 Claude CLI 和 Gemini CLI，无需 Docker
-- 🧹 **自动清理**: 智能管理临时工作空间，避免资源泄露
-- 📊 **状态监控**: 实时监控系统状态和执行进度
-- 🔒 **安全可靠**: 完善的错误处理和重试机制，支持 GitHub Webhook 签名验证
-- 🧠 **上下文感知**: Gemini CLI 模式自动构建完整上下文，提升代码质量
-
-## 系统架构
-
-```
-GitHub Issue (/code) → Webhook → CodeAgent → 创建分支和空PR → Claude Code 容器 → 更新PR
-```
-
-### 工作流程
-
-1. **接收命令**: 通过 GitHub Webhook 接收 `/code` 命令
-2. **创建分支**: 立即创建分支并推送空的 "Initial plan" commit
-3. **创建 PR**: 基于空 commit 创建 Pull Request，提供进度跟踪
-4. **代码生成**: 在后台执行 Claude Code 生成代码
-5. **Mock 测试**: 创建模拟文件用于测试二次提交流程
-6. **更新 PR**: 将生成的代码作为新的 commit 推送到 PR
+- 🤖 支持多种 AI 模型（Claude、Gemini）
+- 🔄 自动处理 GitHub Issue 和 Pull Request
+- 🐳 Docker 容器化执行环境
+- 🔒 GitHub Webhook 签名验证
+- 📁 基于 Git Worktree 的工作空间管理
+- 🛠️ 灵活的配置选项，支持相对路径
 
 ## 快速开始
 
-### 环境要求
-
-- Go 1.21+
-- Git
-- GitHub Personal Access Token
-- **Docker 模式**: Docker（默认）
-- **本地 CLI 模式**: Claude CLI 或 Gemini CLI
-
 ### 安装
 
-1. **克隆项目**
-
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/qbox/codeagent.git
 cd codeagent
-```
-
-2. **安装依赖**
-
-```bash
-go mod tidy
+go mod download
 ```
 
 ### 配置
 
-#### 方式一：命令行参数（推荐）
+#### 方式一：命令行参数
 
 ```bash
 go run ./cmd/server \
@@ -77,7 +44,7 @@ export PORT=8888
 go run ./cmd/server
 ```
 
-#### 方式三：配置文件（不包含敏感信息）
+#### 方式三：配置文件（推荐）
 
 创建配置文件 `config.yaml`：
 
@@ -91,7 +58,7 @@ github:
   webhook_url: "http://localhost:8888/hook"
 
 workspace:
-  base_dir: "/tmp/codeagent"
+  base_dir: "./codeagent" # 支持相对路径！
   cleanup_after: "24h"
 
 claude:
@@ -124,6 +91,21 @@ use_docker: true # 是否使用 Docker，false 表示使用本地 CLI
 
 **注意**: 敏感信息（如 token、api_key、webhook_secret）应该通过命令行参数或环境变量设置，而不是写在配置文件中。
 
+### 相对路径支持
+
+CodeAgent 现在支持在配置文件中使用相对路径，提供更灵活的配置选项：
+
+```yaml
+workspace:
+  base_dir: "./codeagent"     # 相对于配置文件目录
+  # 或者
+  base_dir: "../workspace"    # 相对于配置文件目录的上级目录
+  # 或者
+  base_dir: "/tmp/codeagent"  # 绝对路径（保持不变）
+```
+
+相对路径会在配置加载时自动转换为绝对路径，详情请参考 [相对路径支持文档](docs/relative-path-support.md)。
+
 ### 安全配置
 
 #### Webhook 签名验证
@@ -131,15 +113,17 @@ use_docker: true # 是否使用 Docker，false 表示使用本地 CLI
 为了防止 webhook 接口被恶意利用，CodeAgent 支持 GitHub Webhook 签名验证功能：
 
 1. **配置 webhook secret**:
+
    ```bash
    # 方式1: 环境变量（推荐）
    export WEBHOOK_SECRET="your-strong-secret-here"
-   
+
    # 方式2: 命令行参数
    go run ./cmd/server --webhook-secret "your-strong-secret-here"
    ```
 
 2. **GitHub Webhook 设置**:
+
    - 在 GitHub 仓库设置中添加 Webhook
    - URL: `https://your-domain.com/hook`
    - Content type: `application/json`

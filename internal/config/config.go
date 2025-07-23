@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -44,8 +45,10 @@ type WorkspaceConfig struct {
 
 type ClaudeConfig struct {
 	APIKey         string        `yaml:"api_key"`
+	BaseURL        string        `yaml:"base_url"`
 	ContainerImage string        `yaml:"container_image"`
 	Timeout        time.Duration `yaml:"timeout"`
+	Interactive    bool          `yaml:"interactive"`
 }
 
 type DockerConfig struct {
@@ -69,11 +72,17 @@ func Load(configPath string) (*Config, error) {
 		// 从环境变量覆盖敏感配置
 		config.loadFromEnv()
 
+		// 将相对路径转换为绝对路径
+		config.resolvePaths(filepath.Dir(configPath))
+
 		return &config, nil
 	}
 
 	// 如果文件不存在，从环境变量创建配置
-	return loadFromEnv(), nil
+	config := loadFromEnv()
+	// 将相对路径转换为绝对路径（相对于当前工作目录）
+	config.resolvePaths(".")
+	return config, nil
 }
 
 func (c *Config) loadFromEnv() {
@@ -81,6 +90,12 @@ func (c *Config) loadFromEnv() {
 		c.GitHub.Token = token
 	}
 	if apiKey := os.Getenv("CLAUDE_API_KEY"); apiKey != "" {
+		c.Claude.APIKey = apiKey
+	}
+	if baseURL := os.Getenv("ANTHROPIC_BASE_URL"); baseURL != "" {
+		c.Claude.BaseURL = baseURL
+	}
+	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
 		c.Claude.APIKey = apiKey
 	}
 	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
@@ -132,9 +147,11 @@ func loadFromEnv() *Config {
 			CleanupAfter: 24 * time.Hour,
 		},
 		Claude: ClaudeConfig{
-			APIKey:         os.Getenv("CLAUDE_API_KEY"),
+			APIKey:         os.Getenv("ANTHROPIC_API_KEY"),
+			BaseURL:        os.Getenv("ANTHROPIC_BASE_URL"),
 			ContainerImage: getEnvOrDefault("CLAUDE_IMAGE", "anthropic/claude-code:latest"),
 			Timeout:        30 * time.Minute,
+			Interactive:    getEnvBoolOrDefault("CLAUDE_INTERACTIVE", false),
 		},
 		Gemini: GeminiConfig{
 			APIKey:             os.Getenv("GEMINI_API_KEY"),
@@ -148,6 +165,20 @@ func loadFromEnv() *Config {
 		},
 		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
 		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", true),
+	}
+}
+
+// resolvePaths 将配置中的相对路径转换为绝对路径
+func (c *Config) resolvePaths(configDir string) {
+	// 处理工作空间基础目录
+	if c.Workspace.BaseDir != "" {
+		// 如果路径不是绝对路径，则相对于配置文件目录解析
+		if !filepath.IsAbs(c.Workspace.BaseDir) {
+			absPath, err := filepath.Abs(filepath.Join(configDir, c.Workspace.BaseDir))
+			if err == nil {
+				c.Workspace.BaseDir = absPath
+			}
+		}
 	}
 }
 
