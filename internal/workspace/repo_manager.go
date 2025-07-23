@@ -158,6 +158,20 @@ func (r *RepoManager) RemoveWorktreeWithAI(prNumber int, aiModel string) error {
 		log.Infof("Successfully removed worktree: %s", worktree.Worktree)
 	}
 
+	// 删除相关的本地分支（如果存在）
+	if worktree.Branch != "" {
+		log.Infof("Attempting to delete local branch: %s", worktree.Branch)
+		branchCmd := exec.Command("git", "branch", "-D", worktree.Branch)
+		branchCmd.Dir = r.repoPath
+		branchOutput, err := branchCmd.CombinedOutput()
+		if err != nil {
+			log.Warnf("Failed to delete local branch %s: %v, output: %s", worktree.Branch, err, string(branchOutput))
+			// 分支删除失败不是致命错误，可能是分支不存在或正在使用
+		} else {
+			log.Infof("Successfully deleted local branch: %s", worktree.Branch)
+		}
+	}
+
 	// 从映射中移除
 	delete(r.worktrees, key)
 
@@ -287,31 +301,43 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 		cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, defaultBranch)
 	} else {
 		// 创建现有分支的 worktree
-		// 首先检查远程分支是否存在
-		log.Infof("Checking if remote branch exists: origin/%s", branch)
-		checkCmd := exec.Command("git", "ls-remote", "--heads", "origin", branch)
-		checkCmd.Dir = r.repoPath
-		checkOutput, err := checkCmd.CombinedOutput()
-		if err != nil {
-			log.Errorf("Failed to check remote branch: %v, output: %s", err, string(checkOutput))
-		} else if strings.TrimSpace(string(checkOutput)) == "" {
-			log.Errorf("Remote branch origin/%s does not exist, will create new branch", branch)
-			// 如果远程分支不存在，创建新分支
-			defaultBranchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-			defaultBranchCmd.Dir = r.repoPath
-			defaultBranchOutput, err := defaultBranchCmd.Output()
-			if err != nil {
-				log.Warnf("Failed to get default branch, using 'main': %v", err)
-				defaultBranchOutput = []byte("main")
-			}
-			defaultBranch := strings.TrimSpace(string(defaultBranchOutput))
-			if defaultBranch == "" {
-				defaultBranch = "main"
-			}
-			cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, defaultBranch)
+		// 首先检查本地分支是否已经存在
+		log.Infof("Checking if local branch exists: %s", branch)
+		localBranchCmd := exec.Command("git", "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", branch))
+		localBranchCmd.Dir = r.repoPath
+		localBranchExists := localBranchCmd.Run() == nil
+
+		if localBranchExists {
+			log.Infof("Local branch %s already exists, creating worktree without -b flag", branch)
+			// 本地分支已存在，直接创建 worktree 而不使用 -b 标志
+			cmd = exec.Command("git", "worktree", "add", worktreePath, branch)
 		} else {
-			log.Infof("Remote branch exists, creating worktree: git worktree add -b %s %s origin/%s", branch, worktreePath, branch)
-			cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, fmt.Sprintf("origin/%s", branch))
+			// 本地分支不存在，检查远程分支是否存在
+			log.Infof("Local branch does not exist, checking if remote branch exists: origin/%s", branch)
+			checkCmd := exec.Command("git", "ls-remote", "--heads", "origin", branch)
+			checkCmd.Dir = r.repoPath
+			checkOutput, err := checkCmd.CombinedOutput()
+			if err != nil {
+				log.Errorf("Failed to check remote branch: %v, output: %s", err, string(checkOutput))
+			} else if strings.TrimSpace(string(checkOutput)) == "" {
+				log.Errorf("Remote branch origin/%s does not exist, will create new branch", branch)
+				// 如果远程分支不存在，创建新分支
+				defaultBranchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+				defaultBranchCmd.Dir = r.repoPath
+				defaultBranchOutput, err := defaultBranchCmd.Output()
+				if err != nil {
+					log.Warnf("Failed to get default branch, using 'main': %v", err)
+					defaultBranchOutput = []byte("main")
+				}
+				defaultBranch := strings.TrimSpace(string(defaultBranchOutput))
+				if defaultBranch == "" {
+					defaultBranch = "main"
+				}
+				cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, defaultBranch)
+			} else {
+				log.Infof("Remote branch exists, creating worktree: git worktree add -b %s %s origin/%s", branch, worktreePath, branch)
+				cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, fmt.Sprintf("origin/%s", branch))
+			}
 		}
 	}
 
