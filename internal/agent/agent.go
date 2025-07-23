@@ -11,6 +11,7 @@ import (
 	"github.com/qbox/codeagent/internal/code"
 	"github.com/qbox/codeagent/internal/config"
 	ghclient "github.com/qbox/codeagent/internal/github"
+	"github.com/qbox/codeagent/internal/prompt"
 	"github.com/qbox/codeagent/internal/workspace"
 	"github.com/qbox/codeagent/pkg/models"
 
@@ -24,6 +25,8 @@ type Agent struct {
 	github         *ghclient.Client
 	workspace      *workspace.Manager
 	sessionManager *code.SessionManager
+	promptBuilder  *prompt.PromptBuilder   // 新增
+	validator      *prompt.OutputValidator // 新增
 }
 
 func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
@@ -34,11 +37,21 @@ func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
 		return nil
 	}
 
+	// 初始化 Prompt 系统
+	promptManager := prompt.NewPromptManager(workspaceManager)
+	customConfigDetector := prompt.NewCustomConfigDetector()
+	promptConfig := prompt.PromptConfig{
+		MaxTotalLength: 8000,
+	}
+	promptBuilder := prompt.NewPromptBuilder(promptManager, customConfigDetector, promptConfig)
+
 	a := &Agent{
 		config:         cfg,
 		github:         githubClient,
 		workspace:      workspaceManager,
 		sessionManager: code.NewSessionManager(cfg),
+		promptBuilder:  promptBuilder,
+		validator:      nil, // 延迟初始化，需要 code client
 	}
 
 	go a.StartCleanupRoutine()
@@ -480,6 +493,33 @@ func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueC
 
 // buildPrompt 构建不同模式的 prompt
 func (a *Agent) buildPrompt(mode string, args string, historicalContext string) string {
+	// 使用新的 Prompt 系统
+	templateID := "review_based_code_modification"
+
+	templateVars := map[string]interface{}{
+		"review_comments":    args,
+		"historical_context": historicalContext,
+	}
+
+	// 构建 Prompt 请求
+	req := &prompt.PromptRequest{
+		TemplateID:   templateID,
+		TemplateVars: templateVars,
+		Workspace:    nil, // 这里暂时传 nil，实际使用时应该传入工作空间
+	}
+
+	// 构建 Prompt
+	result, err := a.promptBuilder.BuildPrompt(context.Background(), req)
+	if err != nil {
+		// 如果新系统失败，回退到旧的方式
+		return a.buildPromptLegacy(mode, args, historicalContext)
+	}
+
+	return result.Content
+}
+
+// buildPromptLegacy 旧的 Prompt 构建方式（作为回退）
+func (a *Agent) buildPromptLegacy(mode string, args string, historicalContext string) string {
 	var prompt string
 	var taskDescription string
 	var defaultTask string
