@@ -186,8 +186,6 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 			"issue_title":        event.Issue.GetTitle(),
 			"issue_body":         event.Issue.GetBody(),
 			"historical_context": "",
-			"include_tests":      true,
-			"include_docs":       true,
 		},
 		Workspace: ws,
 	}
@@ -234,48 +232,6 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 
 	log.Infof("Issue processing completed successfully: issue=#%d, PR=%s", issueNumber, pr.GetHTMLURL())
 	return nil
-}
-
-// parseStructuredOutput 解析AI的三段式输出
-func parseStructuredOutput(output string) (summary, changes, testPlan string) {
-	lines := strings.Split(output, "\n")
-
-	var currentSection string
-	var summaryLines, changesLines, testPlanLines []string
-
-	for _, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-
-		// 检测章节标题
-		if strings.HasPrefix(trimmedLine, models.SectionSummary) {
-			currentSection = models.SectionSummaryID
-			continue
-		} else if strings.HasPrefix(trimmedLine, models.SectionChanges) {
-			currentSection = models.SectionChangesID
-			continue
-		} else if strings.HasPrefix(trimmedLine, models.SectionTestPlan) {
-			currentSection = models.SectionTestPlanID
-			continue
-		}
-
-		// 根据当前章节收集内容
-		switch currentSection {
-		case models.SectionSummaryID:
-			if trimmedLine != "" {
-				summaryLines = append(summaryLines, line)
-			}
-		case models.SectionChangesID:
-			changesLines = append(changesLines, line)
-		case models.SectionTestPlanID:
-			testPlanLines = append(testPlanLines, line)
-		}
-	}
-
-	summary = strings.TrimSpace(strings.Join(summaryLines, "\n"))
-	changes = strings.TrimSpace(strings.Join(changesLines, "\n"))
-	testPlan = strings.TrimSpace(strings.Join(testPlanLines, "\n"))
-
-	return summary, changes, testPlan
 }
 
 // processPRWithArgs 处理PR的通用函数，支持不同的操作模式

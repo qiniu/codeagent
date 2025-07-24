@@ -92,21 +92,23 @@ func (pm *Manager) loadDefaultTemplates() {
 当前项目包含一个 AGENT.md 文件，其中定义了项目的特定要求和配置。
 请在完成上述任务时，同步参考该文件中的内容，确保生成的代码符合项目的
 技术栈、编码规范和架构要求。
-
-请确保生成的代码：
-1. 遵循项目中定义的技术栈和框架
-2. 符合项目的编码规范和架构模式
-3. 满足项目的特殊要求和约束
-4. 保持与现有代码风格的一致性
 {{end}}
 
-请按照以下格式输出，保持简洁直接：
+## 请按照以下格式输出，保持简洁直接
 
 ## 改动摘要
 简要说明改动内容
 
 ## 具体改动
 - 列出修改的文件和具体变动
+
+---
+
+<details><summary>思考过程</summary>
+
+[在这里记录你的分析思路、文件查找过程、设计决策等]
+
+</details>
 `,
 		Variables: []TemplateVariable{
 			{Name: "issue_title", Type: "string", Required: true, Description: "Issue 标题"},
