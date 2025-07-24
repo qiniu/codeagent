@@ -336,3 +336,26 @@ curl -X POST http://localhost:8888/hook \
 export LOG_LEVEL=debug
 go run ./cmd/server --config config.yaml
 ```
+
+#### 验证配置
+
+当服务启动时，它会以 JSON 格式打印出最终加载的配置（合并了配置文件、环境变量和命令行参数）。这对于调试配置问题非常有用。
+
+启动日志中会包含类似以下内容：
+
+```
+INFO[0000] Loaded configuration:
+{
+  "Server": {
+    "Port": 8888,
+    "WebhookSecret": "your-webhook-secret"
+  },
+  "GitHub": {
+    "Token": "your-github-token",
+    "WebhookURL": "http://localhost:8888/hook"
+  },
+  ...
+}
+```
+
+你可以检查此输出，以确保所有配置项都已按预期加载。
