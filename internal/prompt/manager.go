@@ -100,17 +100,13 @@ func (pm *Manager) loadDefaultTemplates() {
 4. 保持与现有代码风格的一致性
 {{end}}
 
-## 输出格式要求
 请按照以下格式输出，保持简洁直接：
 
-### 代码实现
-[提供具体的代码实现，如果有代码变更的话]
+## 改动摘要
+简要说明改动内容
 
-### PR 描述
-**功能**：[一句话描述这个 PR 解决了什么问题]
-
-**变更**：
-- [列出具体的代码变更，如新增/修改的文件和功能]
+## 具体改动
+- 列出修改的文件和具体变动
 `,
 		Variables: []TemplateVariable{
 			{Name: "issue_title", Type: "string", Required: true, Description: "Issue 标题"},
