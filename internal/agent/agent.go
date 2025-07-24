@@ -171,7 +171,6 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	log.Infof("Workspace registered: issue=#%d, workspace=%s, session=%s", issueNumber, ws.Path, ws.SessionPath)
 
 	// 7. 初始化 code client
-	log.Infof("Initializing code client")
 	code, err := a.sessionManager.GetSession(ws)
 	if err != nil {
 		log.Errorf("Failed to get code client: %v", err)
@@ -180,20 +179,27 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	log.Infof("Code client initialized successfully")
 
 	// 8. 执行代码修改
-	codePrompt := fmt.Sprintf(`根据Issue修改代码：
+	// 构建 Prompt 请求
+	req := &prompt.PromptRequest{
+		TemplateID: "issue_based_code_generation",
+		TemplateVars: map[string]interface{}{
+			"issue_title":        event.Issue.GetTitle(),
+			"issue_body":         event.Issue.GetBody(),
+			"historical_context": "",
+			"include_tests":      true,
+			"include_docs":       true,
+		},
+		Workspace: ws,
+	}
 
-标题：%s
-描述：%s
-
-输出格式：
-%s
-简要说明改动内容
-
-%s
-- 列出修改的文件和具体变动`, event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
+	prompt, err := a.promptBuilder.BuildPrompt(ctx, req)
+	if err != nil {
+		log.Errorf("Failed to build prompt: %v", err)
+		return err
+	}
 
 	log.Infof("Executing code modification with AI")
-	codeResp, err := a.promptWithRetry(ctx, code, codePrompt, 3)
+	codeResp, err := a.promptWithRetry(ctx, code, prompt.Content, 3)
 	if err != nil {
 		log.Errorf("Failed to prompt for code modification: %v", err)
 		return err
@@ -208,42 +214,8 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	log.Infof("Code modification completed, output length: %d", len(codeOutput))
 	log.Debugf("LLM Output: %s", string(codeOutput))
 
-	// 9. 组织结构化 PR Body（解析三段式输出）
-	aiStr := string(codeOutput)
-
-	log.Infof("Parsing structured output")
-	// 解析三段式输出
-	summary, changes, testPlan := parseStructuredOutput(aiStr)
-
-	// 构建PR Body
-	prBody := ""
-	if summary != "" {
-		prBody += models.SectionSummary + "\n\n" + summary + "\n\n"
-	}
-
-	if changes != "" {
-		prBody += models.SectionChanges + "\n\n" + changes + "\n\n"
-	}
-
-	if testPlan != "" {
-		prBody += models.SectionTestPlan + "\n\n" + testPlan + "\n\n"
-	}
-
-	// 添加原始输出和错误信息
-	prBody += "---\n\n"
-	prBody += "<details><summary>AI 完整输出</summary>\n\n" + aiStr + "\n\n</details>\n\n"
-
-	// 错误信息判断
-	errorInfo := extractErrorInfo(aiStr)
-	if errorInfo != "" {
-		prBody += "## 错误信息\n\n```text\n" + errorInfo + "\n```\n\n"
-		log.Warnf("Error detected in AI output: %s", errorInfo)
-	}
-
-	prBody += "<details><summary>原始 Prompt</summary>\n\n" + codePrompt + "\n\n</details>"
-
 	log.Infof("Updating PR body")
-	if err = a.github.UpdatePullRequest(pr, prBody); err != nil {
+	if err = a.github.UpdatePullRequest(pr, string(codeOutput)); err != nil {
 		log.Errorf("Failed to update PR body with execution result: %v", err)
 		return err
 	}
@@ -304,24 +276,6 @@ func parseStructuredOutput(output string) (summary, changes, testPlan string) {
 	testPlan = strings.TrimSpace(strings.Join(testPlanLines, "\n"))
 
 	return summary, changes, testPlan
-}
-
-// extractErrorInfo 提取错误信息
-func extractErrorInfo(output string) string {
-	lines := strings.Split(output, "\n")
-
-	// 查找错误信息
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.ToLower(strings.TrimSpace(lines[i]))
-		if strings.HasPrefix(line, models.ErrorPrefixError) ||
-			strings.HasPrefix(line, models.ErrorPrefixException) ||
-			strings.HasPrefix(line, models.ErrorPrefixTraceback) ||
-			strings.HasPrefix(line, models.ErrorPrefixPanic) {
-			return strings.TrimSpace(lines[i])
-		}
-	}
-
-	return ""
 }
 
 // processPRWithArgs 处理PR的通用函数，支持不同的操作模式

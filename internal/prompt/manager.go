@@ -73,7 +73,7 @@ func (pm *Manager) loadDefaultTemplates() {
 		Description: "根据 GitHub Issue 生成相应的代码实现",
 		Source:      "default",
 		Priority:    1,
-		Content: `根据以下 Issue 需求生成高质量的代码：
+		Content: `你是一个专业的程序员。请根据以下 Issue 需求生成代码实现，并提供一个简洁的 PR 描述。
 
 ## Issue 信息
 标题：{{.issue_title}}
@@ -87,17 +87,9 @@ func (pm *Manager) loadDefaultTemplates() {
 {{.historical_context}}
 {{end}}
 
-{{if .include_tests}}
-请同时生成对应的单元测试。
-{{end}}
-
-{{if .include_docs}}
-请同时生成相关的文档说明。
-{{end}}
-
 {{if .has_custom_config}}
 ## 项目自定义配置参考
-当前项目包含一个 CODEAGENT.md 文件，其中定义了项目的特定要求和配置。
+当前项目包含一个 AGENT.md 文件，其中定义了项目的特定要求和配置。
 请在完成上述任务时，同步参考该文件中的内容，确保生成的代码符合项目的
 技术栈、编码规范和架构要求。
 
@@ -106,15 +98,26 @@ func (pm *Manager) loadDefaultTemplates() {
 2. 符合项目的编码规范和架构模式
 3. 满足项目的特殊要求和约束
 4. 保持与现有代码风格的一致性
-{{end}}`,
+{{end}}
+
+## 输出格式要求
+请按照以下格式输出，保持简洁直接：
+
+### 代码实现
+[提供具体的代码实现，如果有代码变更的话]
+
+### PR 描述
+**功能**：[一句话描述这个 PR 解决了什么问题]
+
+**变更**：
+- [列出具体的代码变更，如新增/修改的文件和功能]
+`,
 		Variables: []TemplateVariable{
 			{Name: "issue_title", Type: "string", Required: true, Description: "Issue 标题"},
 			{Name: "issue_body", Type: "string", Required: true, Description: "Issue 描述"},
 			{Name: "issue_labels", Type: "string", Required: false, Description: "Issue 标签"},
 			{Name: "historical_context", Type: "string", Required: false, Description: "历史讨论内容"},
-			{Name: "include_tests", Type: "bool", Required: false, Default: "true", Description: "是否包含测试代码"},
-			{Name: "include_docs", Type: "bool", Required: false, Default: "true", Description: "是否包含文档"},
-			{Name: "has_custom_config", Type: "bool", Required: false, Default: "false", Description: "是否存在自定义配置"},
+			{Name: "has_custom_config", Type: "bool", Required: false, Default: "false", Description: "是否存在 AGENT.md 自定义配置"},
 		},
 	}
 
