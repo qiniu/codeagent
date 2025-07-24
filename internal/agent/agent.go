@@ -463,8 +463,6 @@ func (a *Agent) buildPrompt(mode string, args string, historicalContext string) 
 		"issue_title":        "PR 处理请求",
 		"issue_body":         args,
 		"historical_context": historicalContext,
-		"include_tests":      true,
-		"include_docs":       true,
 	}
 
 	// 如果是修复模式，使用不同的变量结构
@@ -552,20 +550,20 @@ func (a *Agent) buildFallbackPrompt(templateID string, vars map[string]interface
 		// 使用结构化的模板格式
 		template := `根据以下代码行评论继续处理代码：
 
-## 代码行评论
-%s
+		## 代码行评论
+		%s
 
-## 文件信息
-文件：%s
-%s
+		## 文件信息
+		文件：%s
+		%s
 
-%s
+		%s
 
-请根据评论要求继续处理代码，确保：
-1. 理解评论的意图和要求
-2. 进行相应的代码修改或改进
-3. 保持代码质量和一致性
-4. 遵循项目的编码规范`
+		请根据评论要求继续处理代码，确保：
+		1. 理解评论的意图和要求
+		2. 进行相应的代码修改或改进
+		3. 保持代码质量和一致性
+		4. 遵循项目的编码规范`
 
 		instructions := ""
 		if additionalInstructions != "" {
@@ -583,20 +581,20 @@ func (a *Agent) buildFallbackPrompt(templateID string, vars map[string]interface
 		// 使用结构化的模板格式
 		template := `根据以下代码行评论修复代码：
 
-## 代码行评论
-%s
+		## 代码行评论
+		%s
 
-## 文件信息
-文件：%s
-%s
+		## 文件信息
+		文件：%s
+		%s
 
-%s
+		%s
 
-请根据评论要求修复代码，确保：
-1. 解决评论中提到的问题
-2. 保持代码质量和一致性
-3. 遵循项目的编码规范
-4. 进行必要的测试验证`
+		请根据评论要求修复代码，确保：
+		1. 解决评论中提到的问题
+		2. 保持代码质量和一致性
+		3. 遵循项目的编码规范
+		4. 进行必要的测试验证`
 
 		instructions := ""
 		if additionalInstructions != "" {
@@ -613,17 +611,17 @@ func (a *Agent) buildFallbackPrompt(templateID string, vars map[string]interface
 		// 使用结构化的模板格式
 		template := `根据以下 PR Review 的批量评论%s：
 
-## 批量评论
-%s
+		## 批量评论
+		%s
 
-%s
+		%s
 
-请一次性处理所有评论中提到的问题，确保：
-1. 理解每个评论的意图和要求
-2. 进行相应的代码修改或改进
-3. 保持代码质量和一致性
-4. 遵循项目的编码规范
-5. 回复要简洁明了`
+		请一次性处理所有评论中提到的问题，确保：
+		1. 理解每个评论的意图和要求
+		2. 进行相应的代码修改或改进
+		3. 保持代码质量和一致性
+		4. 遵循项目的编码规范
+		5. 回复要简洁明了`
 
 		action := "处理代码"
 		if processingMode == "修复问题" {
@@ -643,16 +641,16 @@ func (a *Agent) buildFallbackPrompt(templateID string, vars map[string]interface
 
 		template := `根据以下 Issue 需求生成高质量的代码：
 
-## Issue 信息
-描述：%s
+		## Issue 信息
+		描述：%s
 
-%s
+		%s
 
-请根据需求生成代码，确保：
-1. 代码质量高，符合最佳实践
-2. 包含必要的测试和文档
-3. 遵循项目的编码规范
-4. 考虑性能和安全性`
+		请根据需求生成代码，确保：
+		1. 代码质量高，符合最佳实践
+		2. 包含必要的测试和文档
+		3. 遵循项目的编码规范
+		4. 考虑性能和安全性`
 
 		context := ""
 		if historicalContext != "" {
@@ -667,15 +665,15 @@ func (a *Agent) buildFallbackPrompt(templateID string, vars map[string]interface
 
 		template := `根据以下 Code Review Comments 修改代码：
 
-## Review Comments
-%s
+		## Review Comments
+		%s
 
-%s
+		%s
 
-请根据评论要求修改代码，确保：
-1. 解决评论中提到的问题
-2. 保持代码质量和一致性
-3. 遵循项目的编码规范`
+		请根据评论要求修改代码，确保：
+		1. 解决评论中提到的问题
+		2. 保持代码质量和一致性
+		3. 遵循项目的编码规范`
 
 		context := ""
 		if historicalContext != "" {
