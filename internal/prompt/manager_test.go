@@ -84,7 +84,7 @@ func TestCustomConfigDetector(t *testing.T) {
 
 	// 测试空工作空间
 	t.Run("NilWorkspace", func(t *testing.T) {
-		info, err := detector.GetCODEAGENTFile(nil, nil)
+		info, err := detector.GetAGENTFile(nil, nil)
 		if err != nil {
 			t.Fatalf("Failed to get CODEAGENT file info: %v", err)
 		}
@@ -102,7 +102,7 @@ func TestCustomConfigDetector(t *testing.T) {
 			Path: "/tmp/test",
 		}
 
-		info, err := detector.GetCODEAGENTFile(nil, workspace)
+		info, err := detector.GetAGENTFile(nil, workspace)
 		if err != nil {
 			t.Fatalf("Failed to get CODEAGENT file info: %v", err)
 		}

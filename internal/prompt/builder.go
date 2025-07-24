@@ -57,7 +57,7 @@ func (b *Builder) BuildPrompt(ctx context.Context, req *PromptRequest) (*PromptR
 	// 2. 检查是否存在自定义 CODEAGENT.md 文件
 	var customConfigInfo *CustomConfigInfo
 	if req.Workspace != nil {
-		customConfigInfo, _ = b.detector.GetCODEAGENTFile(ctx, req.Workspace)
+		customConfigInfo, _ = b.detector.GetAGENTFile(ctx, req.Workspace)
 	}
 
 	// 3. 准备模板变量
