@@ -9,16 +9,9 @@ import (
 	"github.com/qbox/codeagent/pkg/models"
 )
 
-// PromptBuilder Prompt 构建器
-type PromptBuilder struct {
-	promptManager        *PromptManager
-	customConfigDetector *CustomConfigDetector
-	config               PromptConfig
-}
-
 // PromptConfig Prompt 配置
 type PromptConfig struct {
-	MaxTotalLength int `yaml:"max_total_length"`
+	MaxTotalLength int `yaml:"max_total_length" json:"max_total_length"`
 }
 
 // PromptRequest Prompt 请求
@@ -37,19 +30,26 @@ type PromptResult struct {
 	Metadata     map[string]interface{} `json:"metadata"`
 }
 
-// NewPromptBuilder 创建新的 Prompt 构建器
-func NewPromptBuilder(promptManager *PromptManager, customConfigDetector *CustomConfigDetector, config PromptConfig) *PromptBuilder {
-	return &PromptBuilder{
-		promptManager:        promptManager,
-		customConfigDetector: customConfigDetector,
-		config:               config,
+// Builder Prompt 构建器
+type Builder struct {
+	manager  *Manager
+	detector *Detector
+	config   PromptConfig
+}
+
+// NewBuilder 创建新的 Prompt 构建器
+func NewBuilder(manager *Manager, detector *Detector, config PromptConfig) *Builder {
+	return &Builder{
+		manager:  manager,
+		detector: detector,
+		config:   config,
 	}
 }
 
 // BuildPrompt 构建 Prompt
-func (pb *PromptBuilder) BuildPrompt(ctx context.Context, req *PromptRequest) (*PromptResult, error) {
+func (b *Builder) BuildPrompt(ctx context.Context, req *PromptRequest) (*PromptResult, error) {
 	// 1. 获取模板（优先使用自定义模板，回退到默认模板）
-	template, err := pb.promptManager.GetTemplate(req.TemplateID, req.Workspace)
+	template, err := b.manager.GetTemplate(req.TemplateID, req.Workspace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get template: %w", err)
 	}
@@ -57,7 +57,7 @@ func (pb *PromptBuilder) BuildPrompt(ctx context.Context, req *PromptRequest) (*
 	// 2. 检查是否存在自定义 CODEAGENT.md 文件
 	var customConfigInfo *CustomConfigInfo
 	if req.Workspace != nil {
-		customConfigInfo, _ = pb.customConfigDetector.GetCODEAGENTFile(ctx, req.Workspace)
+		customConfigInfo, _ = b.detector.GetCODEAGENTFile(ctx, req.Workspace)
 	}
 
 	// 3. 准备模板变量
@@ -74,7 +74,7 @@ func (pb *PromptBuilder) BuildPrompt(ctx context.Context, req *PromptRequest) (*
 	}
 
 	// 5. 渲染模板
-	content, err := pb.renderTemplate(template, templateVars)
+	content, err := b.renderTemplate(template, templateVars)
 	if err != nil {
 		return nil, fmt.Errorf("failed to render template: %w", err)
 	}
@@ -89,7 +89,7 @@ func (pb *PromptBuilder) BuildPrompt(ctx context.Context, req *PromptRequest) (*
 }
 
 // renderTemplate 渲染模板
-func (pb *PromptBuilder) renderTemplate(tmpl *Template, vars map[string]interface{}) (string, error) {
+func (b *Builder) renderTemplate(tmpl *Template, vars map[string]interface{}) (string, error) {
 	// 创建模板
 	t, err := template.New(tmpl.ID).Parse(tmpl.Content)
 	if err != nil {
@@ -130,4 +130,20 @@ type ReviewTemplateVars struct {
 	CodeContext       string `json:"code_context,omitempty"`
 	HistoricalContext string `json:"historical_context,omitempty"`
 	HasCustomConfig   bool   `json:"has_custom_config"`
+}
+
+type SingleReviewTemplateVars struct {
+	CommentBody            string `json:"comment_body"`
+	FilePath               string `json:"file_path"`
+	LineRangeInfo          string `json:"line_range_info"`
+	AdditionalInstructions string `json:"additional_instructions,omitempty"`
+	HasCustomConfig        bool   `json:"has_custom_config"`
+}
+
+type BatchReviewTemplateVars struct {
+	ReviewBody             string `json:"review_body,omitempty"`
+	BatchComments          string `json:"batch_comments"`
+	AdditionalInstructions string `json:"additional_instructions,omitempty"`
+	ProcessingMode         string `json:"processing_mode,omitempty"`
+	HasCustomConfig        bool   `json:"has_custom_config"`
 }

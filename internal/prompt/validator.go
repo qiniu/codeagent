@@ -9,11 +9,6 @@ import (
 	"github.com/qbox/codeagent/internal/code"
 )
 
-// OutputValidator 输出验证器
-type OutputValidator struct {
-	codeClient code.Code
-}
-
 // ValidationResult 验证结果
 type ValidationResult struct {
 	IsValid      bool                   `json:"is_valid"`
@@ -24,15 +19,20 @@ type ValidationResult struct {
 	Metadata     map[string]interface{} `json:"metadata"`
 }
 
-// NewOutputValidator 创建新的输出验证器
-func NewOutputValidator(codeClient code.Code) *OutputValidator {
-	return &OutputValidator{
+// Validator 输出验证器
+type Validator struct {
+	codeClient code.Code
+}
+
+// NewValidator 创建新的输出验证器
+func NewValidator(codeClient code.Code) *Validator {
+	return &Validator{
 		codeClient: codeClient,
 	}
 }
 
 // ValidateAndFixCode 验证并修复代码
-func (v *OutputValidator) ValidateAndFixCode(ctx context.Context, codeContent string, language string) (*ValidationResult, error) {
+func (v *Validator) ValidateAndFixCode(ctx context.Context, codeContent string, language string) (*ValidationResult, error) {
 	// 使用 AI 进行代码质量验证和修复
 	prompt := "你是一位资深的代码审查专家，请对以下" + language + "代码进行全面的质量检查：\n\n" +
 		codeContent + "\n\n" +
@@ -73,7 +73,7 @@ func (v *OutputValidator) ValidateAndFixCode(ctx context.Context, codeContent st
 }
 
 // parseAICodeValidationResult 解析AI代码验证结果
-func (v *OutputValidator) parseAICodeValidationResult(content string) (*ValidationResult, error) {
+func (v *Validator) parseAICodeValidationResult(content string) (*ValidationResult, error) {
 	result := &ValidationResult{
 		IsValid:      true,
 		Issues:       []string{},
@@ -146,7 +146,7 @@ func (v *OutputValidator) parseAICodeValidationResult(content string) (*Validati
 }
 
 // calculateQualityScore 计算质量分数
-func (v *OutputValidator) calculateQualityScore(result *ValidationResult) float64 {
+func (v *Validator) calculateQualityScore(result *ValidationResult) float64 {
 	score := 1.0
 
 	// 根据问题数量扣分
@@ -171,7 +171,7 @@ func (v *OutputValidator) calculateQualityScore(result *ValidationResult) float6
 }
 
 // ValidatePromptOutput 验证 Prompt 输出
-func (v *OutputValidator) ValidatePromptOutput(ctx context.Context, output string) (*ValidationResult, error) {
+func (v *Validator) ValidatePromptOutput(ctx context.Context, output string) (*ValidationResult, error) {
 	// 使用 AI 验证 Prompt 输出格式和内容
 	prompt := "请验证以下 AI 输出是否符合要求：\n\n" +
 		output + "\n\n" +
@@ -205,7 +205,7 @@ func (v *OutputValidator) ValidatePromptOutput(ctx context.Context, output strin
 }
 
 // parseAIOutputValidationResult 解析AI输出验证结果
-func (v *OutputValidator) parseAIOutputValidationResult(content string) (*ValidationResult, error) {
+func (v *Validator) parseAIOutputValidationResult(content string) (*ValidationResult, error) {
 	result := &ValidationResult{
 		IsValid:      true,
 		Issues:       []string{},

@@ -13,7 +13,7 @@ func TestPromptManager(t *testing.T) {
 	workspaceManager := &workspace.Manager{}
 
 	// 创建 Prompt Manager
-	pm := NewPromptManager(workspaceManager)
+	pm := NewManager(workspaceManager)
 
 	// 测试获取默认模板
 	t.Run("GetDefaultTemplate", func(t *testing.T) {
@@ -80,7 +80,7 @@ func TestPromptManager(t *testing.T) {
 
 func TestCustomConfigDetector(t *testing.T) {
 	// 创建自定义配置检测器
-	detector := NewCustomConfigDetector()
+	detector := NewDetector()
 
 	// 测试空工作空间
 	t.Run("NilWorkspace", func(t *testing.T) {
@@ -119,10 +119,10 @@ func TestPromptBuilder(t *testing.T) {
 	workspaceManager := &workspace.Manager{}
 
 	// 创建 Prompt Manager
-	pm := NewPromptManager(workspaceManager)
+	pm := NewManager(workspaceManager)
 
 	// 创建自定义配置检测器
-	detector := NewCustomConfigDetector()
+	detector := NewDetector()
 
 	// 创建 Prompt 配置
 	config := PromptConfig{
@@ -130,7 +130,7 @@ func TestPromptBuilder(t *testing.T) {
 	}
 
 	// 创建 Prompt Builder
-	pb := NewPromptBuilder(pm, detector, config)
+	pb := NewBuilder(pm, detector, config)
 
 	// 测试构建 Issue 模板
 	t.Run("BuildIssueTemplate", func(t *testing.T) {

@@ -10,11 +10,6 @@ import (
 	"github.com/qbox/codeagent/pkg/models"
 )
 
-// CustomConfigDetector 自定义配置检测器
-type CustomConfigDetector struct {
-	cache *ConfigCache
-}
-
 // CustomConfigInfo 自定义配置信息
 type CustomConfigInfo struct {
 	Exists bool `json:"exists"`
@@ -27,9 +22,14 @@ type ConfigCache struct {
 	ttl   time.Duration
 }
 
-// NewCustomConfigDetector 创建新的自定义配置检测器
-func NewCustomConfigDetector() *CustomConfigDetector {
-	return &CustomConfigDetector{
+// Detector 自定义配置检测器
+type Detector struct {
+	cache *ConfigCache
+}
+
+// NewDetector 创建新的自定义配置检测器
+func NewDetector() *Detector {
+	return &Detector{
 		cache: &ConfigCache{
 			cache: make(map[string]*CustomConfigInfo),
 			ttl:   1 * time.Hour,
@@ -38,7 +38,7 @@ func NewCustomConfigDetector() *CustomConfigDetector {
 }
 
 // GetCODEAGENTFile 检测仓库中是否存在 CODEAGENT.md 文件
-func (d *CustomConfigDetector) GetCODEAGENTFile(ctx context.Context, workspace *models.Workspace) (*CustomConfigInfo, error) {
+func (d *Detector) GetCODEAGENTFile(ctx context.Context, workspace *models.Workspace) (*CustomConfigInfo, error) {
 	if workspace == nil {
 		return &CustomConfigInfo{Exists: false}, nil
 	}
@@ -66,7 +66,7 @@ func (d *CustomConfigDetector) GetCODEAGENTFile(ctx context.Context, workspace *
 }
 
 // generateCacheKey 生成缓存键
-func (d *CustomConfigDetector) generateCacheKey(workspace *models.Workspace) string {
+func (d *Detector) generateCacheKey(workspace *models.Workspace) string {
 	return workspace.Org + "/" + workspace.Repo
 }
 
@@ -90,7 +90,7 @@ func (cc *ConfigCache) Delete(key string) {
 }
 
 // ClearCache 清除缓存
-func (d *CustomConfigDetector) ClearCache() {
+func (d *Detector) ClearCache() {
 	d.cache.mu.Lock()
 	defer d.cache.mu.Unlock()
 	d.cache.cache = make(map[string]*CustomConfigInfo)

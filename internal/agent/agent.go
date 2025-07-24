@@ -25,8 +25,8 @@ type Agent struct {
 	github         *ghclient.Client
 	workspace      *workspace.Manager
 	sessionManager *code.SessionManager
-	promptBuilder  *prompt.PromptBuilder   // 新增
-	validator      *prompt.OutputValidator // 新增
+	promptBuilder  *prompt.Builder   // 新增
+	validator      *prompt.Validator // 新增
 }
 
 func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
@@ -38,12 +38,12 @@ func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
 	}
 
 	// 初始化 Prompt 系统
-	promptManager := prompt.NewPromptManager(workspaceManager)
-	customConfigDetector := prompt.NewCustomConfigDetector()
+	promptManager := prompt.NewManager(workspaceManager)
+	customConfigDetector := prompt.NewDetector()
 	promptConfig := prompt.PromptConfig{
 		MaxTotalLength: 8000,
 	}
-	promptBuilder := prompt.NewPromptBuilder(promptManager, customConfigDetector, promptConfig)
+	promptBuilder := prompt.NewBuilder(promptManager, customConfigDetector, promptConfig)
 
 	a := &Agent{
 		config:         cfg,
@@ -493,12 +493,32 @@ func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueC
 
 // buildPrompt 构建不同模式的 prompt
 func (a *Agent) buildPrompt(mode string, args string, historicalContext string) string {
-	// 使用新的 Prompt 系统
-	templateID := "review_based_code_modification"
+	// 根据模式选择正确的模板
+	var templateID string
+	switch mode {
+	case "Continue":
+		templateID = "issue_based_code_generation"
+	case "Fix":
+		templateID = "review_based_code_modification"
+	default:
+		templateID = "issue_based_code_generation"
+	}
 
+	// 准备模板变量
 	templateVars := map[string]interface{}{
-		"review_comments":    args,
+		"issue_title":        "PR 处理请求",
+		"issue_body":         args,
 		"historical_context": historicalContext,
+		"include_tests":      true,
+		"include_docs":       true,
+	}
+
+	// 如果是修复模式，使用不同的变量结构
+	if mode == "Fix" {
+		templateVars = map[string]interface{}{
+			"review_comments":    args,
+			"historical_context": historicalContext,
+		}
 	}
 
 	// 构建 Prompt 请求
@@ -511,65 +531,208 @@ func (a *Agent) buildPrompt(mode string, args string, historicalContext string) 
 	// 构建 Prompt
 	result, err := a.promptBuilder.BuildPrompt(context.Background(), req)
 	if err != nil {
-		// 如果新系统失败，回退到旧的方式
-		return a.buildPromptLegacy(mode, args, historicalContext)
+		// 如果新系统失败，使用简化的回退模板
+		log.Errorf("Failed to build prompt: %v", err)
+		return a.buildFallbackPrompt(templateID, templateVars)
 	}
 
 	return result.Content
 }
 
-// buildPromptLegacy 旧的 Prompt 构建方式（作为回退）
-func (a *Agent) buildPromptLegacy(mode string, args string, historicalContext string) string {
-	var prompt string
-	var taskDescription string
-	var defaultTask string
+// buildSingleReviewPrompt 构建单个 Review Comment 的 Prompt
+func (a *Agent) buildSingleReviewPrompt(templateID string, commentBody, filePath, lineRangeInfo, additionalInstructions string, ws *models.Workspace) (string, error) {
+	templateVars := map[string]interface{}{
+		"comment_body":            commentBody,
+		"file_path":               filePath,
+		"line_range_info":         lineRangeInfo,
+		"additional_instructions": additionalInstructions,
+	}
 
-	switch mode {
-	case "Continue":
-		taskDescription = "请根据上述PR描述、历史讨论和当前指令，进行相应的代码修改。"
-		defaultTask = "继续处理PR，分析代码变更并改进"
-	case "Fix":
-		taskDescription = "请根据上述PR描述、历史讨论和当前指令，进行相应的代码修复。"
-		defaultTask = "分析并修复代码问题"
+	req := &prompt.PromptRequest{
+		TemplateID:   templateID,
+		TemplateVars: templateVars,
+		Workspace:    ws,
+	}
+
+	result, err := a.promptBuilder.BuildPrompt(context.Background(), req)
+	if err != nil {
+		return "", err
+	}
+
+	return result.Content, nil
+}
+
+// buildBatchReviewPrompt 构建批量 Review Comments 的 Prompt
+func (a *Agent) buildBatchReviewPrompt(reviewBody, batchComments, additionalInstructions, processingMode string, ws *models.Workspace) (string, error) {
+	templateVars := map[string]interface{}{
+		"review_body":             reviewBody,
+		"batch_comments":          batchComments,
+		"additional_instructions": additionalInstructions,
+		"processing_mode":         processingMode,
+	}
+
+	req := &prompt.PromptRequest{
+		TemplateID:   "batch_review_processing",
+		TemplateVars: templateVars,
+		Workspace:    ws,
+	}
+
+	result, err := a.promptBuilder.BuildPrompt(context.Background(), req)
+	if err != nil {
+		return "", err
+	}
+
+	return result.Content, nil
+}
+
+// buildFallbackPrompt 构建回退 Prompt（当新系统失败时使用）
+func (a *Agent) buildFallbackPrompt(templateID string, vars map[string]interface{}) string {
+	// 使用简化的内联模板，保持与 prompt 包一致的设计理念
+	switch templateID {
+	case "single_review_continue":
+		commentBody := vars["comment_body"].(string)
+		filePath := vars["file_path"].(string)
+		lineRangeInfo := vars["line_range_info"].(string)
+		additionalInstructions := vars["additional_instructions"].(string)
+
+		// 使用结构化的模板格式
+		template := `根据以下代码行评论继续处理代码：
+
+## 代码行评论
+%s
+
+## 文件信息
+文件：%s
+%s
+
+%s
+
+请根据评论要求继续处理代码，确保：
+1. 理解评论的意图和要求
+2. 进行相应的代码修改或改进
+3. 保持代码质量和一致性
+4. 遵循项目的编码规范`
+
+		instructions := ""
+		if additionalInstructions != "" {
+			instructions = fmt.Sprintf("## 额外指令\n%s", additionalInstructions)
+		}
+
+		return fmt.Sprintf(template, commentBody, filePath, lineRangeInfo, instructions)
+
+	case "single_review_fix":
+		commentBody := vars["comment_body"].(string)
+		filePath := vars["file_path"].(string)
+		lineRangeInfo := vars["line_range_info"].(string)
+		additionalInstructions := vars["additional_instructions"].(string)
+
+		// 使用结构化的模板格式
+		template := `根据以下代码行评论修复代码：
+
+## 代码行评论
+%s
+
+## 文件信息
+文件：%s
+%s
+
+%s
+
+请根据评论要求修复代码，确保：
+1. 解决评论中提到的问题
+2. 保持代码质量和一致性
+3. 遵循项目的编码规范
+4. 进行必要的测试验证`
+
+		instructions := ""
+		if additionalInstructions != "" {
+			instructions = fmt.Sprintf("## 额外指令\n%s", additionalInstructions)
+		}
+
+		return fmt.Sprintf(template, commentBody, filePath, lineRangeInfo, instructions)
+
+	case "batch_review_processing":
+		batchComments := vars["batch_comments"].(string)
+		additionalInstructions := vars["additional_instructions"].(string)
+		processingMode := vars["processing_mode"].(string)
+
+		// 使用结构化的模板格式
+		template := `根据以下 PR Review 的批量评论%s：
+
+## 批量评论
+%s
+
+%s
+
+请一次性处理所有评论中提到的问题，确保：
+1. 理解每个评论的意图和要求
+2. 进行相应的代码修改或改进
+3. 保持代码质量和一致性
+4. 遵循项目的编码规范
+5. 回复要简洁明了`
+
+		action := "处理代码"
+		if processingMode == "修复问题" {
+			action = "修复代码问题"
+		}
+
+		instructions := ""
+		if additionalInstructions != "" {
+			instructions = fmt.Sprintf("## 额外指令\n%s", additionalInstructions)
+		}
+
+		return fmt.Sprintf(template, action, batchComments, instructions)
+
+	case "issue_based_code_generation":
+		issueBody := vars["issue_body"].(string)
+		historicalContext := vars["historical_context"].(string)
+
+		template := `根据以下 Issue 需求生成高质量的代码：
+
+## Issue 信息
+描述：%s
+
+%s
+
+请根据需求生成代码，确保：
+1. 代码质量高，符合最佳实践
+2. 包含必要的测试和文档
+3. 遵循项目的编码规范
+4. 考虑性能和安全性`
+
+		context := ""
+		if historicalContext != "" {
+			context = fmt.Sprintf("## 历史讨论\n%s", historicalContext)
+		}
+
+		return fmt.Sprintf(template, issueBody, context)
+
+	case "review_based_code_modification":
+		reviewComments := vars["review_comments"].(string)
+		historicalContext := vars["historical_context"].(string)
+
+		template := `根据以下 Code Review Comments 修改代码：
+
+## Review Comments
+%s
+
+%s
+
+请根据评论要求修改代码，确保：
+1. 解决评论中提到的问题
+2. 保持代码质量和一致性
+3. 遵循项目的编码规范`
+
+		context := ""
+		if historicalContext != "" {
+			context = fmt.Sprintf("## 历史讨论\n%s", historicalContext)
+		}
+
+		return fmt.Sprintf(template, reviewComments, context)
+
 	default:
-		taskDescription = "请根据上述PR描述、历史讨论和当前指令，进行相应的代码处理。"
-		defaultTask = "处理代码任务"
+		return "请根据要求处理代码。"
 	}
-
-	if args != "" {
-		if historicalContext != "" {
-			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
-
-%s
-
-## 当前指令
-%s
-
-%s注意：
-1. 当前指令是主要任务，历史信息仅作为上下文参考
-2. 请确保修改符合PR的整体目标和已有的讨论共识
-3. 如果发现与历史讨论有冲突，请优先执行当前指令并在回复中说明`,
-				strings.ToLower(mode), historicalContext, args, taskDescription)
-		} else {
-			prompt = fmt.Sprintf("根据指令%s：\n\n%s", strings.ToLower(mode), args)
-		}
-	} else {
-		if historicalContext != "" {
-			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
-
-%s
-
-## 任务
-%s
-
-请根据上述PR描述和历史讨论，进行相应的代码修改和改进。`,
-				strings.ToLower(mode), historicalContext, defaultTask)
-		} else {
-			prompt = defaultTask
-		}
-	}
-
-	return prompt
 }
 
 // ContinuePRWithArgs 继续处理 PR 中的任务，支持命令参数
@@ -647,7 +810,7 @@ func (a *Agent) ContinuePRFromReviewCommentWithAI(ctx context.Context, event *gi
 		return err
 	}
 
-	// 4. 构建 prompt，包含评论上下文和命令参数
+	// 4. 构建 prompt，使用新的 Prompt 系统
 	var prompt string
 
 	// 获取行范围信息
@@ -663,15 +826,26 @@ func (a *Agent) ContinuePRFromReviewCommentWithAI(ctx context.Context, event *gi
 		lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
 	}
 
-	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n%s",
+	// 使用新的 Prompt 系统
+	promptContent, err := a.buildSingleReviewPrompt(
+		"single_review_continue",
 		event.Comment.GetBody(),
 		event.Comment.GetPath(),
-		lineRangeInfo)
-
-	if args != "" {
-		prompt = fmt.Sprintf("根据代码行评论和指令处理：\n\n%s\n\n指令：%s", commentContext, args)
+		lineRangeInfo,
+		args,
+		ws,
+	)
+	if err != nil {
+		log.Errorf("Failed to build prompt using new system: %v", err)
+		// 使用简化的回退模板
+		prompt = a.buildFallbackPrompt("single_review_continue", map[string]interface{}{
+			"comment_body":            event.Comment.GetBody(),
+			"file_path":               event.Comment.GetPath(),
+			"line_range_info":         lineRangeInfo,
+			"additional_instructions": args,
+		})
 	} else {
-		prompt = fmt.Sprintf("根据代码行评论处理：\n\n%s", commentContext)
+		prompt = promptContent
 	}
 
 	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
@@ -770,15 +944,26 @@ func (a *Agent) FixPRFromReviewCommentWithAI(ctx context.Context, event *github.
 		lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
 	}
 
-	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n%s",
+	// 使用新的 Prompt 系统
+	promptContent, err := a.buildSingleReviewPrompt(
+		"single_review_fix",
 		event.Comment.GetBody(),
 		event.Comment.GetPath(),
-		lineRangeInfo)
-
-	if args != "" {
-		prompt = fmt.Sprintf("根据代码行评论和指令修复：\n\n%s\n\n指令：%s", commentContext, args)
+		lineRangeInfo,
+		args,
+		ws,
+	)
+	if err != nil {
+		log.Errorf("Failed to build prompt using new system: %v", err)
+		// 使用简化的回退模板
+		prompt = a.buildFallbackPrompt("single_review_fix", map[string]interface{}{
+			"comment_body":            event.Comment.GetBody(),
+			"file_path":               event.Comment.GetPath(),
+			"line_range_info":         lineRangeInfo,
+			"additional_instructions": args,
+		})
 	} else {
-		prompt = fmt.Sprintf("根据代码行评论修复：\n\n%s", commentContext)
+		prompt = promptContent
 	}
 
 	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
@@ -903,19 +1088,33 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUserAndAI(ctx context.Context, eve
 	// 组合所有上下文
 	allComments := strings.Join(commentContexts, "\n\n")
 
+	// 使用新的 Prompt 系统
 	var prompt string
+	var processingMode string
 	if command == "/continue" {
-		if args != "" {
-			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论和指令继续处理代码：\n\n%s\n\n指令：%s\n\n请一次性处理所有评论中提到的问题，回复要简洁明了。", allComments, args)
-		} else {
-			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论继续处理代码：\n\n%s\n\n请一次性处理所有评论中提到的问题，回复要简洁明了。", allComments)
-		}
-	} else { // /fix
-		if args != "" {
-			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论和指令修复代码问题：\n\n%s\n\n指令：%s\n\n请一次性修复所有评论中提到的问题，回复要简洁明了。", allComments, args)
-		} else {
-			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论修复代码问题：\n\n%s\n\n请一次性修复所有评论中提到的问题，回复要简洁明了。", allComments)
-		}
+		processingMode = "继续处理"
+	} else {
+		processingMode = "修复问题"
+	}
+
+	promptContent, err := a.buildBatchReviewPrompt(
+		event.Review.GetBody(),
+		allComments,
+		args,
+		processingMode,
+		ws,
+	)
+	if err != nil {
+		log.Errorf("Failed to build prompt using new system: %v", err)
+		// 使用简化的回退模板
+		prompt = a.buildFallbackPrompt("batch_review_processing", map[string]interface{}{
+			"review_body":             event.Review.GetBody(),
+			"batch_comments":          allComments,
+			"additional_instructions": args,
+			"processing_mode":         processingMode,
+		})
+	} else {
+		prompt = promptContent
 	}
 
 	resp, err := a.promptWithRetry(ctx, code, prompt, 3)

@@ -9,34 +9,25 @@ import (
 	"github.com/qbox/codeagent/pkg/models"
 )
 
-// PromptManager 统一管理内置和自定义模板
-type PromptManager struct {
-	defaultTemplates map[string]*Template
-	customTemplates  map[string]*Template
-	workspaceManager *workspace.Manager
-	cache            *TemplateCache
-	mu               sync.RWMutex
-}
-
 // Template 表示一个 Prompt 模板
 type Template struct {
-	ID          string                 `yaml:"id"`
-	Name        string                 `yaml:"name"`
-	Description string                 `yaml:"description"`
-	Content     string                 `yaml:"content"`
-	Variables   []TemplateVariable     `yaml:"variables"`
-	Source      string                 `yaml:"source"`   // "default" 或 "custom"
-	Priority    int                    `yaml:"priority"` // 自定义模板优先级更高
-	Metadata    map[string]interface{} `yaml:"metadata"`
+	ID          string                 `yaml:"id" json:"id"`
+	Name        string                 `yaml:"name" json:"name"`
+	Description string                 `yaml:"description" json:"description"`
+	Content     string                 `yaml:"content" json:"content"`
+	Variables   []TemplateVariable     `yaml:"variables" json:"variables"`
+	Source      string                 `yaml:"source" json:"source"`     // "default" 或 "custom"
+	Priority    int                    `yaml:"priority" json:"priority"` // 自定义模板优先级更高
+	Metadata    map[string]interface{} `yaml:"metadata" json:"metadata"`
 }
 
 // TemplateVariable 表示模板变量
 type TemplateVariable struct {
-	Name        string `yaml:"name"`
-	Type        string `yaml:"type"` // string, int, bool, array
-	Required    bool   `yaml:"required"`
-	Default     string `yaml:"default"`
-	Description string `yaml:"description"`
+	Name        string `yaml:"name" json:"name"`
+	Type        string `yaml:"type" json:"type"` // string, int, bool, array
+	Required    bool   `yaml:"required" json:"required"`
+	Default     string `yaml:"default" json:"default"`
+	Description string `yaml:"description" json:"description"`
 }
 
 // TemplateCache 模板缓存
@@ -46,9 +37,18 @@ type TemplateCache struct {
 	ttl   time.Duration
 }
 
-// NewPromptManager 创建新的 Prompt Manager
-func NewPromptManager(workspaceManager *workspace.Manager) *PromptManager {
-	pm := &PromptManager{
+// Manager 统一管理内置和自定义模板
+type Manager struct {
+	defaultTemplates map[string]*Template
+	customTemplates  map[string]*Template
+	workspaceManager *workspace.Manager
+	cache            *TemplateCache
+	mu               sync.RWMutex
+}
+
+// NewManager 创建新的 Prompt Manager
+func NewManager(workspaceManager *workspace.Manager) *Manager {
+	pm := &Manager{
 		defaultTemplates: make(map[string]*Template),
 		customTemplates:  make(map[string]*Template),
 		workspaceManager: workspaceManager,
@@ -65,7 +65,7 @@ func NewPromptManager(workspaceManager *workspace.Manager) *PromptManager {
 }
 
 // loadDefaultTemplates 加载内置模板
-func (pm *PromptManager) loadDefaultTemplates() {
+func (pm *Manager) loadDefaultTemplates() {
 	// 基于 Issue 的代码生成模板
 	issueTemplate := &Template{
 		ID:          "issue_based_code_generation",
@@ -165,15 +165,169 @@ func (pm *PromptManager) loadDefaultTemplates() {
 		},
 	}
 
+	// 基于单个 Review Comment 的代码继续处理模板
+	singleReviewContinueTemplate := &Template{
+		ID:          "single_review_continue",
+		Name:        "基于单个 Review Comment 的代码继续处理",
+		Description: "根据单个 Review Comment 继续处理代码",
+		Source:      "default",
+		Priority:    1,
+		Content: `根据以下代码行评论继续处理代码：
+
+## 代码行评论
+{{.comment_body}}
+
+## 文件信息
+文件：{{.file_path}}
+{{.line_range_info}}
+
+{{if .additional_instructions}}
+## 额外指令
+{{.additional_instructions}}
+{{end}}
+
+请根据评论要求继续处理代码，确保：
+1. 理解评论的意图和要求
+2. 进行相应的代码修改或改进
+3. 保持代码质量和一致性
+4. 遵循项目的编码规范
+
+{{if .has_custom_config}}
+## 项目自定义配置参考
+当前项目包含一个 CODEAGENT.md 文件，其中定义了项目的特定要求和配置。
+请在完成上述任务时，同步参考该文件中的内容，确保生成的代码符合项目的
+技术栈、编码规范和架构要求。
+
+请确保生成的代码：
+1. 遵循项目中定义的技术栈和框架
+2. 符合项目的编码规范和架构模式
+3. 满足项目的特殊要求和约束
+4. 保持与现有代码风格的一致性
+{{end}}`,
+		Variables: []TemplateVariable{
+			{Name: "comment_body", Type: "string", Required: true, Description: "评论内容"},
+			{Name: "file_path", Type: "string", Required: true, Description: "文件路径"},
+			{Name: "line_range_info", Type: "string", Required: true, Description: "行号范围信息"},
+			{Name: "additional_instructions", Type: "string", Required: false, Description: "额外指令"},
+			{Name: "has_custom_config", Type: "bool", Required: false, Default: "false", Description: "是否存在自定义配置"},
+		},
+	}
+
+	// 基于单个 Review Comment 的代码修复模板
+	singleReviewFixTemplate := &Template{
+		ID:          "single_review_fix",
+		Name:        "基于单个 Review Comment 的代码修复",
+		Description: "根据单个 Review Comment 修复代码问题",
+		Source:      "default",
+		Priority:    1,
+		Content: `根据以下代码行评论修复代码问题：
+
+## 代码行评论
+{{.comment_body}}
+
+## 文件信息
+文件：{{.file_path}}
+{{.line_range_info}}
+
+{{if .additional_instructions}}
+## 额外指令
+{{.additional_instructions}}
+{{end}}
+
+请根据评论要求修复代码问题，确保：
+1. 识别并解决评论中提到的问题
+2. 修复代码错误或改进代码质量
+3. 保持代码质量和一致性
+4. 遵循项目的编码规范
+
+{{if .has_custom_config}}
+## 项目自定义配置参考
+当前项目包含一个 CODEAGENT.md 文件，其中定义了项目的特定要求和配置。
+请在完成上述任务时，同步参考该文件中的内容，确保生成的代码符合项目的
+技术栈、编码规范和架构要求。
+
+请确保生成的代码：
+1. 遵循项目中定义的技术栈和框架
+2. 符合项目的编码规范和架构模式
+3. 满足项目的特殊要求和约束
+4. 保持与现有代码风格的一致性
+{{end}}`,
+		Variables: []TemplateVariable{
+			{Name: "comment_body", Type: "string", Required: true, Description: "评论内容"},
+			{Name: "file_path", Type: "string", Required: true, Description: "文件路径"},
+			{Name: "line_range_info", Type: "string", Required: true, Description: "行号范围信息"},
+			{Name: "additional_instructions", Type: "string", Required: false, Description: "额外指令"},
+			{Name: "has_custom_config", Type: "bool", Required: false, Default: "false", Description: "是否存在自定义配置"},
+		},
+	}
+
+	// 基于批量 Review Comments 的代码处理模板
+	batchReviewTemplate := &Template{
+		ID:          "batch_review_processing",
+		Name:        "基于批量 Review Comments 的代码处理",
+		Description: "根据批量 Review Comments 处理代码",
+		Source:      "default",
+		Priority:    1,
+		Content: `根据以下 PR Review 的批量评论处理代码：
+
+{{if .review_body}}
+## Review 总体说明
+{{.review_body}}
+{{end}}
+
+## 批量评论
+{{.batch_comments}}
+
+{{if .additional_instructions}}
+## 额外指令
+{{.additional_instructions}}
+{{end}}
+
+{{if .processing_mode}}
+## 处理模式
+{{.processing_mode}}
+{{end}}
+
+请一次性处理所有评论中提到的问题，确保：
+1. 理解每个评论的意图和要求
+2. 进行相应的代码修改或改进
+3. 保持代码质量和一致性
+4. 遵循项目的编码规范
+5. 回复要简洁明了
+
+{{if .has_custom_config}}
+## 项目自定义配置参考
+当前项目包含一个 CODEAGENT.md 文件，其中定义了项目的特定要求和配置。
+请在完成上述任务时，同步参考该文件中的内容，确保生成的代码符合项目的
+技术栈、编码规范和架构要求。
+
+请确保生成的代码：
+1. 遵循项目中定义的技术栈和框架
+2. 符合项目的编码规范和架构模式
+3. 满足项目的特殊要求和约束
+4. 保持与现有代码风格的一致性
+{{end}}`,
+		Variables: []TemplateVariable{
+			{Name: "review_body", Type: "string", Required: false, Description: "Review 总体说明"},
+			{Name: "batch_comments", Type: "string", Required: true, Description: "批量评论内容"},
+			{Name: "additional_instructions", Type: "string", Required: false, Description: "额外指令"},
+			{Name: "processing_mode", Type: "string", Required: false, Description: "处理模式（继续处理/修复）"},
+			{Name: "has_custom_config", Type: "bool", Required: false, Default: "false", Description: "是否存在自定义配置"},
+		},
+	}
+
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
 	pm.defaultTemplates[issueTemplate.ID] = issueTemplate
 	pm.defaultTemplates[reviewTemplate.ID] = reviewTemplate
+	pm.defaultTemplates[singleReviewContinueTemplate.ID] = singleReviewContinueTemplate
+	pm.defaultTemplates[singleReviewFixTemplate.ID] = singleReviewFixTemplate
+	pm.defaultTemplates[batchReviewTemplate.ID] = batchReviewTemplate
 }
 
 // GetTemplate 获取模板（优先使用自定义模板，回退到默认模板）
-func (pm *PromptManager) GetTemplate(templateID string, workspace *models.Workspace) (*Template, error) {
+func (pm *Manager) GetTemplate(templateID string, workspace *models.Workspace) (*Template, error) {
 	// 先检查缓存
 	if cached := pm.cache.Get(templateID); cached != nil {
 		return cached, nil
@@ -198,7 +352,7 @@ func (pm *PromptManager) GetTemplate(templateID string, workspace *models.Worksp
 }
 
 // LoadCustomTemplate 加载自定义模板
-func (pm *PromptManager) LoadCustomTemplate(template *Template) error {
+func (pm *Manager) LoadCustomTemplate(template *Template) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -213,7 +367,7 @@ func (pm *PromptManager) LoadCustomTemplate(template *Template) error {
 }
 
 // ListTemplates 列出所有模板
-func (pm *PromptManager) ListTemplates() []*Template {
+func (pm *Manager) ListTemplates() []*Template {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
