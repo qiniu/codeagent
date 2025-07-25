@@ -26,6 +26,7 @@ type GeminiConfig struct {
 	Timeout            time.Duration `yaml:"timeout"`
 	ContainerImage     string        `yaml:"container_image"`
 	GoogleCloudProject string        `yaml:"google_cloud_project"`
+	Interactive        bool          `yaml:"interactive"`
 }
 
 type ServerConfig struct {
@@ -158,6 +159,7 @@ func loadFromEnv() *Config {
 			ContainerImage:     getEnvOrDefault("GEMINI_IMAGE", "google-gemini/gemini-cli:latest"),
 			Timeout:            30 * time.Minute,
 			GoogleCloudProject: os.Getenv("GOOGLE_CLOUD_PROJECT"),
+			Interactive:        getEnvBoolOrDefault("GEMINI_INTERACTIVE", false),
 		},
 		Docker: DockerConfig{
 			Socket:  getEnvOrDefault("DOCKER_SOCKET", "unix:///var/run/docker.sock"),
