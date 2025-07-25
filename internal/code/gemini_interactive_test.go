@@ -47,7 +47,7 @@ func TestNewGeminiInteractive(t *testing.T) {
 
 func TestGeminiInteractiveResponseReader(t *testing.T) {
 	// 创建足够长的缓冲区数据以通过长度检查
-	longBufferData := "这是一个很长的响应数据，用于测试响应完成检测功能。" + 
+	longBufferData := "这是一个很长的响应数据，用于测试响应完成检测功能。" +
 		"我们需要确保缓冲区足够长，至少500个字符，这样才能正确测试响应完成的检测逻辑。" +
 		"这个测试是为了验证Gemini交互式响应读取器的功能是否正常工作。" +
 		"让我们继续添加更多的文本来达到所需的长度限制。" +
