@@ -73,7 +73,7 @@ func (pm *Manager) loadDefaultTemplates() {
 		Description: "根据 GitHub Issue 生成相应的代码实现",
 		Source:      "default",
 		Priority:    1,
-		Content: `你是一个专业的程序员。请根据以下 Issue 修改代码:
+		Content: `你是一个专业的程序员。请根据以下 Issue 直接修改代码文件:
 
 ## Issue 信息
 标题：{{.issue_title}}
@@ -94,7 +94,16 @@ func (pm *Manager) loadDefaultTemplates() {
 技术栈、编码规范和架构要求。
 {{end}}
 
-并请按照以下格式输出(因为这个内容会放到 PR 描述中):
+## 任务要求
+请直接修改相关的代码文件来实现 Issue 中描述的功能。你需要：
+
+1. 分析 Issue 需求，确定需要修改的文件
+2. 直接修改代码文件，实现所需功能
+3. 确保代码质量和一致性
+4. 遵循项目的编码规范
+
+## 输出格式
+在完成代码修改后，请按照以下格式输出总结(这个内容会放到 PR 描述中):
 
 ## 改动摘要
 简要说明改动内容
