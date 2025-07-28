@@ -183,8 +183,9 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	req := &prompt.PromptRequest{
 		TemplateID: "issue_based_code_generation",
 		TemplateVars: map[string]interface{}{
-			"issue_title":        event.Issue.GetTitle(),
-			"issue_body":         event.Issue.GetBody(),
+			"issue_title": event.Issue.GetTitle(),
+			"issue_body":  event.Issue.GetBody(),
+			// TODO(CarlJi): 需要从历史评论中获取上下文
 			"historical_context": "",
 		},
 		Workspace: ws,
@@ -448,7 +449,7 @@ func (a *Agent) buildPrompt(mode string, args string, historicalContext string) 
 }
 
 // buildSingleReviewPrompt 构建单个 Review Comment 的 Prompt
-func (a *Agent) buildSingleReviewPrompt(templateID string, commentBody, filePath, lineRangeInfo, additionalInstructions string, ws *models.Workspace) (string, error) {
+func (a *Agent) buildSingleReviewPrompt(commentBody, filePath, lineRangeInfo, additionalInstructions string, ws *models.Workspace) (string, error) {
 	templateVars := map[string]interface{}{
 		"comment_body":            commentBody,
 		"file_path":               filePath,
@@ -457,7 +458,7 @@ func (a *Agent) buildSingleReviewPrompt(templateID string, commentBody, filePath
 	}
 
 	req := &prompt.PromptRequest{
-		TemplateID:   templateID,
+		TemplateID:   "single_review_continue",
 		TemplateVars: templateVars,
 		Workspace:    ws,
 	}
@@ -736,7 +737,6 @@ func (a *Agent) ContinuePRFromReviewCommentWithAI(ctx context.Context, event *gi
 
 	// 使用新的 Prompt 系统
 	promptContent, err := a.buildSingleReviewPrompt(
-		"single_review_continue",
 		event.Comment.GetBody(),
 		event.Comment.GetPath(),
 		lineRangeInfo,
@@ -854,7 +854,6 @@ func (a *Agent) FixPRFromReviewCommentWithAI(ctx context.Context, event *github.
 
 	// 使用新的 Prompt 系统
 	promptContent, err := a.buildSingleReviewPrompt(
-		"single_review_fix",
 		event.Comment.GetBody(),
 		event.Comment.GetPath(),
 		lineRangeInfo,
@@ -1143,6 +1142,9 @@ func (a *Agent) promptWithRetry(ctx context.Context, code code.Code, prompt stri
 
 		lastErr = err
 		log.Warnf("Prompt attempt %d failed: %v", attempt, err)
+		if resp != nil {
+			log.Warnf("response: %s", resp.Out)
+		}
 
 		// 如果是 broken pipe 错误，尝试重新创建 session
 		if strings.Contains(err.Error(), "broken pipe") ||

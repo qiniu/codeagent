@@ -73,7 +73,7 @@ func (pm *Manager) loadDefaultTemplates() {
 		Description: "根据 GitHub Issue 生成相应的代码实现",
 		Source:      "default",
 		Priority:    1,
-		Content: `你是一个专业的程序员。请根据以下 Issue 需求生成代码实现，并提供一个简洁的 PR 描述。
+		Content: `你是一个专业的程序员。请根据以下 Issue 修改代码:
 
 ## Issue 信息
 标题：{{.issue_title}}
@@ -94,7 +94,7 @@ func (pm *Manager) loadDefaultTemplates() {
 技术栈、编码规范和架构要求。
 {{end}}
 
-## 请按照以下格式输出，保持简洁直接
+并请按照以下格式输出(因为这个内容会放到 PR 描述中):
 
 ## 改动摘要
 简要说明改动内容

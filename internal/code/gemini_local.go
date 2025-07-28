@@ -91,7 +91,7 @@ func (g *geminiLocal) executeGeminiLocal(prompt string) ([]byte, error) {
 		// 检查是否是 API 密钥相关错误
 		outputStr := string(output)
 		if strings.Contains(outputStr, "API Error") || strings.Contains(outputStr, "fetch failed") {
-			return nil, fmt.Errorf("gemini API error - please check GOOGLE_API_KEY: %w, output: %s", err, outputStr)
+			return nil, fmt.Errorf("gemini API error: %w, output: %s", err, outputStr)
 		}
 
 		// 检查是否是网络相关错误
