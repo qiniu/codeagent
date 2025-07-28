@@ -47,6 +47,7 @@ func (c *claudeLocal) Prompt(message string) (*Response, error) {
 	// 执行本地 claude CLI 调用
 	output, err := c.executeClaudeLocal(message)
 	if err != nil {
+		log.Errorf("failed to execute claude prompt: %v, output: %s", err, string(output))
 		return nil, fmt.Errorf("failed to execute claude prompt: %w", err)
 	}
 
