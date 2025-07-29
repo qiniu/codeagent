@@ -125,6 +125,14 @@ func (c *Client) CreatePullRequest(workspace *models.Workspace) (*github.PullReq
 		return nil, fmt.Errorf("invalid repository URL: %s", workspace.Repository)
 	}
 
+	// 获取仓库的默认分支
+	defaultBranch, err := c.getDefaultBranch(repoOwner, repoName)
+	if err != nil {
+		log.Errorf("Failed to get default branch for %s/%s, using 'main' as fallback: %v", repoOwner, repoName, err)
+		defaultBranch = "main"
+	}
+	log.Infof("Using default branch '%s' for repository %s/%s", defaultBranch, repoOwner, repoName)
+
 	// 创建 PR
 	prTitle := fmt.Sprintf("实现 Issue #%d: %s", workspace.Issue.GetNumber(), workspace.Issue.GetTitle())
 	prBody := fmt.Sprintf(`## 实现计划
@@ -149,7 +157,7 @@ func (c *Client) CreatePullRequest(workspace *models.Workspace) (*github.PullReq
 		Title: &prTitle,
 		Body:  &prBody,
 		Head:  &workspace.Branch,
-		Base:  github.String("main"), // 假设主分支是 main
+		Base:  &defaultBranch,
 	}
 
 	pr, _, err := c.client.PullRequests.Create(context.Background(), repoOwner, repoName, newPR)
@@ -159,6 +167,21 @@ func (c *Client) CreatePullRequest(workspace *models.Workspace) (*github.PullReq
 
 	log.Infof("Created PR: %s", pr.GetHTMLURL())
 	return pr, nil
+}
+
+// getDefaultBranch 获取仓库的默认分支
+func (c *Client) getDefaultBranch(owner, repo string) (string, error) {
+	repository, _, err := c.client.Repositories.Get(context.Background(), owner, repo)
+	if err != nil {
+		return "", fmt.Errorf("failed to get repository info: %w", err)
+	}
+
+	defaultBranch := repository.GetDefaultBranch()
+	if defaultBranch == "" {
+		return "", fmt.Errorf("repository has no default branch")
+	}
+
+	return defaultBranch, nil
 }
 
 // CommitAndPush 检测文件变更并提交推送
