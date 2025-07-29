@@ -948,33 +948,33 @@ func (a *Agent) CleanupAfterPRClosed(ctx context.Context, pr *github.PullRequest
 	// 获取所有与该PR相关的工作空间（可能有多个不同AI模型的工作空间）
 	workspaces := a.workspace.GetAllWorkspacesByPR(pr)
 	if len(workspaces) == 0 {
-		log.Infof("No workspaces found for PR: %s, skip cleanup", pr.GetHTMLURL())
-		return nil
-	}
-	log.Infof("Found %d workspaces for cleanup", len(workspaces))
+		log.Infof("No workspaces found for PR: %s", pr.GetHTMLURL())
+	} else {
+		log.Infof("Found %d workspaces for cleanup", len(workspaces))
 
-	// 清理所有工作空间
-	for _, ws := range workspaces {
-		log.Infof("Cleaning up workspace: %s (AI model: %s)", ws.Path, ws.AIModel)
+		// 清理所有工作空间
+		for _, ws := range workspaces {
+			log.Infof("Cleaning up workspace: %s (AI model: %s)", ws.Path, ws.AIModel)
 
-		// 清理执行的 code session
-		log.Infof("Closing code session for AI model: %s", ws.AIModel)
-		err := a.sessionManager.CloseSession(ws)
-		if err != nil {
-			log.Errorf("Failed to close code session for PR #%d with AI model %s: %v", prNumber, ws.AIModel, err)
-			// 不返回错误，继续清理其他工作空间
-		} else {
-			log.Infof("Code session closed successfully for AI model: %s", ws.AIModel)
-		}
+			// 清理执行的 code session
+			log.Infof("Closing code session for AI model: %s", ws.AIModel)
+			err := a.sessionManager.CloseSession(ws)
+			if err != nil {
+				log.Errorf("Failed to close code session for PR #%d with AI model %s: %v", prNumber, ws.AIModel, err)
+				// 不返回错误，继续清理其他工作空间
+			} else {
+				log.Infof("Code session closed successfully for AI model: %s", ws.AIModel)
+			}
 
-		// 清理 worktree,session 目录 和 对应的内存映射
-		log.Infof("Cleaning up workspace for AI model: %s", ws.AIModel)
-		b := a.workspace.CleanupWorkspace(ws)
-		if !b {
-			log.Errorf("Failed to cleanup workspace for PR #%d with AI model %s", prNumber, ws.AIModel)
-			// 不返回错误，继续清理其他工作空间
-		} else {
-			log.Infof("Workspace cleaned up successfully for AI model: %s", ws.AIModel)
+			// 清理 worktree,session 目录 和 对应的内存映射
+			log.Infof("Cleaning up workspace for AI model: %s", ws.AIModel)
+			b := a.workspace.CleanupWorkspace(ws)
+			if !b {
+				log.Errorf("Failed to cleanup workspace for PR #%d with AI model %s", prNumber, ws.AIModel)
+				// 不返回错误，继续清理其他工作空间
+			} else {
+				log.Infof("Workspace cleaned up successfully for AI model: %s", ws.AIModel)
+			}
 		}
 	}
 
