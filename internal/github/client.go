@@ -629,6 +629,31 @@ Important: Please return only the plain text commit message content, do not incl
 	return commitMsg, nil
 }
 
+// DeleteCodeAgentBranch 删除CodeAgent创建的分支
+func (c *Client) DeleteCodeAgentBranch(ctx context.Context, owner, repo, branchName string) error {
+	log.Infof("Attempting to delete CodeAgent branch: %s", branchName)
+
+	// 确保只删除codeagent开头的分支
+	if !strings.HasPrefix(branchName, "codeagent") {
+		log.Warnf("Branch %s is not a CodeAgent branch, skipping deletion", branchName)
+		return nil
+	}
+
+	// 使用GitHub API删除分支
+	_, err := c.client.Git.DeleteRef(ctx, owner, repo, fmt.Sprintf("heads/%s", branchName))
+	if err != nil {
+		// 如果分支不存在，这不是错误
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "Reference does not exist") {
+			log.Infof("Branch %s does not exist, no deletion needed", branchName)
+			return nil
+		}
+		return fmt.Errorf("failed to delete branch %s: %w", branchName, err)
+	}
+
+	log.Infof("Successfully deleted CodeAgent branch: %s", branchName)
+	return nil
+}
+
 // min 返回两个整数中的较小值
 func min(a, b int) int {
 	if a < b {

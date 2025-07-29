@@ -937,12 +937,13 @@ func (a *Agent) ReviewPR(ctx context.Context, pr *github.PullRequest) error {
 	return nil
 }
 
-// CleanupAfterPRMerged PR 合并后清理工作区、映射和执行的code session
-func (a *Agent) CleanupAfterPRMerged(ctx context.Context, pr *github.PullRequest) error {
+// CleanupAfterPRClosed PR 关闭后清理工作区、映射、执行的code session和删除CodeAgent创建的分支
+func (a *Agent) CleanupAfterPRClosed(ctx context.Context, pr *github.PullRequest) error {
 	log := xlog.NewWith(ctx)
 
 	prNumber := pr.GetNumber()
-	log.Infof("Starting cleanup after PR #%d merged", prNumber)
+	prBranch := pr.GetHead().GetRef()
+	log.Infof("Starting cleanup after PR #%d closed, branch: %s", prNumber, prBranch)
 
 	// 获取所有与该PR相关的工作空间（可能有多个不同AI模型的工作空间）
 	workspaces := a.workspace.GetAllWorkspacesByPR(pr)
@@ -977,7 +978,24 @@ func (a *Agent) CleanupAfterPRMerged(ctx context.Context, pr *github.PullRequest
 		}
 	}
 
-	log.Infof("Cleanup after PR merged completed: PR #%d, cleaned %d workspaces", prNumber, len(workspaces))
+	// 删除CodeAgent创建的分支
+	if prBranch != "" && strings.HasPrefix(prBranch, "codeagent") {
+		owner := pr.GetBase().GetRepo().GetOwner().GetLogin()
+		repoName := pr.GetBase().GetRepo().GetName()
+
+		log.Infof("Deleting CodeAgent branch: %s from repo %s/%s", prBranch, owner, repoName)
+		err := a.github.DeleteCodeAgentBranch(ctx, owner, repoName, prBranch)
+		if err != nil {
+			log.Errorf("Failed to delete branch %s: %v", prBranch, err)
+			// 不返回错误，继续完成其他清理工作
+		} else {
+			log.Infof("Successfully deleted CodeAgent branch: %s", prBranch)
+		}
+	} else {
+		log.Infof("Branch %s is not a CodeAgent branch, skipping deletion", prBranch)
+	}
+
+	log.Infof("Cleanup after PR closed completed: PR #%d, cleaned %d workspaces", prNumber, len(workspaces))
 	return nil
 }
 
