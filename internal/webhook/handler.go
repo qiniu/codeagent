@@ -428,21 +428,17 @@ func (h *Handler) handlePullRequest(ctx context.Context, w http.ResponseWriter, 
 			}
 		}(event.PullRequest, ctx)
 	case "closed":
-		// PR 被关闭，若已合并则清理
-		if event.PullRequest.GetMerged() {
-			log.Infof("PR closed and merged, starting cleanup process")
-			go func(pr *github.PullRequest, traceCtx context.Context) {
-				traceLog := xlog.NewWith(traceCtx)
-				traceLog.Infof("Starting PR cleanup task")
-				if err := h.agent.CleanupAfterPRMerged(traceCtx, pr); err != nil {
-					traceLog.Errorf("Agent cleanup after PR merged error: %v", err)
-				} else {
-					traceLog.Infof("PR cleanup task completed successfully")
-				}
-			}(event.PullRequest, ctx)
-		} else {
-			log.Infof("PR closed but not merged, no cleanup needed")
-		}
+		// PR 被关闭，执行清理（无论是否合并）
+		log.Infof("PR closed, starting cleanup process (merged: %v)", event.PullRequest.GetMerged())
+		go func(pr *github.PullRequest, traceCtx context.Context) {
+			traceLog := xlog.NewWith(traceCtx)
+			traceLog.Infof("Starting PR cleanup task")
+			if err := h.agent.CleanupAfterPRClosed(traceCtx, pr); err != nil {
+				traceLog.Errorf("Agent cleanup after PR closed error: %v", err)
+			} else {
+				traceLog.Infof("PR cleanup task completed successfully")
+			}
+		}(event.PullRequest, ctx)
 	default:
 		log.Debugf("Unhandled PR action: %s", action)
 		w.WriteHeader(http.StatusOK)
