@@ -19,6 +19,7 @@ type Config struct {
 	Docker       DockerConfig    `yaml:"docker"`
 	CodeProvider string          `yaml:"code_provider"`
 	UseDocker    bool            `yaml:"use_docker"`
+	Prompt       PromptConfig    `yaml:"prompt"` // 新增
 }
 
 type GeminiConfig struct {
@@ -54,6 +55,13 @@ type ClaudeConfig struct {
 type DockerConfig struct {
 	Socket  string `yaml:"socket"`
 	Network string `yaml:"network"`
+}
+
+type PromptConfig struct {
+	TemplatesDir  string `yaml:"templates_dir"`
+	ValidatorsDir string `yaml:"validators_dir"`
+	MaxLength     int    `yaml:"max_length"`
+	EnableCache   bool   `yaml:"enable_cache"`
 }
 
 func Load(configPath string) (*Config, error) {

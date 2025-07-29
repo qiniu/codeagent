@@ -2,35 +2,43 @@
 # 复制此文件为 config.yaml 并填入实际的值
 
 server:
-  port: 8888
+  port: 8080
   # GitHub webhook 签名验证密钥，用于验证请求的真实性
   # 需要与 GitHub webhook 配置中的 secret 保持一致
-  webhook_secret: your-webhook-secret-here
+  webhook_secret: "your_webhook_secret"
 
 github:
-  token: your-github-token-here
-  webhook_url: https://your-domain.com/webhook
+  token: "your_github_token"
+  webhook_url: "https://your-domain.com/webhook"
 
 workspace:
-  base_dir: /tmp/xgo-agent
-  cleanup_after: 24h
+  base_dir: "./workspaces"
+  cleanup_after: "24h"
 
 claude:
-  api_key: your-claude-api-key-here
-  base_url: https://api.anthropic.com # 可选，默认为官方 API 地址
-  container_image: anthropic/claude-code:latest
-  timeout: 30m
-  interactive: true # 是否启用交互式模式
+  api_key: "your_claude_api_key"
+  base_url: "https://api.anthropic.com"
+  container_image: "anthropic/claude:latest"
+  timeout: "30s"
+  interactive: true
 
 gemini:
-  api_key: your-gemini-api-key-here
-  container_image: google-gemini/gemini-cli:latest
-  timeout: 30m
+  api_key: "your_gemini_api_key"
+  timeout: "30s"
+  container_image: "gcr.io/generative-ai/generative-ai:latest"
+  google_cloud_project: "your_project_id"
 
 docker:
-  socket: unix:///var/run/docker.sock
-  network: bridge
+  socket: "/var/run/docker.sock"
+  network: "bridge"
 
 # 代码提供者配置
-code_provider: claude # 可选值: claude, gemini
-use_docker: true # 是否使用 Docker，false 表示使用本地 CLI
+code_provider: "claude"
+use_docker: false
+
+# 新增 Prompt 配置
+prompt:
+  templates_dir: "./config/templates"
+  validators_dir: "./config/validators"
+  max_length: 8000
+  enable_cache: true

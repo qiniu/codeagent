@@ -47,6 +47,7 @@ func (c *claudeLocal) Prompt(message string) (*Response, error) {
 	// 执行本地 claude CLI 调用
 	output, err := c.executeClaudeLocal(message)
 	if err != nil {
+		log.Errorf("failed to execute claude prompt: %v, output: %s", err, string(output))
 		return nil, fmt.Errorf("failed to execute claude prompt: %w", err)
 	}
 
@@ -91,7 +92,7 @@ func (c *claudeLocal) executeClaudeLocal(prompt string) ([]byte, error) {
 		// 检查是否是 API 密钥相关错误
 		outputStr := string(output)
 		if strings.Contains(outputStr, "API Error") || strings.Contains(outputStr, "fetch failed") || strings.Contains(outputStr, "authentication") {
-			return nil, fmt.Errorf("claude API error - please check CLAUDE_API_KEY: %w, output: %s", err, outputStr)
+			return nil, fmt.Errorf("claude API error: %w, output: %s", err, outputStr)
 		}
 
 		// 检查是否是网络相关错误
