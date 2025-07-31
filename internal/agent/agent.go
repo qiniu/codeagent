@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qbox/codeagent/internal/code"
-	"github.com/qbox/codeagent/internal/config"
-	ghclient "github.com/qbox/codeagent/internal/github"
-	"github.com/qbox/codeagent/internal/workspace"
-	"github.com/qbox/codeagent/pkg/models"
+	"github.com/qiniu/codeagent/internal/code"
+	"github.com/qiniu/codeagent/internal/config"
+	ghclient "github.com/qiniu/codeagent/internal/github"
+	"github.com/qiniu/codeagent/internal/workspace"
+	"github.com/qiniu/codeagent/pkg/models"
 
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/log"

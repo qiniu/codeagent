@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/qbox/codeagent/internal/agent"
-	"github.com/qbox/codeagent/internal/config"
-	"github.com/qbox/codeagent/pkg/signature"
+	"github.com/qiniu/codeagent/internal/agent"
+	"github.com/qiniu/codeagent/internal/config"
+	"github.com/qiniu/codeagent/pkg/signature"
 
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/reqid"

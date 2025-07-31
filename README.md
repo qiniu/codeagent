@@ -1,9 +1,9 @@
 # CodeAgent
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/qbox/codeagent)](https://goreportcard.com/report/github.com/qbox/codeagent)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/qbox/codeagent)](https://go.dev/)
+[![Go Report Card](https://goreportcard.com/badge/github.com/qiniu/codeagent)](https://goreportcard.com/report/github.com/qiniu/codeagent)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/qiniu/codeagent)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/qbox/codeagent/workflows/CI/badge.svg)](https://github.com/qbox/codeagent/actions)
+[![CI](https://github.com/qiniu/codeagent/workflows/CI/badge.svg)](https://github.com/qiniu/codeagent/actions)
 
 CodeAgent is an AI-powered code agent that automatically processes GitHub Issues and Pull Requests, generating code modification suggestions.
 
@@ -28,7 +28,7 @@ CodeAgent is an AI-powered code agent that automatically processes GitHub Issues
 ### Installation
 
 ```bash
-git clone https://github.com/qbox/codeagent.git
+git clone https://github.com/qiniu/codeagent.git
 cd codeagent
 go mod download
 ```
@@ -355,9 +355,9 @@ We welcome all forms of contributions! Please check the [Contributing Guide](CON
 
 ### Ways to Contribute
 
-- 🐛 [Report Bugs](https://github.com/qbox/codeagent/issues/new?template=bug_report.md)
-- 💡 [Feature Requests](https://github.com/qbox/codeagent/issues/new?template=feature_request.md)
-- 📝 [Improve Documentation](https://github.com/qbox/codeagent/issues/new?template=documentation.md)
+- 🐛 [Report Bugs](https://github.com/qiniu/codeagent/issues/new?template=bug_report.md)
+- 💡 [Feature Requests](https://github.com/qiniu/codeagent/issues/new?template=feature_request.md)
+- 📝 [Improve Documentation](https://github.com/qiniu/codeagent/issues/new?template=documentation.md)
 - 🔧 [Submit Code](CONTRIBUTING.md#code-contributions)
 
 ## 📄 License

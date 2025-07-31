@@ -11,10 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/qbox/codeagent/internal/agent"
-	"github.com/qbox/codeagent/internal/config"
-	"github.com/qbox/codeagent/internal/webhook"
-	"github.com/qbox/codeagent/internal/workspace"
+	"github.com/qiniu/codeagent/internal/agent"
+	"github.com/qiniu/codeagent/internal/config"
+	"github.com/qiniu/codeagent/internal/webhook"
+	"github.com/qiniu/codeagent/internal/workspace"
 
 	"github.com/qiniu/x/log"
 )
