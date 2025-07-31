@@ -1,17 +1,17 @@
 #!/bin/bash
 
-# CodeAgent 启动脚本 - 支持多种配置组合
+# CodeAgent startup script - supports multiple configuration combinations
 
 set -e
 
-# 颜色定义
+# Color definitions
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# 打印带颜色的消息
+# Print colored messages
 print_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -28,27 +28,27 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# 显示帮助信息
+# Show help information
 show_help() {
-    echo "CodeAgent 启动脚本"
+    echo "CodeAgent startup script"
     echo ""
-    echo "用法: $0 [选项]"
+    echo "Usage: $0 [options]"
     echo ""
-    echo "选项:"
-    echo "  -p, --provider PROVIDER    代码提供者 (claude|gemini) [默认: gemini]"
-    echo "  -d, --docker               使用 Docker 模式 [默认: 本地 CLI 模式]"
-    echo "  -i, --interactive          启用交互式 Docker 模式 (仅适用于 Claude Docker)"
-    echo "  -h, --help                 显示此帮助信息"
+    echo "Options:"
+    echo "  -p, --provider PROVIDER    Code provider (claude|gemini) [default: gemini]"
+    echo "  -d, --docker               Use Docker mode [default: local CLI mode]"
+    echo "  -i, --interactive          Enable interactive Docker mode (Claude Docker only)"
+    echo "  -h, --help                 Show this help message"
     echo ""
-    echo "示例:"
-    echo "  $0                          # Gemini + 本地 CLI 模式"
-    echo "  $0 -p claude -d             # Claude + Docker 模式"
-    echo "  $0 -p claude -d -i          # Claude + Docker 交互式模式"
-    echo "  $0 -p gemini -d             # Gemini + Docker 模式"
-    echo "  $0 -p claude                # Claude + 本地 CLI 模式"
+    echo "Examples:"
+    echo "  $0                         # Gemini + local CLI mode"
+    echo "  $0 -p claude -d            # Claude + Docker mode"
+    echo "  $0 -p claude -d -i         # Claude + Docker interactive mode"
+    echo "  $0 -p gemini -d            # Gemini + Docker mode"
+    echo "  $0 -p claude               # Claude + local CLI mode"
 }
 
-# 解析命令行参数
+# Parse command line arguments
 parse_args() {
     PROVIDER="gemini"
     USE_DOCKER=false
@@ -73,34 +73,34 @@ parse_args() {
                 exit 0
                 ;;
             *)
-                print_error "未知选项: $1"
+                print_error "Unknown option: $1"
                 show_help
                 exit 1
                 ;;
         esac
     done
     
-    # 验证 provider
+    # Validate provider
     if [[ "$PROVIDER" != "claude" && "$PROVIDER" != "gemini" ]]; then
-        print_error "不支持的代码提供者: $PROVIDER"
-        print_error "支持的选项: claude, gemini"
+        print_error "Unsupported code provider: $PROVIDER"
+        print_error "Supported options: claude, gemini"
         exit 1
     fi
     
-    # 验证交互式模式只能用于Claude Docker
+    # Validate interactive mode only for Claude Docker
     if [[ "$INTERACTIVE" = true ]]; then
         if [[ "$PROVIDER" != "claude" ]]; then
-            print_error "交互式模式只支持 Claude 提供者"
+            print_error "Interactive mode only supports Claude provider"
             exit 1
         fi
         if [[ "$USE_DOCKER" != true ]]; then
-            print_error "交互式模式需要启用 Docker 模式"
+            print_error "Interactive mode requires Docker mode to be enabled"
             exit 1
         fi
     fi
 }
 
-# 检查必需的环境变量
+# Check required environment variables
 check_required_env() {
     local missing_vars=()
     
@@ -112,7 +112,7 @@ check_required_env() {
         missing_vars+=("WEBHOOK_SECRET")
     fi
     
-    # 根据 provider 检查相应的 API 密钥
+    # Check for corresponding API keys based on provider
     if [ "$PROVIDER" = "claude" ] && [ -z "$CLAUDE_API_KEY" ]; then
         missing_vars+=("CLAUDE_API_KEY")
     fi
@@ -122,9 +122,9 @@ check_required_env() {
     fi
     
     if [ ${#missing_vars[@]} -ne 0 ]; then
-        print_error "缺少必需的环境变量: ${missing_vars[*]}"
+        print_error "Missing required environment variables: ${missing_vars[*]}"
         echo ""
-        echo "请设置以下环境变量:"
+        echo "Please set the following environment variables:"
         echo "export GITHUB_TOKEN=\"your-github-token\""
         echo "export WEBHOOK_SECRET=\"your-webhook-secret\""
         if [ "$PROVIDER" = "claude" ]; then
@@ -136,125 +136,125 @@ check_required_env() {
     fi
 }
 
-# 检查 CLI 工具是否可用
+# Check CLI tools availability
 check_cli_tools() {
     if [ "$USE_DOCKER" = false ]; then
         if [ "$PROVIDER" = "claude" ]; then
-            print_info "检查 Claude CLI 是否可用..."
+            print_info "Checking Claude CLI availability..."
             if ! command -v claude &> /dev/null; then
-                print_error "Claude CLI 未安装或不在 PATH 中"
+                print_error "Claude CLI not installed or not in PATH"
                 echo ""
-                echo "请安装 Claude CLI:"
+                echo "Please install Claude CLI:"
                 echo "npm install -g @anthropic-ai/claude"
                 exit 1
             fi
-            print_success "Claude CLI 可用"
+            print_success "Claude CLI available"
         else
-            print_info "检查 Gemini CLI 是否可用..."
+            print_info "Checking Gemini CLI availability..."
             if ! command -v gemini &> /dev/null; then
-                print_error "Gemini CLI 未安装或不在 PATH 中"
+                print_error "Gemini CLI not installed or not in PATH"
                 echo ""
-                echo "请安装 Gemini CLI:"
+                echo "Please install Gemini CLI:"
                 echo "npm install -g @google/generative-ai-cli"
                 exit 1
             fi
-            print_success "Gemini CLI 可用"
+            print_success "Gemini CLI available"
         fi
     else
-        print_info "检查 Docker 是否可用..."
+        print_info "Checking Docker availability..."
         if ! command -v docker &> /dev/null; then
-            print_error "Docker 未安装或不在 PATH 中"
+            print_error "Docker not installed or not in PATH"
             exit 1
         fi
-        print_success "Docker 可用"
+        print_success "Docker available"
     fi
 }
 
-# 检查 Go 环境
+# Check Go environment
 check_go_env() {
-    print_info "检查 Go 环境..."
+    print_info "Checking Go environment..."
     
     if ! command -v go &> /dev/null; then
-        print_error "Go 未安装或不在 PATH 中"
+        print_error "Go not installed or not in PATH"
         exit 1
     fi
     
-    print_success "Go 版本: $(go version)"
+    print_success "Go version: $(go version)"
 }
 
-# 设置环境变量
+# Set environment variables
 set_env_vars() {
     export CODE_PROVIDER="$PROVIDER"
     export USE_DOCKER="$USE_DOCKER"
     export CLAUDE_INTERACTIVE="$INTERACTIVE"
     export PORT=${PORT:-8888}
     
-    print_info "设置环境变量:"
+    print_info "Setting environment variables:"
     print_info "  CODE_PROVIDER=$PROVIDER"
     print_info "  USE_DOCKER=$USE_DOCKER"
     print_info "  CLAUDE_INTERACTIVE=$INTERACTIVE"
     print_info "  PORT=$PORT"
 }
 
-# 启动服务器
+# Start server
 start_server() {
-    print_info "启动 CodeAgent 服务器..."
+    print_info "Starting CodeAgent server..."
     
-    # 构建命令
+    # Build command
     cmd="go run ./cmd/server"
     
-    # 添加端口参数
+    # Add port parameter
     if [ ! -z "$PORT" ]; then
         cmd="$cmd --port $PORT"
     fi
     
-    # 添加配置文件参数（如果存在）
+    # Add config file parameter (if exists)
     if [ -f "config.yaml" ]; then
         cmd="$cmd --config config.yaml"
-        print_info "使用配置文件: config.yaml"
+        print_info "Using config file: config.yaml"
     fi
     
-    print_info "执行命令: $cmd"
+    print_info "Executing command: $cmd"
     echo ""
     
-    # 执行命令
+    # Execute command
     eval $cmd
 }
 
-# 主函数
+# Main function
 main() {
     echo "=========================================="
-    echo "  CodeAgent 启动器"
+    echo "  CodeAgent Launcher"
     echo "=========================================="
     echo ""
     
-    # 解析命令行参数
+    # Parse command line arguments
     parse_args "$@"
     
-    # 显示配置信息
-    print_info "配置信息:"
-    print_info "  代码提供者: $PROVIDER"
-    print_info "  执行方式: $([ "$USE_DOCKER" = true ] && echo "Docker" || echo "本地 CLI")"
+    # Display configuration information
+    print_info "Configuration:"
+    print_info "  Code provider: $PROVIDER"
+    print_info "  Execution mode: $([ "$USE_DOCKER" = true ] && echo "Docker" || echo "Local CLI")"
     if [[ "$INTERACTIVE" = true ]]; then
-        print_info "  模式: 交互式"
+        print_info "  Mode: Interactive"
     fi
     echo ""
     
-    # 检查环境
+    # Check environment
     check_go_env
     check_cli_tools
     check_required_env
     
-    # 设置环境变量
+    # Set environment variables
     set_env_vars
     
     echo ""
-    print_success "环境检查完成，准备启动服务器..."
+    print_success "Environment check complete, preparing to start server..."
     echo ""
     
-    # 启动服务器
+    # Start server
     start_server
 }
 
-# 运行主函数
+# Run main function
 main "$@" 

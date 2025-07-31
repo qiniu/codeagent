@@ -1,19 +1,31 @@
 # CodeAgent
 
-CodeAgent 是一个基于 AI 的代码代理，能够自动处理 GitHub Issue 和 Pull Request，生成代码修改建议。
+[![Go Report Card](https://goreportcard.com/badge/github.com/qbox/codeagent)](https://goreportcard.com/report/github.com/qbox/codeagent)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/qbox/codeagent)](https://go.dev/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/qbox/codeagent/workflows/CI/badge.svg)](https://github.com/qbox/codeagent/actions)
 
-## 功能特性
+CodeAgent is an AI-powered code agent that automatically processes GitHub Issues and Pull Requests, generating code modification suggestions.
 
-- 🤖 支持多种 AI 模型（Claude、Gemini）
-- 🔄 自动处理 GitHub Issue 和 Pull Request
-- 🐳 Docker 容器化执行环境
-- 🔒 GitHub Webhook 签名验证
-- 📁 基于 Git Worktree 的工作空间管理
-- 🛠️ 灵活的配置选项，支持相对路径
+## 📋 Table of Contents
 
-## 快速开始
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [Security](#security)
+- [License](#license)
 
-### 安装
+## Features
+
+- 🤖 Support for multiple AI models (Claude, Gemini)
+- 🔄 Automatic processing of GitHub Issues and Pull Requests
+- 🐳 Docker containerized execution environment
+- 📁 Git Worktree-based workspace management
+
+## Quick Start
+
+### Installation
 
 ```bash
 git clone https://github.com/qbox/codeagent.git
@@ -21,9 +33,9 @@ cd codeagent
 go mod download
 ```
 
-### 配置
+### Configuration
 
-#### 方式一：命令行参数
+#### Method 1: Command Line Arguments
 
 ```bash
 go run ./cmd/server \
@@ -33,7 +45,7 @@ go run ./cmd/server \
   --port 8888
 ```
 
-#### 方式二：环境变量
+#### Method 2: Environment Variables
 
 ```bash
 export GITHUB_TOKEN="your-github-token"
@@ -44,30 +56,30 @@ export PORT=8888
 go run ./cmd/server
 ```
 
-#### 方式三：配置文件（推荐）
+#### Method 3: Configuration File (Recommended)
 
-创建配置文件 `config.yaml`：
+Create a configuration file `config.yaml`:
 
 ```yaml
 server:
   port: 8888
-  # webhook_secret: 通过命令行参数或环境变量设置
+  # webhook_secret: Set via command line arguments or environment variables
 
 github:
-  # token: 通过命令行参数或环境变量设置
+  # token: Set via command line arguments or environment variables
   webhook_url: "http://localhost:8888/hook"
 
 workspace:
-  base_dir: "./codeagent" # 支持相对路径！
+  base_dir: "./codeagent" # Supports relative paths!
   cleanup_after: "24h"
 
 claude:
-  # api_key: 通过命令行参数或环境变量设置
+  # api_key: Set via command line arguments or environment variables
   container_image: "anthropic/claude-code:latest"
   timeout: "30m"
 
 gemini:
-  # api_key: 通过命令行参数或环境变量设置
+  # api_key: Set via command line arguments or environment variables
   container_image: "google-gemini/gemini-cli:latest"
   timeout: "30m"
 
@@ -75,83 +87,83 @@ docker:
   socket: "unix:///var/run/docker.sock"
   network: "bridge"
 
-# 代码提供者配置
-code_provider: claude # 可选值: claude, gemini
-use_docker: true # 是否使用 Docker，false 表示使用本地 CLI
+# Code provider configuration
+code_provider: claude # Options: claude, gemini
+use_docker: true # Whether to use Docker, false means use local CLI
 ```
 
-**配置说明：**
+**Configuration Notes:**
 
-- `code_provider`: 选择代码生成服务
-  - `claude`: 使用 Anthropic Claude
-  - `gemini`: 使用 Google Gemini
-- `use_docker`: 选择执行方式
-  - `true`: 使用 Docker 容器（推荐用于生产环境）
-  - `false`: 使用本地 CLI（推荐用于开发环境）
+- `code_provider`: Choose code generation service
+  - `claude`: Use Anthropic Claude
+  - `gemini`: Use Google Gemini
+- `use_docker`: Choose execution method
+  - `true`: Use Docker containers (recommended for production)
+  - `false`: Use local CLI (recommended for development)
 
-**注意**: 敏感信息（如 token、api_key、webhook_secret）应该通过命令行参数或环境变量设置，而不是写在配置文件中。
+**Note**: Sensitive information (such as tokens, api_keys, webhook_secret) should be set via command line arguments or environment variables, not written in configuration files.
 
-### 相对路径支持
+### Relative Path Support
 
-CodeAgent 现在支持在配置文件中使用相对路径，提供更灵活的配置选项：
+CodeAgent now supports using relative paths in configuration files, providing more flexible configuration options:
 
 ```yaml
 workspace:
-  base_dir: "./codeagent"     # 相对于配置文件目录
-  # 或者
-  base_dir: "../workspace"    # 相对于配置文件目录的上级目录
-  # 或者
-  base_dir: "/tmp/codeagent"  # 绝对路径（保持不变）
+  base_dir: "./codeagent"     # Relative to configuration file directory
+  # or
+  base_dir: "../workspace"    # Relative to parent directory of configuration file
+  # or
+  base_dir: "/tmp/codeagent"  # Absolute path (unchanged)
 ```
 
-相对路径会在配置加载时自动转换为绝对路径，详情请参考 [相对路径支持文档](docs/relative-path-support.md)。
+Relative paths are automatically converted to absolute paths when configuration is loaded. For details, please refer to the [Relative Path Support Documentation](docs/relative-path-support.md).
 
-### 安全配置
+### Security Configuration
 
-#### Webhook 签名验证
+#### Webhook Signature Verification
 
-为了防止 webhook 接口被恶意利用，CodeAgent 支持 GitHub Webhook 签名验证功能：
+To prevent malicious exploitation of webhook interfaces, CodeAgent supports GitHub Webhook signature verification:
 
-1. **配置 webhook secret**:
+1. **Configure webhook secret**:
 
    ```bash
-   # 方式1: 环境变量（推荐）
+   # Method 1: Environment variables (recommended)
    export WEBHOOK_SECRET="your-strong-secret-here"
 
-   # 方式2: 命令行参数
+   # Method 2: Command line arguments
    go run ./cmd/server --webhook-secret "your-strong-secret-here"
    ```
 
-2. **GitHub Webhook 设置**:
+2. **GitHub Webhook Settings**:
 
-   - 在 GitHub 仓库设置中添加 Webhook
+   - Add Webhook in GitHub repository settings
    - URL: `https://your-domain.com/hook`
    - Content type: `application/json`
-   - Secret: 输入与 `WEBHOOK_SECRET` 相同的值
-   - 选择事件: `Issue comments`, `Pull request reviews`, `Pull requests`
+   - Secret: Enter the same value as `WEBHOOK_SECRET`
+   - Select events: `Issue comments`, `Pull request reviews`, `Pull requests`
 
-3. **签名验证机制**:
-   - 支持 SHA-256 签名验证（优先）
-   - 向下兼容 SHA-1 签名验证
-   - 使用恒定时间比较防止时间攻击
-   - 如果未配置 `webhook_secret`，则跳过签名验证（仅用于开发环境）
+3. **Signature Verification Mechanism**:
+   - Supports SHA-256 signature verification (priority)
+   - Backward compatible with SHA-1 signature verification
+   - Uses constant-time comparison to prevent timing attacks
+   - If `webhook_secret` is not configured, signature verification is skipped (development environment only)
 
-#### 安全建议
+#### Security Recommendations
 
-- 使用强密码作为 webhook secret（建议 32 字符以上）
-- 在生产环境中务必配置 webhook secret
-- 使用 HTTPS 保护 webhook 端点
-- 定期轮换 API 密钥和 webhook secret
-- 限制 GitHub Token 的权限范围
+- Use strong passwords as webhook secrets (recommended 32+ characters)
+- Always configure webhook secrets in production environments
+- Use HTTPS to protect webhook endpoints
+- Regularly rotate API keys and webhook secrets
+- Limit GitHub Token permission scope
 
-### 本地运行
+### Local Development
 
-#### 配置组合示例
+#### Configuration Combination Examples
 
-**1. Claude + Docker 模式（默认）**
+**1. Claude + Docker Mode (Default)**
 
 ```bash
-# 使用环境变量
+# Using environment variables
 export GITHUB_TOKEN="your-github-token"
 export CLAUDE_API_KEY="your-claude-api-key"
 export WEBHOOK_SECRET="your-webhook-secret"
@@ -159,15 +171,15 @@ export CODE_PROVIDER=claude
 export USE_DOCKER=true
 go run ./cmd/server
 
-# 或使用配置文件
-# config.yaml 中设置: code_provider: claude, use_docker: true
+# Or using configuration file
+# Set in config.yaml: code_provider: claude, use_docker: true
 go run ./cmd/server --config config.yaml
 ```
 
-**2. Claude + 本地 CLI 模式**
+**2. Claude + Local CLI Mode**
 
 ```bash
-# 使用环境变量
+# Using environment variables
 export GITHUB_TOKEN="your-github-token"
 export CLAUDE_API_KEY="your-claude-api-key"
 export WEBHOOK_SECRET="your-webhook-secret"
@@ -175,15 +187,15 @@ export CODE_PROVIDER=claude
 export USE_DOCKER=false
 go run ./cmd/server
 
-# 或使用配置文件
-# config.yaml 中设置: code_provider: claude, use_docker: false
+# Or using configuration file
+# Set in config.yaml: code_provider: claude, use_docker: false
 go run ./cmd/server --config config.yaml
 ```
 
-**3. Gemini + Docker 模式**
+**3. Gemini + Docker Mode**
 
 ```bash
-# 使用环境变量
+# Using environment variables
 export GITHUB_TOKEN="your-github-token"
 export GOOGLE_API_KEY="your-google-api-key"
 export WEBHOOK_SECRET="your-webhook-secret"
@@ -191,15 +203,15 @@ export CODE_PROVIDER=gemini
 export USE_DOCKER=true
 go run ./cmd/server
 
-# 或使用配置文件
-# config.yaml 中设置: code_provider: gemini, use_docker: true
+# Or using configuration file
+# Set in config.yaml: code_provider: gemini, use_docker: true
 go run ./cmd/server --config config.yaml
 ```
 
-**4. Gemini + 本地 CLI 模式（推荐开发环境）**
+**4. Gemini + Local CLI Mode (Recommended for Development)**
 
 ```bash
-# 使用环境变量
+# Using environment variables
 export GITHUB_TOKEN="your-github-token"
 export GOOGLE_API_KEY="your-google-api-key"
 export WEBHOOK_SECRET="your-webhook-secret"
@@ -207,132 +219,151 @@ export CODE_PROVIDER=gemini
 export USE_DOCKER=false
 go run ./cmd/server
 
-# 或使用配置文件
-# config.yaml 中设置: code_provider: gemini, use_docker: false
+# Or using configuration file
+# Set in config.yaml: code_provider: gemini, use_docker: false
 go run ./cmd/server --config config.yaml
 ```
 
-#### 使用启动脚本（推荐）
+#### Using Startup Script (Recommended)
 
-我们提供了一个便捷的启动脚本，支持所有配置组合：
+We provide a convenient startup script that supports all configuration combinations:
 
 ```bash
-# 设置环境变量
+# Set environment variables
 export GITHUB_TOKEN="your-github-token"
-export GOOGLE_API_KEY="your-google-api-key"  # 或 CLAUDE_API_KEY
+export GOOGLE_API_KEY="your-google-api-key"  # or CLAUDE_API_KEY
 export WEBHOOK_SECRET="your-webhook-secret"
 
-# 使用启动脚本
-./scripts/start.sh                    # Gemini + 本地 CLI 模式（默认）
-./scripts/start.sh -p claude -d       # Claude + Docker 模式
-./scripts/start.sh -p gemini -d       # Gemini + Docker 模式
-./scripts/start.sh -p claude          # Claude + 本地 CLI 模式
+# Use startup script
+./scripts/start.sh                    # Gemini + Local CLI mode (default)
+./scripts/start.sh -p claude -d       # Claude + Docker mode
+./scripts/start.sh -p gemini -d       # Gemini + Docker mode
+./scripts/start.sh -p claude          # Claude + Local CLI mode
 
-# 查看帮助
+# View help
 ./scripts/start.sh --help
 ```
 
-启动脚本会自动检查环境依赖并设置相应的环境变量。
+The startup script automatically checks environment dependencies and sets appropriate environment variables.
 
-**注意**:
+**Notes**:
 
-- 本地 CLI 模式需要预先安装 Claude CLI 或 Gemini CLI 工具
-- Gemini CLI 模式使用单次 prompt 方式，每次调用都会启动新的进程，避免了 broken pipe 错误
-- Gemini CLI 会自动构建包含项目上下文、Issue 信息和对话历史的完整 prompt，提供更好的代码生成质量
+- Local CLI mode requires pre-installation of Claude CLI or Gemini CLI tools
+- Gemini CLI mode uses single prompt approach, starting new process for each call, avoiding broken pipe errors
+- Gemini CLI automatically builds complete prompts including project context, Issue information, and conversation history, providing better code generation quality
 
-2. **测试健康检查**
+2. **Test Health Check**
 
 ```bash
 curl http://localhost:8888/health
 ```
 
-3. **配置 GitHub Webhook**
+3. **Configure GitHub Webhook**
    - URL: `http://your-domain.com/hook`
-   - 事件: `Issue comments`, `Pull request reviews`
-   - 密钥: 与配置文件中的 `webhook_secret` 一致（用于签名验证）
-   - 推荐使用 HTTPS 和强密码来保证安全性
+   - Events: `Issue comments`, `Pull request reviews`
+   - Secret: Same as `webhook_secret` in configuration (for signature verification)
+   - Recommended to use HTTPS and strong passwords for security
 
-### 使用示例
+### Usage Examples
 
-1. **在 GitHub Issue 中触发代码生成**
-
-```
-/code 实现用户登录功能，包括用户名密码验证和 JWT token 生成
-```
-
-2. **在 PR 评论中继续开发**
+1. **Trigger Code Generation in GitHub Issue**
 
 ```
-/continue 添加单元测试
+/code Implement user login functionality including username/password validation and JWT token generation
 ```
 
-3. **修复代码问题**
+2. **Continue Development in PR Comments**
 
 ```
-/fix 修复登录验证逻辑中的 bug
+/continue Add unit tests
 ```
 
-## 本地开发
+3. **Fix Code Issues**
 
-### 项目结构
+```
+/fix Fix login validation logic bug
+```
+
+## Local Development
+
+### Project Structure
 
 ```
 codeagent/
 ├── cmd/
 │   └── server/
-│       └── main.go              # 主程序入口
+│       └── main.go              # Main program entry point
 ├── internal/
 │   ├── webhook/
-│   │   └── handler.go           # Webhook 处理器
+│   │   └── handler.go           # Webhook handler
 │   ├── agent/
-│   │   └── agent.go             # Agent 核心逻辑
+│   │   └── agent.go             # Agent core logic
 │   ├── workspace/
-│   │   └── manager.go           # 工作空间管理
+│   │   └── manager.go           # Workspace management
 │   ├── claude/
-│   │   └── executor.go          # Claude Code 执行器
+│   │   └── executor.go          # Claude Code executor
 │   ├── github/
-│   │   └── client.go            # GitHub API 客户端
+│   │   └── client.go            # GitHub API client
 │   └── config/
-│       └── config.go            # 配置管理
+│       └── config.go            # Configuration management
 ├── pkg/
 │   └── models/
-│       └── workspace.go         # 数据模型
+│       └── workspace.go         # Data models
 ├── docs/
-│   └── xgo-agent.md             # 设计文档
-├── config.yaml                  # 配置文件
-├── go.mod                       # Go 模块文件
-└── README.md                    # 项目文档
+│   └── xgo-agent.md             # Design documentation
+├── config.yaml                  # Configuration file
+├── go.mod                       # Go module file
+└── README.md                    # Project documentation
 ```
 
-3. **构建**
+3. **Build**
 
 ```bash
-# 构建二进制文件
+# Build binary file
 go build -o bin/codeagent ./cmd/server
 
-# 交叉编译
+# Cross-compilation
 GOOS=linux GOARCH=amd64 go build -o bin/codeagent-linux ./cmd/server
 ```
 
-**集成测试**
+**Integration Testing**
 
 ```bash
-# 启动测试服务器
+# Start test server
 go run ./cmd/server --config test-config.yaml
 
-# 发送测试 Webhook
+# Send test webhook
 curl -X POST http://localhost:8888/hook \
   -H "Content-Type: application/json" \
   -H "X-GitHub-Event: issue_comment" \
   -d @test-data/issue-comment.json
 ```
 
-### 调试
+### Debugging
 
-1. **日志级别**
+1. **Log Level**
 
 ```bash
-# 设置详细日志
+# Set detailed logging
 export LOG_LEVEL=debug
 go run ./cmd/server --config config.yaml
 ```
+
+## 🤝 Contributing
+
+We welcome all forms of contributions! Please check the [Contributing Guide](CONTRIBUTING.md) to learn how to participate in project development.
+
+### Ways to Contribute
+
+- 🐛 [Report Bugs](https://github.com/qbox/codeagent/issues/new?template=bug_report.md)
+- 💡 [Feature Requests](https://github.com/qbox/codeagent/issues/new?template=feature_request.md)
+- 📝 [Improve Documentation](https://github.com/qbox/codeagent/issues/new?template=documentation.md)
+- 🔧 [Submit Code](CONTRIBUTING.md#code-contributions)
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
+
+## 🙏 Acknowledgments
+
+Thank you to all developers and users who have contributed to this project!

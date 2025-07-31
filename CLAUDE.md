@@ -1,141 +1,141 @@
 # CLAUDE.md
 
-本文件为 Claude Code (claude.ai/code) 在处理此代码库时提供指导。
+This file provides guidance for Claude Code (claude.ai/code) when processing this codebase.
 
-## 项目概述
+## Project Overview
 
-**CodeAgent** 是一个基于 Go 的自动化代码生成和协作系统，通过 GitHub Webhooks 接收各种 AI 指令，自动处理 Issue 和 Pull Request 的代码生成、修改和审查任务。
+**CodeAgent** is a Go-based automated code generation and collaboration system that receives various AI instructions through GitHub Webhooks, automatically handling code generation, modification, and review tasks for Issues and Pull Requests.
 
-## 架构设计
+## Architecture Design
 
-系统采用 webhook 驱动的架构：
+The system adopts a webhook-driven architecture:
 
 ```
-GitHub 事件 (AI 指令) → Webhook → CodeAgent → 分支创建 → PR 处理 → AI 容器 → 代码生成/修改 → PR 更新
+GitHub Events (AI Instructions) → Webhook → CodeAgent → Branch Creation → PR Processing → AI Container → Code Generation/Modification → PR Updates
 ```
 
-### 核心组件
+### Core Components
 
-- **Agent** (`internal/agent/agent.go`): 编排整个工作流程
-- **Webhook Handler** (`internal/webhook/handler.go`): 处理 GitHub webhooks（Issue 和 PR）
-- **Workspace Manager** (`internal/workspace/manager.go`): 管理临时 Git worktree
-- **Code Providers** (`internal/code/`): 支持 Claude (Docker/CLI) 和 Gemini (Docker/CLI)
-- **GitHub Client** (`internal/github/client.go`): 处理 GitHub API 交互
+- **Agent** (`internal/agent/agent.go`): Orchestrates the entire workflow
+- **Webhook Handler** (`internal/webhook/handler.go`): Handles GitHub webhooks (Issues and PRs)
+- **Workspace Manager** (`internal/workspace/manager.go`): Manages temporary Git worktrees
+- **Code Providers** (`internal/code/`): Supports Claude (Docker/CLI) and Gemini (Docker/CLI)
+- **GitHub Client** (`internal/github/client.go`): Handles GitHub API interactions
 
-## 开发命令
+## Development Commands
 
-### 构建和运行
+### Build and Run
 
 ```bash
-# 构建二进制文件
+# Build binary file
 make build
 
-# 使用配置本地运行
-./scripts/start.sh                    # Gemini + CLI 模式（默认）
-./scripts/start.sh -p claude -d       # Claude + Docker 模式
-./scripts/start.sh -p gemini -d       # Gemini + Docker 模式
-./scripts/start.sh -p claude          # Claude + CLI 模式
+# Run locally with configuration
+./scripts/start.sh                    # Gemini + CLI mode (default)
+./scripts/start.sh -p claude -d       # Claude + Docker mode
+./scripts/start.sh -p gemini -d       # Gemini + Docker mode
+./scripts/start.sh -p claude          # Claude + CLI mode
 
-# 直接 Go 运行
+# Direct Go run
 export GITHUB_TOKEN="your-token"
-export GOOGLE_API_KEY="your-key"      # 或 CLAUDE_API_KEY
+export GOOGLE_API_KEY="your-key"      # or CLAUDE_API_KEY
 export WEBHOOK_SECRET="your-secret"
 go run ./cmd/server --port 8888
 ```
 
-### 测试
+### Testing
 
 ```bash
-# 运行测试
+# Run tests
 make test
 
-# 健康检查
+# Health check
 curl http://localhost:8888/health
 
-# 测试 webhook 处理
+# Test webhook processing
 curl -X POST http://localhost:8888/hook \
   -H "Content-Type: application/json" \
   -H "X-GitHub-Event: issue_comment" \
   -d @test-data/issue-comment.json
 ```
 
-### 配置
+### Configuration
 
-**必需的环境变量：**
+**Required environment variables:**
 
-- `GITHUB_TOKEN` - GitHub 个人访问令牌
-- `WEBHOOK_SECRET` - GitHub webhook 密钥
-- `GOOGLE_API_KEY` (用于 Gemini) 或 `CLAUDE_API_KEY` (用于 Claude)
+- `GITHUB_TOKEN` - GitHub personal access token
+- `WEBHOOK_SECRET` - GitHub webhook secret
+- `GOOGLE_API_KEY` (for Gemini) or `CLAUDE_API_KEY` (for Claude)
 
-**配置文件：** `config.yaml`
+**Configuration file:** `config.yaml`
 
 ```yaml
-code_provider: gemini # claude 或 gemini
-use_docker: false # true 使用 Docker，false 使用 CLI
+code_provider: gemini # claude or gemini
+use_docker: false # true for Docker, false for CLI
 server:
   port: 8888
 ```
 
-### 关键目录
+### Key Directories
 
-- `cmd/server/` - 主应用程序入口点
-- `internal/` - 核心业务逻辑
-  - `agent/` - 主要编排逻辑
-  - `webhook/` - GitHub webhook 处理
-  - `workspace/` - Git worktree 管理
-  - `code/` - AI 提供者实现 (Claude/Gemini)
-  - `github/` - GitHub API 客户端
-- `pkg/models/` - 共享数据结构
-- `scripts/` - 实用脚本，包括 `start.sh`
+- `cmd/server/` - Main application entry point
+- `internal/` - Core business logic
+  - `agent/` - Main orchestration logic
+  - `webhook/` - GitHub webhook handling
+  - `workspace/` - Git worktree management
+  - `code/` - AI provider implementations (Claude/Gemini)
+  - `github/` - GitHub API client
+- `pkg/models/` - Shared data structures
+- `scripts/` - Utility scripts, including `start.sh`
 
-### 开发工作流程
+### Development Workflow
 
-1. **本地开发**: 使用 CLI 模式 `./scripts/start.sh -p claude/gemini`
-2. **测试**: 发送测试 webhooks 和示例 GitHub 事件
-3. **Docker 开发**: 使用 Docker 模式进行容器化测试
-4. **工作空间管理**: 临时 worktree 在 `/tmp/codeagent` 中创建，24 小时后自动清理
+1. **Local Development**: Use CLI mode `./scripts/start.sh -p claude/gemini`
+2. **Testing**: Send test webhooks and example GitHub events
+3. **Docker Development**: Use Docker mode for containerized testing
+4. **Workspace Management**: Temporary worktrees created in `/tmp/codeagent`, automatically cleaned up after 24 hours
 
-### 命令处理
+### Command Processing
 
-系统支持多种 AI 指令，通过 GitHub 评论和 Review 触发：
+The system supports various AI instructions triggered through GitHub comments and reviews:
 
-**Issue 指令：**
+**Issue Instructions:**
 
-- `/code <描述>` - 为 Issue 生成初始代码并创建 PR
+- `/code <description>` - Generate initial code for the Issue and create a PR
 
-**PR 协作指令：**
+**PR Collaboration Instructions:**
 
-- `/continue <指令>` - 在 PR 中继续开发，支持自定义指令
-- `/fix <描述>` - 修复 PR 中的代码问题
+- `/continue <instruction>` - Continue development in the PR, supporting custom instructions
+- `/fix <description>` - Fix code issues in the PR
 
-**支持场景：**
+**Supported Scenarios:**
 
-- Issue 评论中的指令处理
-- PR 评论中的指令处理
-- PR Review 评论中的指令处理
-- PR Review 批量处理（支持多个评论的批量处理）
+- Instruction handling in Issue comments
+- Instruction handling in PR comments
+- Instruction handling in PR Review comments
+- Batch processing of PR Reviews (supports batch processing of multiple comments)
 
-**指令特性：**
+**Instruction Features:**
 
-- 支持自定义参数和指令内容
-- 自动获取历史评论上下文
-- 智能代码提交和 PR 更新
-- 完整的错误处理和重试机制
+- Supports custom parameters and instruction content
+- Automatically retrieves historical comment context
+- Intelligent code submission and PR updates
+- Complete error handling and retry mechanism
 
-系统设计为可扩展架构，未来可以轻松添加新的指令类型和处理逻辑。
+The system is designed as an extensible architecture, making it easy to add new instruction types and processing logic in the future.
 
-### 环境模式
+### Environment Modes
 
-- **Docker 模式**: 使用容器化的 Claude/Gemini，包含完整工具包
-- **CLI 模式**: 使用本地安装的 Claude CLI 或 Gemini CLI（开发时更快）
+- **Docker Mode**: Use containerized Claude/Gemini, including a complete toolkit
+- **CLI Mode**: Use locally installed Claude CLI or Gemini CLI (faster during development)
 
-### 常见问题
+### Common Issues
 
-- Docker 模式需要确保 Docker 正在运行
-- CLI 模式需要检查 CLI 工具是否已安装：`claude` 或 `gemini`
-- 验证 GitHub webhook 配置与本地端口匹配
-- 监控日志以排查工作空间清理问题
+- Docker mode requires ensuring Docker is running
+- CLI mode requires checking if CLI tools are installed: `claude` or `gemini`
+- Verify GitHub webhook configuration matches local port
+- Monitor logs to troubleshoot workspace cleanup issues
 
-# 注意
+# Note
 
-- 当修改代码后，一定记得做类型检查和格式化
+- When modifying code, always remember to perform type checking and formatting

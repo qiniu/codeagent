@@ -1,15 +1,15 @@
 # CodeAgent Makefile
 
-# 变量定义
+# Variable definitions
 BINARY_NAME=codeagent
 BUILD_DIR=bin
 MAIN_PATH=./cmd/server
 
-# 默认目标
+# Default target
 .PHONY: all
 all: build
 
-# 构建目标
+# Build target
 .PHONY: build
 build:
 	@echo "Building CodeAgent..."
@@ -17,26 +17,26 @@ build:
 	go build -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
 	@echo "Build completed: $(BUILD_DIR)/$(BINARY_NAME)"
 
-# 清理目标
+# Clean target
 .PHONY: clean
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(BUILD_DIR)
 	@echo "Clean completed"
 
-# 运行目标
+# Run target
 .PHONY: run
 run: build
 	@echo "Running CodeAgent..."
 	./$(BUILD_DIR)/$(BINARY_NAME)
 
-# 测试目标
+# Test target
 .PHONY: test
 test:
 	@echo "Running tests..."
 	go test ./...
 
-# 帮助目标
+# Help target
 .PHONY: help
 help:
 	@echo "Available targets:"

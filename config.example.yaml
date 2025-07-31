@@ -1,10 +1,10 @@
-# XGo Agent 配置文件示例
-# 复制此文件为 config.yaml 并填入实际的值
+# CodeAgent Configuration File Example
+# Copy this file to config.yaml and fill in actual values
 
 server:
   port: 8888
-  # GitHub webhook 签名验证密钥，用于验证请求的真实性
-  # 需要与 GitHub webhook 配置中的 secret 保持一致
+  # GitHub webhook signature verification secret for validating request authenticity
+  # Must match the secret in GitHub webhook configuration
   webhook_secret: your-webhook-secret-here
 
 github:
@@ -12,15 +12,15 @@ github:
   webhook_url: https://your-domain.com/webhook
 
 workspace:
-  base_dir: /tmp/xgo-agent
+  base_dir: /tmp/codeagent
   cleanup_after: 24h
 
 claude:
   api_key: your-claude-api-key-here
-  base_url: https://api.anthropic.com # 可选，默认为官方 API 地址
+  base_url: https://api.anthropic.com # Optional, defaults to official API address
   container_image: anthropic/claude-code:latest
   timeout: 30m
-  interactive: true # 是否启用交互式模式
+  interactive: true # Whether to enable interactive mode
 
 gemini:
   api_key: your-gemini-api-key-here
@@ -31,6 +31,6 @@ docker:
   socket: unix:///var/run/docker.sock
   network: bridge
 
-# 代码提供者配置
-code_provider: claude # 可选值: claude, gemini
-use_docker: true # 是否使用 Docker，false 表示使用本地 CLI
+# Code provider configuration
+code_provider: claude # Options: claude, gemini
+use_docker: true # Whether to use Docker, false means use local CLI
