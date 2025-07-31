@@ -1,0 +1,84 @@
+run:
+  timeout: 5m
+  go: "1.21"
+  modules-download-mode: readonly
+
+linters-settings:
+  govet:
+    check-shadowing: true
+  gocyclo:
+    min-complexity: 10
+  dupl:
+    threshold: 100
+  goconst:
+    min-len: 2
+    min-occurrences: 3
+  misspell:
+    locale: US
+  lll:
+    line-length: 140
+  goimports:
+    local-prefixes: github.com/qbox/codeagent
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - dupImport # https://github.com/go-critic/go-critic/issues/845
+      - ifElseChain
+      - octalLiteral
+      - whyNoLint
+      - wrapperFunc
+
+linters:
+  disable-all: true
+  enable:
+    # 代码格式和风格
+    - gofmt
+    - goimports
+    - govet
+    - gosimple
+    - staticcheck
+    - ineffassign
+    - unused
+    - misspell
+    - unparam
+    - unconvert
+    - goconst
+    - gocyclo
+    - dupl
+    - lll
+    - gocritic
+    - errcheck
+    - gosec
+    - prealloc
+    - nakedret
+    - noctx
+    - nolintlint
+    - revive
+    - stylecheck
+    - thelper
+    - tparallel
+    - wastedassign
+    - whitespace
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - dupl
+        - gocritic
+        - gosec
+    - path: internal/code/
+      linters:
+        - gosec # AI 代码生成模块可能有安全相关的误报
+    - path: cmd/
+      linters:
+        - gosec # 命令行工具可能有权限相关的误报
+
+  max-issues-per-linter: 0
+  max-same-issues: 0
