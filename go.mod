@@ -1,4 +1,4 @@
-module github.com/qbox/codeagent
+module github.com/qiniu/codeagent
 
 go 1.21
 

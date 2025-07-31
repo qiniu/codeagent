@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/qbox/codeagent/internal/config"
+	"github.com/qiniu/codeagent/internal/config"
 )
 
 func TestHandleWebhook_SignatureValidation(t *testing.T) {

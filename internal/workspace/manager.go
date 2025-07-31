@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/qbox/codeagent/internal/config"
-	"github.com/qbox/codeagent/pkg/models"
+	"github.com/qiniu/codeagent/internal/config"
+	"github.com/qiniu/codeagent/pkg/models"
 
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/log"
