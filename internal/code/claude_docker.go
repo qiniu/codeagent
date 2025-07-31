@@ -64,8 +64,20 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // 挂载工作空间
 		"-v", fmt.Sprintf("%s:/home/codeagent/.claude", claudeConfigPath), // 挂载 claude 认证信息
 		"-w", "/workspace", // 设置工作目录
-		cfg.Claude.ContainerImage, // 使用配置的 Claude 镜像
 	}
+
+	// 添加 Claude API 相关环境变量
+	if cfg.Claude.AuthToken != "" {
+		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=%s", cfg.Claude.AuthToken))
+	} else if cfg.Claude.APIKey != "" {
+		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_API_KEY=%s", cfg.Claude.APIKey))
+	}
+	if cfg.Claude.BaseURL != "" {
+		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_BASE_URL=%s", cfg.Claude.BaseURL))
+	}
+
+	// 添加容器镜像
+	args = append(args, cfg.Claude.ContainerImage)
 
 	// 打印调试信息
 	log.Infof("Docker command: docker %s", strings.Join(args, " "))

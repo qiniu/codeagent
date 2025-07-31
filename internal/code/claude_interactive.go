@@ -90,7 +90,9 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 	}
 
 	// 添加 Claude API 相关环境变量
-	if cfg.Claude.APIKey != "" {
+	if cfg.Claude.AuthToken != "" {
+		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=%s", cfg.Claude.AuthToken))
+	} else if cfg.Claude.APIKey != "" {
 		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_API_KEY=%s", cfg.Claude.APIKey))
 	}
 	if cfg.Claude.BaseURL != "" {

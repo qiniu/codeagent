@@ -45,6 +45,7 @@ type WorkspaceConfig struct {
 
 type ClaudeConfig struct {
 	APIKey         string        `yaml:"api_key"`
+	AuthToken      string        `yaml:"auth_token"`
 	BaseURL        string        `yaml:"base_url"`
 	ContainerImage string        `yaml:"container_image"`
 	Timeout        time.Duration `yaml:"timeout"`
@@ -98,6 +99,9 @@ func (c *Config) loadFromEnv() {
 	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
 		c.Claude.APIKey = apiKey
 	}
+	if authToken := os.Getenv("ANTHROPIC_AUTH_TOKEN"); authToken != "" {
+		c.Claude.AuthToken = authToken
+	}
 	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
 		c.Gemini.APIKey = apiKey
 	}
@@ -148,6 +152,7 @@ func loadFromEnv() *Config {
 		},
 		Claude: ClaudeConfig{
 			APIKey:         os.Getenv("ANTHROPIC_API_KEY"),
+			AuthToken:      os.Getenv("ANTHROPIC_AUTH_TOKEN"),
 			BaseURL:        os.Getenv("ANTHROPIC_BASE_URL"),
 			ContainerImage: getEnvOrDefault("CLAUDE_IMAGE", "anthropic/claude-code:latest"),
 			Timeout:        30 * time.Minute,
