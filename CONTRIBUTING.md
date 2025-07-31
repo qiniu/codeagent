@@ -41,7 +41,7 @@ If you have a feature suggestion:
 3. Add upstream repository:
 
    ```bash
-   git remote add upstream https://github.com/qbox/codeagent.git
+   git remote add upstream https://github.com/qiniu/codeagent.git
    ```
 
 4. Create a feature branch:

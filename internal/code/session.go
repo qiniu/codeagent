@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/qbox/codeagent/internal/config"
-	"github.com/qbox/codeagent/pkg/models"
+	"github.com/qiniu/codeagent/internal/config"
+	"github.com/qiniu/codeagent/pkg/models"
 )
 
 type SessionManager struct {

@@ -7,9 +7,9 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/qbox/codeagent/internal/code"
-	"github.com/qbox/codeagent/internal/config"
-	"github.com/qbox/codeagent/pkg/models"
+	"github.com/qiniu/codeagent/internal/code"
+	"github.com/qiniu/codeagent/internal/config"
+	"github.com/qiniu/codeagent/pkg/models"
 
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/log"
@@ -149,7 +149,7 @@ func (c *Client) CreatePullRequest(workspace *models.Workspace) (*github.PullReq
 - [ ] 代码审查和优化
 
 ---
-*此 PR 由 Code Agent(https://github.com/qbox/codeagent) 自动创建，将逐步完善实现*`,
+*此 PR 由 Code Agent(https://github.com/qiniu/codeagent) 自动创建，将逐步完善实现*`,
 		workspace.Issue.GetNumber(),
 		workspace.Issue.GetBody())
 
