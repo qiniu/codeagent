@@ -1,0 +1,29 @@
+{
+  "action": "created",
+  "issue": {
+    "number": 1,
+    "title": "Test Issue for Enhanced Agent",
+    "body": "This is a test issue to verify Enhanced Agent functionality",
+    "state": "open",
+    "user": {
+      "login": "test-user"
+    }
+  },
+  "comment": {
+    "body": "/code 实现一个简单的Hello World功能",
+    "user": {
+      "login": "test-user"
+    },
+    "created_at": "2024-01-15T10:30:00Z"
+  },
+  "repository": {
+    "name": "test-repo",
+    "full_name": "test-owner/test-repo",
+    "owner": {
+      "login": "test-owner"
+    }
+  },
+  "sender": {
+    "login": "test-user"
+  }
+}

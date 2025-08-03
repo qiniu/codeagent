@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../qiniu/claude-code-action"
+		},
+		{
+			"path": "../../qiniu/claude-code"
+		}
+	],
+	"settings": {}
+}
