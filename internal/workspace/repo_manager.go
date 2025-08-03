@@ -611,34 +611,69 @@ func (r *RepoManager) RestoreWorktrees() error {
 		// 只处理含 -pr- 的 worktree 目录
 		base := filepath.Base(wt.Worktree)
 		if strings.Contains(base, "-pr-") {
-			// 解析目录名格式：{aiModel}-{repo}-pr-{prNumber}-{timestamp}
-			// 找到 "pr" 的位置
-			parts := strings.Split(base, "-")
-			prIndex := -1
-			for i, part := range parts {
-				if part == "pr" {
-					prIndex = i
-					break
-				}
+			log.Infof("Parsing worktree directory name: %s", base)
+			
+			// 解析目录名格式：{aiModel}-{repo-name-with-dashes}-pr-{prNumber}-{timestamp}
+			// 使用 -pr- 作为分隔符来准确分割
+			prIndex := strings.Index(base, "-pr-")
+			if prIndex == -1 {
+				log.Warnf("Invalid worktree name format (no -pr- found): %s", base)
+				continue
 			}
-
-			if prIndex != -1 && prIndex >= 2 && prIndex < len(parts)-2 {
-				// 提取AI模型和PR编号
-				aiModel := strings.Join(parts[:prIndex-1], "-")
-				_ = parts[prIndex-1] // repo name, not used but extracted for clarity
-				prNumber, err := strconv.Atoi(parts[prIndex+1])
-				if err == nil {
-					// 验证AI模型是否有效
-					if aiModel == "gemini" || aiModel == "claude" {
-						r.RegisterWorktreeWithAI(prNumber, aiModel, wt)
-						log.Infof("Restored worktree for PR #%d with AI model %s: %s", prNumber, aiModel, wt.Worktree)
-					} else {
-						// 向后兼容：如果没有有效的AI模型，使用默认方式注册
-						r.RegisterWorktree(prNumber, wt)
-						log.Infof("Restored worktree for PR #%d (no AI model): %s", prNumber, wt.Worktree)
-					}
-				}
+			
+			// 提取前缀部分（AI模型和仓库名）
+			prefix := base[:prIndex]
+			
+			// 提取后缀部分（PR编号和时间戳）
+			suffix := base[prIndex+4:] // 跳过 "-pr-"
+			suffixParts := strings.Split(suffix, "-")
+			if len(suffixParts) < 2 {
+				log.Warnf("Invalid worktree name format (insufficient suffix parts): %s", base)
+				continue
 			}
+			
+			// 解析PR编号
+			prNumber, err := strconv.Atoi(suffixParts[0])
+			if err != nil {
+				log.Warnf("Invalid PR number in worktree name: %s, error: %v", base, err)
+				continue
+			}
+			
+			// 提取AI模型（从前缀的第一部分）
+			prefixParts := strings.Split(prefix, "-")
+			if len(prefixParts) < 2 {
+				log.Warnf("Invalid worktree name format (insufficient prefix parts): %s", base)
+				continue
+			}
+			
+			aiModel := prefixParts[0]
+			repoName := strings.Join(prefixParts[1:], "-")
+			
+			log.Infof("Parsed worktree: aiModel=%s, repo=%s, prNumber=%d", aiModel, repoName, prNumber)
+			
+			// 验证AI模型是否有效
+			if aiModel == "gemini" || aiModel == "claude" {
+				r.RegisterWorktreeWithAI(prNumber, aiModel, wt)
+				log.Infof("Restored worktree for PR #%d with AI model %s: %s", prNumber, aiModel, wt.Worktree)
+			} else {
+				// 如果第一部分不是有效的AI模型，可能是旧格式或者其他格式
+				// 尝试向后兼容处理
+				log.Warnf("Unknown AI model '%s' in worktree name: %s", aiModel, base)
+				
+				// 检查是否是旧格式（没有AI模型前缀）
+				if strings.Contains(base, "issue-") {
+					// 可能是Issue工作空间，跳过
+					log.Infof("Skipping Issue worktree: %s", base)
+					continue
+				}
+				
+				// 使用默认方式注册
+				r.RegisterWorktree(prNumber, wt)
+				log.Infof("Restored worktree for PR #%d (unknown AI model): %s", prNumber, wt.Worktree)
+			}
+		} else if strings.Contains(base, "issue-") {
+			// 处理Issue工作空间（可选，用于调试）
+			log.Infof("Found Issue worktree (not registering): %s", base)
 		}
 	}
 	return nil
