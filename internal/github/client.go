@@ -677,6 +677,49 @@ func (c *Client) DeleteCodeAgentBranch(ctx context.Context, owner, repo, branchN
 	return nil
 }
 
+// CreateComment 在Issue或PR上创建评论
+func (c *Client) CreateComment(ctx context.Context, owner, repo string, issueNumber int, body string) (*github.IssueComment, error) {
+	comment := &github.IssueComment{
+		Body: github.String(body),
+	}
+	
+	createdComment, _, err := c.client.Issues.CreateComment(ctx, owner, repo, issueNumber, comment)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create comment: %w", err)
+	}
+	
+	return createdComment, nil
+}
+
+// UpdateComment 更新已存在的评论
+func (c *Client) UpdateComment(ctx context.Context, owner, repo string, commentID int64, body string) error {
+	comment := &github.IssueComment{
+		Body: github.String(body),
+	}
+	
+	_, _, err := c.client.Issues.EditComment(ctx, owner, repo, commentID, comment)
+	if err != nil {
+		return fmt.Errorf("failed to update comment: %w", err)
+	}
+	
+	return nil
+}
+
+// GetComment 获取评论内容
+func (c *Client) GetComment(ctx context.Context, owner, repo string, commentID int64) (*github.IssueComment, error) {
+	comment, _, err := c.client.Issues.GetComment(ctx, owner, repo, commentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get comment: %w", err)
+	}
+	
+	return comment, nil
+}
+
+// GetClient 获取底层的GitHub客户端（用于MCP服务器）
+func (c *Client) GetClient() *github.Client {
+	return c.client
+}
+
 // min 返回两个整数中的较小值
 func min(a, b int) int {
 	if a < b {

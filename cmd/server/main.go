@@ -26,6 +26,7 @@ func main() {
 	claudeAPIKey := flag.String("claude-api-key", "", "Claude API Key (也可以通过 CLAUDE_API_KEY 环境变量设置)")
 	webhookSecret := flag.String("webhook-secret", "", "Webhook Secret (也可以通过 WEBHOOK_SECRET 环境变量设置)")
 	port := flag.Int("port", 0, "服务器端口 (也可以通过 PORT 环境变量设置)")
+	useEnhanced := flag.Bool("enhanced", false, "使用Enhanced Agent (支持新的MCP、模式系统等功能)")
 	flag.Parse()
 
 	// 加载配置
@@ -61,11 +62,39 @@ func main() {
 	// 初始化工作空间管理器
 	workspaceManager := workspace.NewManager(cfg)
 
-	// 初始化 Agent
-	agent := agent.New(cfg, workspaceManager)
+	var webhookHandler *webhook.Handler
 
-	// 初始化 Webhook 处理器
-	webhookHandler := webhook.NewHandler(cfg, agent)
+	// 根据参数选择使用原始Agent还是Enhanced Agent
+	if *useEnhanced {
+		log.Infof("Starting with Enhanced Agent (支持MCP、模式系统等新功能)")
+		
+		// 初始化 Enhanced Agent
+		enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
+		if err != nil {
+			log.Fatalf("Failed to create Enhanced Agent: %v", err)
+		}
+		
+		// 初始化 Enhanced Webhook 处理器
+		webhookHandler = webhook.NewEnhancedHandler(cfg, enhancedAgent)
+		
+		// 注册优雅关闭处理
+		defer func() {
+			log.Infof("Shutting down Enhanced Agent...")
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := enhancedAgent.Shutdown(ctx); err != nil {
+				log.Errorf("Failed to shutdown Enhanced Agent: %v", err)
+			}
+		}()
+	} else {
+		log.Infof("Starting with Original Agent (传统模式)")
+		
+		// 初始化原始 Agent
+		originalAgent := agent.New(cfg, workspaceManager)
+		
+		// 初始化原始 Webhook 处理器
+		webhookHandler = webhook.NewHandler(cfg, originalAgent)
+	}
 
 	// 设置路由
 	mux := http.NewServeMux()

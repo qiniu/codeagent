@@ -7,7 +7,7 @@ github:
   webhook_url: "http://localhost:8888/hook"
 
 workspace:
-  base_dir: "./codeagent"
+  base_dir: "/Users/jicarl/codeagent"
   cleanup_after: "24h"
 
 claude:
