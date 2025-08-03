@@ -664,18 +664,38 @@ func (th *TagHandler) processPRCommand(
 		xl.Errorf("Failed to update task: %v", err)
 	}
 	
-	// 2. 从IssueCommentEvent中提取仓库信息
-	rawEvent := event.RawEvent.(*github.IssueCommentEvent)
-	repoOwner := ""
-	repoName := ""
+	// 2. 从事件中提取仓库信息（支持多种事件类型）
+	var repoOwner, repoName string
 	
-	if rawEvent.Repo != nil {
-		repoOwner = rawEvent.Repo.GetOwner().GetLogin()
-		repoName = rawEvent.Repo.GetName()
+	// 根据事件类型安全地提取仓库信息
+	switch event.GetEventType() {
+	case models.EventIssueComment:
+		if rawEvent, ok := event.RawEvent.(*github.IssueCommentEvent); ok && rawEvent.Repo != nil {
+			repoOwner = rawEvent.Repo.GetOwner().GetLogin()
+			repoName = rawEvent.Repo.GetName()
+		}
+	case models.EventPullRequestReview:
+		if rawEvent, ok := event.RawEvent.(*github.PullRequestReviewEvent); ok && rawEvent.Repo != nil {
+			repoOwner = rawEvent.Repo.GetOwner().GetLogin()
+			repoName = rawEvent.Repo.GetName()
+		}
+	case models.EventPullRequestReviewComment:
+		if rawEvent, ok := event.RawEvent.(*github.PullRequestReviewCommentEvent); ok && rawEvent.Repo != nil {
+			repoOwner = rawEvent.Repo.GetOwner().GetLogin()
+			repoName = rawEvent.Repo.GetName()
+		}
+	default:
+		// 尝试从Repository字段获取信息作为fallback
+		if event.Repository != nil {
+			if event.Repository.Owner != nil {
+				repoOwner = event.Repository.GetOwner().GetLogin()
+			}
+			repoName = event.Repository.GetName()
+		}
 	}
 	
 	if repoOwner == "" || repoName == "" {
-		xl.Errorf("Failed to extract repository info from event")
+		xl.Errorf("Failed to extract repository info from event type: %s", event.GetEventType())
 		return fmt.Errorf("failed to extract repository info from event")
 	}
 	
