@@ -279,6 +279,20 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 	worktreePath := filepath.Join(orgDir, worktreeName)
 	log.Infof("Worktree path: %s", worktreePath)
 
+	// 检查是否存在现有的 worktree 使用相同分支
+	if err := r.handleExistingWorktree(branch, worktreePath); err != nil {
+		if err.Error() == "worktree_exists_at_target_path" {
+			// 工作树已存在于目标路径，直接返回现有的信息
+			log.Infof("Reusing existing worktree at: %s", worktreePath)
+			return &WorktreeInfo{
+				Worktree: worktreePath,
+				Branch:   branch,
+			}, nil
+		}
+		log.Errorf("Failed to handle existing worktree: %v", err)
+		return nil, err
+	}
+
 	// 创建 worktree
 	var cmd *exec.Cmd
 	if createNewBranch {
@@ -493,6 +507,98 @@ func (r *RepoManager) EnsureMainRepositoryUpToDate() error {
 		return fmt.Errorf("repository not initialized")
 	}
 	return r.updateMainRepository()
+}
+
+// handleExistingWorktree 处理已存在的 worktree 冲突
+func (r *RepoManager) handleExistingWorktree(branch string, targetPath string) error {
+	log.Infof("Checking for existing worktrees using branch: %s", branch)
+	
+	// 获取当前所有 worktree
+	cmd := exec.Command("git", "worktree", "list", "--porcelain")
+	cmd.Dir = r.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		log.Warnf("Failed to list worktrees: %v", err)
+		return nil // 不阻止创建，继续执行
+	}
+	
+	worktrees, err := r.parseWorktreeList(string(output))
+	if err != nil {
+		log.Warnf("Failed to parse worktree list: %v", err)
+		return nil // 不阻止创建，继续执行
+	}
+	
+	// 检查是否有 worktree 正在使用相同的分支
+	for _, wt := range worktrees {
+		if strings.Contains(wt.Branch, branch) || strings.Contains(branch, strings.TrimPrefix(wt.Branch, "refs/heads/")) {
+			log.Warnf("Found existing worktree using branch %s at path: %s", branch, wt.Worktree)
+			
+			// 如果目标路径和现有路径不同，需要清理现有的 worktree
+			if wt.Worktree != targetPath {
+				log.Infof("Removing conflicting worktree: %s", wt.Worktree)
+				
+				// 强制删除现有的 worktree
+				removeCmd := exec.Command("git", "worktree", "remove", "--force", wt.Worktree)
+				removeCmd.Dir = r.repoPath
+				removeOutput, removeErr := removeCmd.CombinedOutput()
+				if removeErr != nil {
+					log.Errorf("Failed to remove existing worktree %s: %v, output: %s", 
+						wt.Worktree, removeErr, string(removeOutput))
+					
+					// 尝试手动删除目录
+					if err := r.forceRemoveDirectory(wt.Worktree); err != nil {
+						log.Errorf("Failed to manually remove directory %s: %v", wt.Worktree, err)
+						return fmt.Errorf("failed to clean up conflicting worktree: %w", err)
+					}
+				} else {
+					log.Infof("Successfully removed conflicting worktree: %s", wt.Worktree)
+				}
+				
+				// 尝试删除相关的本地分支（如果存在且不是主分支）
+				branchName := strings.TrimPrefix(wt.Branch, "refs/heads/")
+				if branchName != "main" && branchName != "master" && branchName != "" {
+					log.Infof("Attempting to delete local branch: %s", branchName)
+					branchCmd := exec.Command("git", "branch", "-D", branchName)
+					branchCmd.Dir = r.repoPath
+					branchOutput, err := branchCmd.CombinedOutput()
+					if err != nil {
+						log.Warnf("Failed to delete local branch %s: %v, output: %s", 
+							branchName, err, string(branchOutput))
+					} else {
+						log.Infof("Successfully deleted local branch: %s", branchName)
+					}
+				}
+			} else {
+				// 目标路径相同，检查是否可以复用
+				if _, err := os.Stat(wt.Worktree); err == nil {
+					log.Infof("Worktree already exists at target path, will reuse: %s", wt.Worktree)
+					return fmt.Errorf("worktree_exists_at_target_path")
+				}
+			}
+		}
+	}
+	
+	return nil
+}
+
+// forceRemoveDirectory 强制删除目录
+func (r *RepoManager) forceRemoveDirectory(dirPath string) error {
+	log.Infof("Force removing directory: %s", dirPath)
+	
+	// 检查目录是否存在
+	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+		log.Infof("Directory does not exist: %s", dirPath)
+		return nil
+	}
+	
+	// 尝试删除目录
+	if err := os.RemoveAll(dirPath); err != nil {
+		log.Errorf("Failed to remove directory %s: %v", dirPath, err)
+		return err
+	}
+	
+	log.Infof("Successfully removed directory: %s", dirPath)
+	return nil
 }
 
 // RestoreWorktrees 扫描磁盘上的 worktree 并注册到内存
