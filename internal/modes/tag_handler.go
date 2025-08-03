@@ -868,11 +868,58 @@ func (th *TagHandler) processPRReviewCommand(
 	mode string,
 ) error {
 	xl := xlog.NewWith(ctx)
-	xl.Infof("Processing PR review %s command - not fully implemented yet", strings.ToLower(mode))
+	xl.Infof("Processing PR review %s command", strings.ToLower(mode))
 	
-	// 这里可以扩展为完整的PR Review处理逻辑
-	// 暂时返回成功，避免错误
-	return nil
+	// PR Review使用与普通PR Comment相似的处理逻辑
+	// 需要将PullRequestReviewContext转换为IssueCommentContext格式
+	
+	// 创建一个兼容的IssueCommentContext，使用Review的body作为comment
+	var reviewComment *github.IssueComment
+	if event.Review != nil && event.Review.Body != nil {
+		reviewComment = &github.IssueComment{
+			ID:        event.Review.ID,
+			Body:      event.Review.Body,
+			User:      event.Review.User,
+			CreatedAt: event.Review.SubmittedAt,
+			UpdatedAt: event.Review.SubmittedAt,
+		}
+	}
+	
+	// 将PullRequest转换为Issue格式
+	var issue *github.Issue
+	if event.PullRequest != nil {
+		issue = &github.Issue{
+			ID:     event.PullRequest.ID,
+			Number: event.PullRequest.Number,
+			Title:  event.PullRequest.Title,
+			Body:   event.PullRequest.Body,
+			User:   event.PullRequest.User,
+			State:  event.PullRequest.State,
+			CreatedAt: event.PullRequest.CreatedAt,
+			UpdatedAt: event.PullRequest.UpdatedAt,
+			PullRequestLinks: &github.PullRequestLinks{}, // 标记为PR
+		}
+	}
+	
+	issueCommentCtx := &models.IssueCommentContext{
+		BaseContext: models.BaseContext{
+			Type:       models.EventPullRequestReview,
+			Repository: event.Repository,
+			Sender:     event.Sender,
+			RawEvent:   event.RawEvent,
+			Action:     event.Action,
+			DeliveryID: event.DeliveryID,
+			Timestamp:  event.Timestamp,
+		},
+		Issue:       issue,
+		Comment:     reviewComment,
+		IsPRComment: true, // 标记为PR评论
+	}
+	
+	xl.Infof("Converted PR review to issue comment context for processing")
+	
+	// 使用processPRCommand处理逻辑
+	return th.processPRCommand(ctx, issueCommentCtx, cmdInfo, aiModel, mode)
 }
 
 // processPRReviewCommentCommand 处理PR Review Comment命令
@@ -884,11 +931,59 @@ func (th *TagHandler) processPRReviewCommentCommand(
 	mode string,
 ) error {
 	xl := xlog.NewWith(ctx)
-	xl.Infof("Processing PR review comment %s command - not fully implemented yet", strings.ToLower(mode))
+	xl.Infof("Processing PR review comment %s command", strings.ToLower(mode))
 	
-	// 这里可以扩展为完整的PR Review Comment处理逻辑
-	// 暂时返回成功，避免错误
-	return nil
+	// PR Review Comment使用与普通PR Comment相同的处理逻辑
+	// 需要将PullRequestReviewCommentContext转换为IssueCommentContext格式
+	
+	// 将PullRequestComment转换为IssueComment格式
+	var issueComment *github.IssueComment
+	if event.Comment != nil {
+		issueComment = &github.IssueComment{
+			ID:        event.Comment.ID,
+			Body:      event.Comment.Body,
+			User:      event.Comment.User,
+			CreatedAt: event.Comment.CreatedAt,
+			UpdatedAt: event.Comment.UpdatedAt,
+		}
+	}
+	
+	// 将PullRequest转换为Issue格式
+	var issue *github.Issue
+	if event.PullRequest != nil {
+		issue = &github.Issue{
+			ID:     event.PullRequest.ID,
+			Number: event.PullRequest.Number,
+			Title:  event.PullRequest.Title,
+			Body:   event.PullRequest.Body,
+			User:   event.PullRequest.User,
+			State:  event.PullRequest.State,
+			CreatedAt: event.PullRequest.CreatedAt,
+			UpdatedAt: event.PullRequest.UpdatedAt,
+			PullRequestLinks: &github.PullRequestLinks{}, // 标记为PR
+		}
+	}
+	
+	// 创建一个兼容的IssueCommentContext
+	issueCommentCtx := &models.IssueCommentContext{
+		BaseContext: models.BaseContext{
+			Type:       models.EventPullRequestReviewComment,
+			Repository: event.Repository,
+			Sender:     event.Sender,
+			RawEvent:   event.RawEvent,
+			Action:     event.Action,
+			DeliveryID: event.DeliveryID,
+			Timestamp:  event.Timestamp,
+		},
+		Issue:       issue,
+		Comment:     issueComment,
+		IsPRComment: true, // 标记为PR评论
+	}
+	
+	xl.Infof("Converted PR review comment to issue comment context for processing")
+	
+	// 使用processPRCommand处理逻辑
+	return th.processPRCommand(ctx, issueCommentCtx, cmdInfo, aiModel, mode)
 }
 
 // buildPrompt 构建不同模式的prompt
