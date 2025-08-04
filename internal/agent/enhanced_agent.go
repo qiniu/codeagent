@@ -114,7 +114,7 @@ func (a *EnhancedAgent) ProcessGitHubWebhookEvent(ctx context.Context, eventType
 	// 1. 解析GitHub事件为类型安全的上下文
 	githubCtx, err := a.eventParser.ParseWebhookEvent(ctx, eventType, deliveryID, payload)
 	if err != nil {
-		xl.Errorf("Failed to parse GitHub webhook event: %v", err)
+		xl.Warnf("Failed to parse GitHub webhook event: %v", err)
 		return fmt.Errorf("failed to parse webhook event: %w", err)
 	}
 

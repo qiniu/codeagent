@@ -219,13 +219,13 @@ func (th *TagHandler) processIssueCodeCommand(
 	// 0. 初始化渐进式评论管理器
 	pcm := interaction.NewProgressCommentManager(th.github, event.GetRepository(), issueNumber)
 	
-	// 定义任务列表
+	// 定义任务列表 - 重新设计工作流顺序
 	tasks := []*models.Task{
 		{ID: "analyze-issue", Description: "📋 Analyze issue requirements", Status: models.TaskStatusPending},
 		{ID: "create-workspace", Description: "🗂️ Create workspace and branch", Status: models.TaskStatusPending},
+		{ID: "create-pr", Description: "🚀 Create pull request", Status: models.TaskStatusPending},
 		{ID: "generate-code", Description: "🤖 Generate code implementation", Status: models.TaskStatusPending},
 		{ID: "commit-changes", Description: "💾 Commit and push changes", Status: models.TaskStatusPending},
-		{ID: "create-pr", Description: "🚀 Create pull request", Status: models.TaskStatusPending},
 		{ID: "update-pr", Description: "📝 Update PR description", Status: models.TaskStatusPending},
 	}
 
@@ -303,7 +303,75 @@ func (th *TagHandler) processIssueCodeCommand(
 		xl.Errorf("Failed to update task: %v", err)
 	}
 
-	// 3. 生成代码实现
+	// 3. 创建初始PR（在代码生成之前）
+	if err := pcm.UpdateTask(ctx, "create-pr", models.TaskStatusInProgress, "Creating pull request for issue"); err != nil {
+		xl.Errorf("Failed to update task: %v", err)
+	}
+
+	xl.Infof("Creating initial PR before code generation")
+	var err error
+	pr, err = th.github.CreatePullRequest(ws)
+	if err != nil {
+		result = &models.ProgressExecutionResult{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to create PR: %v", err),
+		}
+		return err
+	}
+	xl.Infof("PR created successfully: #%d", pr.GetNumber())
+
+	// 移动工作空间从Issue到PR
+	if err := th.workspace.MoveIssueToPR(ws, pr.GetNumber()); err != nil {
+		xl.Errorf("Failed to move workspace: %v", err)
+	}
+	ws.PRNumber = pr.GetNumber()
+
+	// 创建session目录
+	prDirName := filepath.Base(ws.Path)
+	suffix := th.workspace.ExtractSuffixFromPRDir(ws.AIModel, ws.Repo, pr.GetNumber(), prDirName)
+
+	sessionPath, err := th.workspace.CreateSessionPath(filepath.Dir(ws.Path), ws.AIModel, ws.Repo, pr.GetNumber(), suffix)
+	if err != nil {
+		xl.Errorf("Failed to create session directory: %v", err)
+		// 不返回错误，继续执行
+	} else {
+		ws.SessionPath = sessionPath
+		xl.Infof("Session directory created: %s", sessionPath)
+	}
+
+	// 注册工作空间到PR映射
+	ws.PullRequest = pr
+	th.workspace.RegisterWorkspace(ws, pr)
+
+	xl.Infof("Workspace registered: issue=#%d, workspace=%s, session=%s", 
+		issueNumber, ws.Path, ws.SessionPath)
+
+	if err := pcm.UpdateTask(ctx, "create-pr", models.TaskStatusCompleted); err != nil {
+		xl.Errorf("Failed to update task: %v", err)
+	}
+
+	// 切换进度评论到PR（重要！）
+	xl.Infof("Switching progress comments to PR #%d", pr.GetNumber())
+	
+	// 创建新的PR进度评论管理器
+	prPCM := interaction.NewProgressCommentManager(th.github, event.GetRepository(), pr.GetNumber())
+	
+	// 创建剩余任务的进度跟踪
+	remainingTasks := []*models.Task{
+		{ID: "generate-code", Description: "🤖 Generate code implementation", Status: models.TaskStatusPending},
+		{ID: "commit-changes", Description: "💾 Commit and push changes", Status: models.TaskStatusPending},
+		{ID: "update-pr", Description: "📝 Update PR description", Status: models.TaskStatusPending},
+	}
+	
+	// 在PR中初始化剩余步骤的进度
+	if err := prPCM.InitializeProgress(ctx, remainingTasks); err != nil {
+		xl.Errorf("Failed to initialize progress in PR: %v", err)
+	}
+	
+	// 从这里开始使用PR的进度管理器
+	pcm = prPCM
+
+	// 4. 生成代码实现
 	if err := pcm.UpdateTask(ctx, "generate-code", models.TaskStatusInProgress, "Calling AI to generate code implementation"); err != nil {
 		xl.Errorf("Failed to update task: %v", err)
 	}
@@ -392,53 +460,7 @@ func (th *TagHandler) processIssueCodeCommand(
 		xl.Errorf("Failed to update task: %v", err)
 	}
 
-	// 5. 创建初始PR
-	if err := pcm.UpdateTask(ctx, "create-pr", models.TaskStatusInProgress, "Creating pull request"); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
-
-	xl.Infof("Creating initial PR")
-	pr, err = th.github.CreatePullRequest(ws)
-	if err != nil {
-		result = &models.ProgressExecutionResult{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to create PR: %v", err),
-		}
-		return err
-	}
-	xl.Infof("PR created successfully: #%d", pr.GetNumber())
-
-	// 移动工作空间从Issue到PR
-	if err := th.workspace.MoveIssueToPR(ws, pr.GetNumber()); err != nil {
-		xl.Errorf("Failed to move workspace: %v", err)
-	}
-	ws.PRNumber = pr.GetNumber()
-
-	// 创建session目录
-	prDirName := filepath.Base(ws.Path)
-	suffix := th.workspace.ExtractSuffixFromPRDir(ws.AIModel, ws.Repo, pr.GetNumber(), prDirName)
-
-	sessionPath, err := th.workspace.CreateSessionPath(filepath.Dir(ws.Path), ws.AIModel, ws.Repo, pr.GetNumber(), suffix)
-	if err != nil {
-		xl.Errorf("Failed to create session directory: %v", err)
-		// 不返回错误，继续执行
-	} else {
-		ws.SessionPath = sessionPath
-		xl.Infof("Session directory created: %s", sessionPath)
-	}
-
-	// 注册工作空间到PR映射
-	ws.PullRequest = pr
-	th.workspace.RegisterWorkspace(ws, pr)
-
-	xl.Infof("Workspace registered: issue=#%d, workspace=%s, session=%s", 
-		issueNumber, ws.Path, ws.SessionPath)
-
-	if err := pcm.UpdateTask(ctx, "create-pr", models.TaskStatusCompleted); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
-
-	// 6. 更新PR描述
+	// 5. 更新PR描述
 	if err := pcm.UpdateTask(ctx, "update-pr", models.TaskStatusInProgress, "Updating PR description with implementation details"); err != nil {
 		xl.Errorf("Failed to update task: %v", err)
 	}
