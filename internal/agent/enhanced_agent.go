@@ -170,7 +170,7 @@ func (a *EnhancedAgent) processGitHubContext(ctx context.Context, githubCtx mode
 }
 
 // ProcessIssueCommentEnhanced 增强版Issue评论处理
-// 使用新的进度通信和MCP工具系统
+// 使用MCP工具系统，不带进度跟踪
 func (a *EnhancedAgent) ProcessIssueCommentEnhanced(ctx context.Context, event *github.IssueCommentEvent) error {
 	xl := xlog.NewWith(ctx)
 
@@ -185,20 +185,7 @@ func (a *EnhancedAgent) ProcessIssueCommentEnhanced(ctx context.Context, event *
 		return fmt.Errorf("invalid context type for issue comment")
 	}
 
-	// 2. 创建进度评论管理器
-	pcm := interaction.NewProgressCommentManager(a.github,
-		issueCommentCtx.GetRepository(), issueCommentCtx.Issue.GetNumber())
-
-	// 3. 创建任务列表
-	tasks := a.taskFactory.CreateIssueProcessingTasks()
-
-	// 4. 初始化进度跟踪
-	if err := pcm.InitializeProgress(ctx, tasks); err != nil {
-		xl.Errorf("Failed to initialize progress tracking: %v", err)
-		return err
-	}
-
-	// 5. 创建MCP上下文
+	// 2. 创建MCP上下文
 	mcpCtx := &models.MCPContext{
 		Repository:  githubCtx,
 		Issue:       issueCommentCtx.Issue,
@@ -207,48 +194,28 @@ func (a *EnhancedAgent) ProcessIssueCommentEnhanced(ctx context.Context, event *
 		Constraints: []string{}, // 根据需要添加约束
 	}
 
-	// 6. 执行处理流程
-	result, err := a.executeIssueProcessingWithProgress(ctx, issueCommentCtx, mcpCtx, pcm)
+	// 3. 执行处理流程
+	result, err := a.executeIssueProcessing(ctx, issueCommentCtx, mcpCtx)
 	if err != nil {
 		xl.Errorf("Issue processing failed: %v", err)
-
-		// 最终化失败结果
-		failureResult := &models.ProgressExecutionResult{
-			Success:  false,
-			Error:    err.Error(),
-			Duration: time.Since(pcm.GetTracker().StartTime),
-		}
-
-		if finalizeErr := pcm.FinalizeComment(ctx, failureResult); finalizeErr != nil {
-			xl.Errorf("Failed to finalize failure comment: %v", finalizeErr)
-		}
-
 		return err
 	}
 
-	// 7. 最终化成功结果
-	if err := pcm.FinalizeComment(ctx, result); err != nil {
-		xl.Errorf("Failed to finalize success comment: %v", err)
-		return err
-	}
-
-	xl.Infof("Issue comment processed successfully")
+	xl.Infof("Issue comment processed successfully: %s", result.Summary)
 	return nil
 }
 
-// executeIssueProcessingWithProgress 执行Issue处理流程，带进度跟踪
-func (a *EnhancedAgent) executeIssueProcessingWithProgress(
+// executeIssueProcessing 执行Issue处理流程，不带进度跟踪
+func (a *EnhancedAgent) executeIssueProcessing(
 	ctx context.Context,
 	issueCtx *models.IssueCommentContext,
 	mcpCtx *models.MCPContext,
-	pcm *interaction.ProgressCommentManager,
 ) (*models.ProgressExecutionResult, error) {
 	xl := xlog.NewWith(ctx)
+	startTime := time.Now()
 
 	// 1. 收集上下文信息
-	if err := pcm.UpdateTask(ctx, "gather-context", models.TaskStatusInProgress, "Analyzing issue and requirements"); err != nil {
-		return nil, err
-	}
+	xl.Infof("Analyzing issue and requirements")
 
 	// 使用MCP工具收集更多上下文
 	tools, err := a.mcpClient.PrepareTools(ctx, mcpCtx)
@@ -258,14 +225,8 @@ func (a *EnhancedAgent) executeIssueProcessingWithProgress(
 
 	xl.Infof("Prepared %d MCP tools for issue processing", len(tools))
 
-	if err := pcm.UpdateTask(ctx, "gather-context", models.TaskStatusCompleted); err != nil {
-		return nil, err
-	}
-
 	// 2. 设置工作空间
-	if err := pcm.UpdateTask(ctx, "setup-workspace", models.TaskStatusInProgress, "Creating workspace and branch"); err != nil {
-		return nil, err
-	}
+	xl.Infof("Creating workspace and branch")
 
 	ws := a.workspace.CreateWorkspaceFromIssue(issueCtx.Issue)
 	if ws == nil {
@@ -280,55 +241,40 @@ func (a *EnhancedAgent) executeIssueProcessingWithProgress(
 		return nil, fmt.Errorf("failed to create branch: %w", err)
 	}
 
-	if err := pcm.UpdateTask(ctx, "setup-workspace", models.TaskStatusCompleted); err != nil {
-		return nil, err
-	}
-
-	// 3. 生成代码（使用MCP工具）
-	if err := pcm.UpdateTask(ctx, "generate-code", models.TaskStatusInProgress, "Generating code implementation"); err != nil {
-		return nil, err
-	}
-
-	// 这里可以集成AI代码生成逻辑
-	// TODO: 实现AI代码生成，使用MCP工具进行文件操作
-
-	if err := pcm.UpdateTask(ctx, "generate-code", models.TaskStatusCompleted); err != nil {
-		return nil, err
-	}
-
-	// 4. 提交变更
-	if err := pcm.UpdateTask(ctx, "commit-changes", models.TaskStatusInProgress, "Committing changes"); err != nil {
-		return nil, err
-	}
-
-	// 使用现有的提交逻辑
-	execResult := &models.ExecutionResult{
-		Success:      true,
-		Output:       "Code generated successfully",
-		FilesChanged: []string{}, // TODO: 从MCP工具调用中获取
-		Duration:     time.Since(pcm.GetTracker().StartTime),
-	}
-
-	if err := a.github.CommitAndPush(ws, execResult, nil); err != nil {
-		return nil, fmt.Errorf("failed to commit and push: %w", err)
-	}
-
-	if err := pcm.UpdateTask(ctx, "commit-changes", models.TaskStatusCompleted); err != nil {
-		return nil, err
-	}
-
-	// 5. 创建PR
-	if err := pcm.UpdateTask(ctx, "create-pr", models.TaskStatusInProgress, "Creating pull request"); err != nil {
-		return nil, err
-	}
+	// 3. 创建PR（在代码生成之前）
+	xl.Infof("Creating pull request")
 
 	pr, err := a.github.CreatePullRequest(ws)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PR: %w", err)
 	}
 
-	if err := pcm.UpdateTask(ctx, "create-pr", models.TaskStatusCompleted); err != nil {
-		return nil, err
+	// 4. 移动工作空间从 Issue 到 PR
+	if err := a.workspace.MoveIssueToPR(ws, pr.GetNumber()); err != nil {
+		xl.Errorf("Failed to move workspace: %v", err)
+	}
+	ws.PRNumber = pr.GetNumber()
+	ws.PullRequest = pr
+
+	// 5. 生成代码（使用MCP工具）
+	xl.Infof("Generating code implementation")
+
+	// 这里可以集成AI代码生成逻辑
+	// TODO: 实现AI代码生成，使用MCP工具进行文件操作
+
+	// 6. 提交变更
+	xl.Infof("Committing changes")
+
+	// 使用现有的提交逻辑
+	execResult := &models.ExecutionResult{
+		Success:      true,
+		Output:       "Code generated successfully",
+		FilesChanged: []string{}, // TODO: 从MCP工具调用中获取
+		Duration:     time.Since(startTime),
+	}
+
+	if err := a.github.CommitAndPush(ws, execResult, nil); err != nil {
+		return nil, fmt.Errorf("failed to commit and push: %w", err)
 	}
 
 	// 构建结果
@@ -336,11 +282,11 @@ func (a *EnhancedAgent) executeIssueProcessingWithProgress(
 		Success:        true,
 		Output:         execResult.Output,
 		FilesChanged:   execResult.FilesChanged,
-		Duration:       time.Since(pcm.GetTracker().StartTime),
+		Duration:       time.Since(startTime),
 		Summary:        fmt.Sprintf("Successfully implemented Issue #%d", issueCtx.Issue.GetNumber()),
 		BranchName:     ws.Branch,
 		PullRequestURL: pr.GetHTMLURL(),
-		TaskResults:    pcm.GetTracker().Tasks,
+		TaskResults:    []*models.Task{}, // No progress tracking
 	}
 
 	return result, nil

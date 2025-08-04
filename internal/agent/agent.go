@@ -123,7 +123,7 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	}
 	log.Infof("Branch created successfully")
 
-	// 3. 创建初始 PR
+	// 3. 创建初始 PR（在代码生成之前）
 	log.Infof("Creating initial PR")
 	pr, err := a.github.CreatePullRequest(ws)
 	if err != nil {
