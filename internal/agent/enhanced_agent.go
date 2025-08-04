@@ -77,7 +77,7 @@ func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (
 	// 注册处理器（按优先级顺序）
 	tagHandler := modes.NewTagHandler(githubClient, workspaceManager, mcpClient, sessionManager)
 	agentHandler := modes.NewAgentHandler(githubClient, workspaceManager, mcpClient)
-	reviewHandler := modes.NewReviewHandler(githubClient, workspaceManager, mcpClient)
+	reviewHandler := modes.NewReviewHandler(githubClient, workspaceManager, mcpClient, sessionManager)
 
 	modeManager.RegisterHandler(tagHandler)
 	modeManager.RegisterHandler(agentHandler)
