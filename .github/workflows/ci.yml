@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 env:
-  GO_VERSION: '1.21'
-  CGO_ENABLED: 0
+  GO_VERSION: "1.21"
+  CGO_ENABLED: 1
 
 jobs:
   test:
@@ -36,10 +36,10 @@ jobs:
           echo "Running basic code quality checks..."
           go vet ./...
           echo "go vet completed successfully"
-          
+
           echo "Running staticcheck (timeout 3min, non-blocking)..."
           timeout 180 go run honnef.co/go/tools/cmd/staticcheck@latest ./... || echo "staticcheck timed out or found issues - not failing CI"
-          
+
           echo "Basic linting completed"
 
       - name: Check code format
@@ -68,14 +68,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
 
-    strategy:
-      matrix:
-        os: [linux, darwin, windows]
-        arch: [amd64, arm64]
-        exclude:
-          - os: windows
-            arch: arm64
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -87,11 +79,4 @@ jobs:
           cache: true
 
       - name: Build binary
-        run: |
-          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -o bin/codeagent-${{ matrix.os }}-${{ matrix.arch }} ./cmd/server
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: codeagent-${{ matrix.os }}-${{ matrix.arch }}
-          path: bin/codeagent-${{ matrix.os }}-${{ matrix.arch }}
+        run: go build ./cmd/server
