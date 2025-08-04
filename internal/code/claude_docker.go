@@ -35,12 +35,10 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	// 确保路径存在
 	workspacePath, _ := filepath.Abs(workspace.Path)
 
-	// 确定claude配置路径
-	var claudeConfigPath string
-	if home := os.Getenv("HOME"); home != "" {
-		claudeConfigPath, _ = filepath.Abs(filepath.Join(home, ".claude"))
-	} else {
-		claudeConfigPath = "/home/codeagent/.claude"
+	claudeConfigPath, err := createIsolatedClaudeConfig(workspace)
+	if err != nil {
+		log.Errorf("Failed to create isolated Claude config: %v", err)
+		return nil, fmt.Errorf("failed to create isolated Claude config: %w", err)
 	}
 
 	// 检查是否使用了/tmp目录（在macOS上可能导致挂载问题）
@@ -152,4 +150,28 @@ func (c *claudeCode) Prompt(message string) (*Response, error) {
 func (c *claudeCode) Close() error {
 	stopCmd := exec.Command("docker", "rm", "-f", c.containerName)
 	return stopCmd.Run()
+}
+
+func createIsolatedClaudeConfig(workspace *models.Workspace) (string, error) {
+	repoName := extractRepoName(workspace.Repository)
+	configDirName := fmt.Sprintf(".claude-%s-%s-%d", workspace.Org, repoName, workspace.PRNumber)
+
+	var isolatedConfigDir string
+	if home := os.Getenv("HOME"); home != "" {
+		isolatedConfigDir = filepath.Join(home, configDirName)
+	} else {
+		isolatedConfigDir = filepath.Join("/home/codeagent", configDirName)
+	}
+
+	if _, err := os.Stat(isolatedConfigDir); err == nil {
+		log.Infof("Isolated Claude config directory already exists: %s", isolatedConfigDir)
+		return isolatedConfigDir, nil
+	}
+
+	if err := os.MkdirAll(isolatedConfigDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create isolated config directory %s: %w", isolatedConfigDir, err)
+	}
+
+	log.Infof("Created isolated Claude config directory: %s", isolatedConfigDir)
+	return isolatedConfigDir, nil
 }
