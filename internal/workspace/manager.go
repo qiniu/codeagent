@@ -150,9 +150,9 @@ func (m *Manager) cleanupWorkspaceWithWorktree(ws *models.Workspace) bool {
 	var entityNumber int
 
 	// 根据目录类型提取编号
-	if strings.Contains(worktreeDir, "-pr-") {
+	if strings.Contains(worktreeDir, "__pr__") {
 		entityNumber = m.extractPRNumberFromPRDir(worktreeDir)
-	} else if strings.Contains(worktreeDir, "-issue-") {
+	} else if strings.Contains(worktreeDir, "__issue__") {
 		entityNumber = m.extractIssueNumberFromIssueDir(worktreeDir)
 	}
 
@@ -255,76 +255,54 @@ func (m *Manager) recoverExistingWorkspaces() {
 			dirName := entry.Name()
 			dirPath := filepath.Join(orgPath, dirName)
 
-			// 检查是否是 PR 工作空间目录：{repo}-pr-{pr-number}-{timestamp} 或 {aimodel}-{repo}-pr-{pr-number}-{timestamp}
-			if !strings.Contains(dirName, "-pr-") {
+			// 检查是否是 PR 工作空间目录：{repo}__pr__{pr-number}__{timestamp} 或 {aimodel}__{repo}__pr__{pr-number}__{timestamp}
+			if !strings.Contains(dirName, "__pr__") {
 				continue
 			}
 
-			parts := strings.Split(dirName, "-pr-")
-			if len(parts) < 2 {
-				log.Warnf("Invalid PR workspace directory name: %s", dirName)
+			// 使用目录格式管理器解析目录名
+			prFormat, err := m.ParsePRDirName(dirName)
+			if err != nil {
+				log.Errorf("Failed to parse PR directory name %s: %v, skipping", dirName, err)
 				continue
 			}
 
-			// 提取仓库名和AI模型 - 要求目录必须带aimodel信息
-			var repoName, aiModel string
-			if strings.Contains(parts[0], "-") {
-				// 包含AI模型: aimodel-repo
-				aiModelParts := strings.Split(parts[0], "-")
-				if len(aiModelParts) == 2 {
-					aiModel = aiModelParts[0]
-					repoName = aiModelParts[1]
-				} else {
-					log.Errorf("Invalid PR workspace directory name with AI model: %s, skipping", dirName)
+			aiModel := prFormat.AIModel
+			repoName := prFormat.Repo
+
+			prNumber := prFormat.PRNumber
+
+			// 找到对应的仓库目录
+			repoPath := filepath.Join(orgPath, repoName)
+			if _, err := os.Stat(filepath.Join(repoPath, ".git")); err == nil {
+				// 获取远程仓库 URL
+				remoteURL, err := m.getRemoteURL(repoPath)
+				if err != nil {
+					log.Warnf("Failed to get remote URL for %s: %v", repoPath, err)
 					continue
 				}
-			} else {
-				// 不包含AI模型的目录，直接跳过
-				log.Errorf("PR workspace directory must contain AI model info: %s, skipping", dirName)
-				continue
-			}
 
-			// 提取 PR 号
-			numberParts := strings.Split(parts[1], "-")
-			if len(numberParts) < 2 {
-				log.Warnf("Invalid PR workspace directory name: %s", dirName)
-				continue
-			}
-
-			if prNumber, err := strconv.Atoi(numberParts[0]); err == nil && prNumber > 0 {
-				// 找到对应的仓库目录
-				repoPath := filepath.Join(orgPath, repoName)
-				if _, err := os.Stat(filepath.Join(repoPath, ".git")); err == nil {
-					// 获取远程仓库 URL
-					remoteURL, err := m.getRemoteURL(repoPath)
-					if err != nil {
-						log.Warnf("Failed to get remote URL for %s: %v", repoPath, err)
-						continue
+				// 创建仓库管理器
+				orgRepoPath := fmt.Sprintf("%s/%s", org, repoName)
+				m.mutex.Lock()
+				if m.repoManagers[orgRepoPath] == nil {
+					repoManager := NewRepoManager(repoPath, remoteURL)
+					// 恢复 worktrees
+					if err := repoManager.RestoreWorktrees(); err != nil {
+						log.Warnf("Failed to restore worktrees for %s: %v", orgRepoPath, err)
 					}
+					m.repoManagers[orgRepoPath] = repoManager
+					log.Infof("Created repo manager for %s", orgRepoPath)
+				}
+				m.mutex.Unlock()
 
-					// 创建仓库管理器
-					orgRepoPath := fmt.Sprintf("%s/%s", org, repoName)
-					m.mutex.Lock()
-					if m.repoManagers[orgRepoPath] == nil {
-						repoManager := NewRepoManager(repoPath, remoteURL)
-						// 恢复 worktrees
-						if err := repoManager.RestoreWorktrees(); err != nil {
-							log.Warnf("Failed to restore worktrees for %s: %v", orgRepoPath, err)
-						}
-						m.repoManagers[orgRepoPath] = repoManager
-						log.Infof("Created repo manager for %s", orgRepoPath)
-					}
-					m.mutex.Unlock()
-
-					// 恢复 PR 工作空间
-					if err := m.recoverPRWorkspace(org, repoName, dirPath, remoteURL, prNumber, aiModel); err != nil {
-						log.Errorf("Failed to recover PR workspace %s: %v", dirName, err)
-					} else {
-						recoveredCount++
-					}
+				// 恢复 PR 工作空间
+				if err := m.recoverPRWorkspace(org, repoName, dirPath, remoteURL, prNumber, aiModel); err != nil {
+					log.Errorf("Failed to recover PR workspace %s: %v", dirName, err)
+				} else {
+					recoveredCount++
 				}
 			}
-
 		}
 	}
 
@@ -338,11 +316,11 @@ func (m *Manager) recoverPRWorkspace(org, repo, worktreePath, remoteURL string, 
 	var timestamp string
 
 	if aiModel != "" {
-		// 有AI模型的情况: aimodel-repo-pr-number-timestamp
-		timestamp = strings.TrimPrefix(worktreeDir, aiModel+"-"+repo+"-pr-"+strconv.Itoa(prNumber)+"-")
+		// 有AI模型的情况: aimodel__repo__pr__number__timestamp
+		timestamp = strings.TrimPrefix(worktreeDir, aiModel+"__"+repo+"__pr__"+strconv.Itoa(prNumber)+"__")
 	} else {
-		// 没有AI模型的情况: repo-pr-number-timestamp
-		timestamp = strings.TrimPrefix(worktreeDir, repo+"-pr-"+strconv.Itoa(prNumber)+"-")
+		// 没有AI模型的情况: repo__pr__number__timestamp
+		timestamp = strings.TrimPrefix(worktreeDir, repo+"__pr__"+strconv.Itoa(prNumber)+"__")
 	}
 
 	// 将 timestamp 字符串转换为时间
@@ -567,10 +545,10 @@ func (m *Manager) CreateWorkspaceFromIssueWithAI(issue *github.Issue, aiModel st
 
 // MoveIssueToPR 使用 git worktree move 将 Issue 工作空间移动到 PR 工作空间
 func (m *Manager) MoveIssueToPR(ws *models.Workspace, prNumber int) error {
-	// 构建新的命名: aimodel-repo-issue-number-timestamp -> aimodel-repo-pr-number-timestamp
-	oldPrefix := fmt.Sprintf("%s-%s-issue-%d-", ws.AIModel, ws.Repo, ws.Issue.GetNumber())
+	// 构建新的命名: aimodel__repo__issue__number__timestamp -> aimodel__repo__pr__number__timestamp
+	oldPrefix := fmt.Sprintf("%s__%s__issue__%d__", ws.AIModel, ws.Repo, ws.Issue.GetNumber())
 	issueSuffix := strings.TrimPrefix(filepath.Base(ws.Path), oldPrefix)
-	newWorktreeName := fmt.Sprintf("%s-%s-pr-%d-%s", ws.AIModel, ws.Repo, prNumber, issueSuffix)
+	newWorktreeName := fmt.Sprintf("%s__%s__pr__%d__%s", ws.AIModel, ws.Repo, prNumber, issueSuffix)
 
 	newWorktreePath := filepath.Join(filepath.Dir(ws.Path), newWorktreeName)
 	log.Infof("try to move workspace from %s to %s", ws.Path, newWorktreePath)
@@ -801,12 +779,12 @@ func (m *Manager) validateWorkspaceForPR(ws *models.Workspace, pr *github.PullRe
 // extractPRNumberFromPRDir 从 PR 目录名提取 PR 号
 func (m *Manager) extractPRNumberFromPRDir(prDir string) int {
 	// PR 目录格式:
-	// - {aiModel}-{repo}-pr-{number}-{timestamp} (有AI模型)
-	// - {repo}-pr-{number}-{timestamp} (无AI模型)
-	if strings.Contains(prDir, "-pr-") {
-		parts := strings.Split(prDir, "-pr-")
+	// - {aiModel}__{repo}__pr__{number}__{timestamp} (有AI模型)
+	// - {repo}__pr__{number}__{timestamp} (无AI模型)
+	if strings.Contains(prDir, "__pr__") {
+		parts := strings.Split(prDir, "__pr__")
 		if len(parts) >= 2 {
-			numberParts := strings.Split(parts[1], "-")
+			numberParts := strings.Split(parts[1], "__")
 			if len(numberParts) >= 1 {
 				if number, err := strconv.Atoi(numberParts[0]); err == nil {
 					return number
@@ -820,12 +798,12 @@ func (m *Manager) extractPRNumberFromPRDir(prDir string) int {
 // extractIssueNumberFromIssueDir 从 Issue 目录名提取 Issue 号
 func (m *Manager) extractIssueNumberFromIssueDir(issueDir string) int {
 	// Issue 目录格式:
-	// - {aiModel}-{repo}-issue-{number}-{timestamp} (有AI模型)
-	// - {repo}-issue-{number}-{timestamp} (无AI模型)
-	if strings.Contains(issueDir, "-issue-") {
-		parts := strings.Split(issueDir, "-issue-")
+	// - {aiModel}__{repo}__issue__{number}__{timestamp} (有AI模型)
+	// - {repo}__issue__{number}__{timestamp} (无AI模型)
+	if strings.Contains(issueDir, "__issue__") {
+		parts := strings.Split(issueDir, "__issue__")
 		if len(parts) >= 2 {
-			numberParts := strings.Split(parts[1], "-")
+			numberParts := strings.Split(parts[1], "__")
 			if len(numberParts) >= 1 {
 				if number, err := strconv.Atoi(numberParts[0]); err == nil {
 					return number
