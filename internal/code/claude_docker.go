@@ -35,7 +35,7 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	// 确保路径存在
 	workspacePath, _ := filepath.Abs(workspace.Path)
 
-	claudeConfigPath, err := createIsolatedClaudeConfig(workspace)
+	claudeConfigPath, err := createIsolatedClaudeConfig(workspace, cfg)
 	if err != nil {
 		log.Errorf("Failed to create isolated Claude config: %v", err)
 		return nil, fmt.Errorf("failed to create isolated Claude config: %w", err)
@@ -152,7 +152,7 @@ func (c *claudeCode) Close() error {
 	return stopCmd.Run()
 }
 
-func createIsolatedClaudeConfig(workspace *models.Workspace) (string, error) {
+func createIsolatedClaudeConfig(workspace *models.Workspace, cfg *config.Config) (string, error) {
 	repoName := extractRepoName(workspace.Repository)
 	configDirName := fmt.Sprintf(".claude-%s-%s-%d", workspace.Org, repoName, workspace.PRNumber)
 
@@ -172,6 +172,39 @@ func createIsolatedClaudeConfig(workspace *models.Workspace) (string, error) {
 		return "", fmt.Errorf("failed to create isolated config directory %s: %w", isolatedConfigDir, err)
 	}
 
+	if shouldCopyHostClaudeConfig(cfg) {
+		if err := copyHostClaudeConfig(isolatedConfigDir); err != nil {
+			log.Warnf("Failed to copy host Claude config: %v", err)
+		}
+	}
+
 	log.Infof("Created isolated Claude config directory: %s", isolatedConfigDir)
 	return isolatedConfigDir, nil
+}
+
+func shouldCopyHostClaudeConfig(cfg *config.Config) bool {
+	return cfg.Claude.APIKey == "" && cfg.Claude.AuthToken == "" && cfg.Claude.BaseURL == ""
+}
+
+func copyHostClaudeConfig(isolatedConfigDir string) error {
+	var hostClaudeDir string
+	if home := os.Getenv("HOME"); home != "" {
+		hostClaudeDir = filepath.Join(home, ".claude")
+	} else {
+		return fmt.Errorf("HOME environment variable not set, cannot locate host Claude config")
+	}
+
+	if _, err := os.Stat(hostClaudeDir); os.IsNotExist(err) {
+		return fmt.Errorf("host Claude config directory does not exist: %s", hostClaudeDir)
+	}
+
+	log.Infof("Copying host Claude config from %s to %s", hostClaudeDir, isolatedConfigDir)
+
+	cmd := exec.Command("cp", "-r", hostClaudeDir+"/.", isolatedConfigDir)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to copy Claude config directory: %w", err)
+	}
+
+	log.Infof("Successfully copied host Claude config to isolated directory")
+	return nil
 }
