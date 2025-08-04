@@ -753,6 +753,7 @@ func (th *TagHandler) processPRCommand(
 }
 
 // processPRReviewCommand 处理PR Review命令
+// Submit review批量评论场景：需要本次review的所有comments
 func (th *TagHandler) processPRReviewCommand(
 	ctx context.Context,
 	event *models.PullRequestReviewContext,
@@ -761,61 +762,161 @@ func (th *TagHandler) processPRReviewCommand(
 	mode string,
 ) error {
 	xl := xlog.NewWith(ctx)
-	xl.Infof("Processing PR review %s command", strings.ToLower(mode))
+	xl.Infof("Processing PR review %s command (Submit review batch comments)", strings.ToLower(mode))
 
-	// PR Review使用与普通PR Comment相似的处理逻辑
-	// 需要将PullRequestReviewContext转换为IssueCommentContext格式
+	prNumber := event.PullRequest.GetNumber()
+	reviewID := event.Review.GetID()
+	xl.Infof("Processing PR #%d from review %d with command: %s, AI model: %s, args: %s", prNumber, reviewID, mode, aiModel, cmdInfo.Args)
 
-	// 创建一个兼容的IssueCommentContext，使用Review的body作为comment
-	var reviewComment *github.IssueComment
-	if event.Review != nil && event.Review.Body != nil {
-		reviewComment = &github.IssueComment{
-			ID:        event.Review.ID,
-			Body:      event.Review.Body,
-			User:      event.Review.User,
-			CreatedAt: event.Review.SubmittedAt,
-			UpdatedAt: event.Review.SubmittedAt,
+	// 1. 从工作空间管理器获取 PR 信息
+	pr := event.PullRequest
+
+	// 2. 如果没有指定AI模型，从PR分支中提取
+	if aiModel == "" {
+		branchName := pr.GetHead().GetRef()
+		aiModel = th.workspace.ExtractAIModelFromBranch(branchName)
+		if aiModel == "" {
+			// 如果无法从分支中提取，使用默认配置
+			aiModel = "claude" // TODO: 从配置获取默认值
+		}
+		xl.Infof("Extracted AI model from branch: %s", aiModel)
+	}
+
+	// 3. 获取指定 review 的所有 comments（只获取本次review的评论）
+	reviewComments, err := th.github.GetReviewComments(pr, reviewID)
+	if err != nil {
+		xl.Errorf("Failed to get review comments: %v", err)
+		return err
+	}
+
+	xl.Infof("Found %d review comments for review %d", len(reviewComments), reviewID)
+
+	// 4. 获取或创建 PR 工作空间，包含AI模型信息
+	ws := th.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
+	if ws == nil {
+		return fmt.Errorf("failed to get or create workspace for PR batch processing from review")
+	}
+
+	// 5. 拉取远端最新代码
+	if err := th.github.PullLatestChanges(ws, pr); err != nil {
+		xl.Errorf("Failed to pull latest changes: %v", err)
+		// 不返回错误，继续执行，因为可能是网络问题
+	}
+
+	// 6. 初始化 code client
+	codeClient, err := th.sessionManager.GetSession(ws)
+	if err != nil {
+		xl.Errorf("failed to get code client for PR batch processing from review: %v", err)
+		return err
+	}
+
+	// 7. 构建批量处理的 prompt，包含所有 review comments 和位置信息
+	var commentContexts []string
+
+	// 添加 review body 作为总体上下文
+	if event.Review.GetBody() != "" {
+		commentContexts = append(commentContexts, fmt.Sprintf("Review 总体说明：%s", event.Review.GetBody()))
+	}
+
+	// 为每个 comment 构建详细上下文
+	for i, comment := range reviewComments {
+		startLine := comment.GetStartLine()
+		endLine := comment.GetLine()
+		filePath := comment.GetPath()
+		commentBody := comment.GetBody()
+
+		var lineRangeInfo string
+		if startLine != 0 && endLine != 0 && startLine != endLine {
+			// 多行选择
+			lineRangeInfo = fmt.Sprintf("行号范围：%d-%d", startLine, endLine)
+		} else {
+			// 单行
+			lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
+		}
+
+		commentContext := fmt.Sprintf("评论 %d：\n文件：%s\n%s\n内容：%s",
+			i+1, filePath, lineRangeInfo, commentBody)
+		commentContexts = append(commentContexts, commentContext)
+	}
+
+	// 组合所有上下文
+	allComments := strings.Join(commentContexts, "\n\n")
+
+	var prompt string
+	if mode == "Continue" {
+		if cmdInfo.Args != "" {
+			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论和指令继续处理代码：\n\n%s\n\n指令：%s\n\n请一次性处理所有评论中提到的问题，回复要简洁明了。", allComments, cmdInfo.Args)
+		} else {
+			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论继续处理代码：\n\n%s\n\n请一次性处理所有评论中提到的问题，回复要简洁明了。", allComments)
+		}
+	} else { // Fix
+		if cmdInfo.Args != "" {
+			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论和指令修复代码问题：\n\n%s\n\n指令：%s\n\n请一次性修复所有评论中提到的问题，回复要简洁明了。", allComments, cmdInfo.Args)
+		} else {
+			prompt = fmt.Sprintf("请根据以下 PR Review 的批量评论修复代码问题：\n\n%s\n\n请一次性修复所有评论中提到的问题，回复要简洁明了。", allComments)
 		}
 	}
 
-	// 将PullRequest转换为Issue格式
-	var issue *github.Issue
-	if event.PullRequest != nil {
-		issue = &github.Issue{
-			ID:               event.PullRequest.ID,
-			Number:           event.PullRequest.Number,
-			Title:            event.PullRequest.Title,
-			Body:             event.PullRequest.Body,
-			User:             event.PullRequest.User,
-			State:            event.PullRequest.State,
-			CreatedAt:        event.PullRequest.CreatedAt,
-			UpdatedAt:        event.PullRequest.UpdatedAt,
-			PullRequestLinks: &github.PullRequestLinks{}, // 标记为PR
+	// 8. 执行AI处理
+	resp, err := th.promptWithRetry(ctx, codeClient, prompt, 3)
+	if err != nil {
+		xl.Errorf("Failed to prompt for PR batch processing from review: %v", err)
+		return err
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		xl.Errorf("Failed to read output for PR batch processing from review: %v", err)
+		return err
+	}
+
+	xl.Infof("PR Batch Processing from Review Output length: %d", len(output))
+	xl.Debugf("PR Batch Processing from Review Output: %s", string(output))
+
+	// 9. 提交变更并更新 PR
+	executionResult := &models.ExecutionResult{
+		Output: string(output),
+	}
+	if err := th.github.CommitAndPush(ws, executionResult, codeClient); err != nil {
+		xl.Errorf("Failed to commit and push for PR batch processing from review: %v", err)
+		return err
+	}
+
+	// 10. 创建评论，包含@用户提及
+	var triggerUser string
+	if event.Review != nil && event.Review.User != nil {
+		triggerUser = event.Review.User.GetLogin()
+	}
+
+	var responseBody string
+	if triggerUser != "" {
+		if len(reviewComments) == 0 {
+			responseBody = fmt.Sprintf("@%s 已根据 review 说明处理：\n\n%s", triggerUser, string(output))
+		} else {
+			responseBody = fmt.Sprintf("@%s 已批量处理此次 review 的 %d 个评论：\n\n%s", triggerUser, len(reviewComments), string(output))
+		}
+	} else {
+		if len(reviewComments) == 0 {
+			responseBody = fmt.Sprintf("已根据 review 说明处理：\n\n%s", string(output))
+		} else {
+			responseBody = fmt.Sprintf("已批量处理此次 review 的 %d 个评论：\n\n%s", len(reviewComments), string(output))
 		}
 	}
 
-	issueCommentCtx := &models.IssueCommentContext{
-		BaseContext: models.BaseContext{
-			Type:       models.EventPullRequestReview,
-			Repository: event.Repository,
-			Sender:     event.Sender,
-			RawEvent:   event.RawEvent,
-			Action:     event.Action,
-			DeliveryID: event.DeliveryID,
-			Timestamp:  event.Timestamp,
-		},
-		Issue:       issue,
-		Comment:     reviewComment,
-		IsPRComment: true, // 标记为PR评论
+	err = th.addPRCommentWithMCP(ctx, ws, pr, responseBody)
+	if err != nil {
+		xl.Errorf("Failed to create PR comment for batch processing result via MCP: %v", err)
+		// 不返回错误，因为这不是致命的
+	} else {
+		xl.Infof("Successfully created PR comment for batch processing result via MCP")
 	}
 
-	xl.Infof("Converted PR review to issue comment context for processing")
-
-	// 使用processPRCommand处理逻辑
-	return th.processPRCommand(ctx, issueCommentCtx, cmdInfo, aiModel, mode)
+	xl.Infof("Successfully processed PR #%d from review %d with %d comments", pr.GetNumber(), reviewID, len(reviewComments))
+	return nil
 }
 
 // processPRReviewCommentCommand 处理PR Review Comment命令
+// Files Changed页面的单行评论场景：只需要代码行上下文，不需要历史评论
 func (th *TagHandler) processPRReviewCommentCommand(
 	ctx context.Context,
 	event *models.PullRequestReviewCommentContext,
@@ -824,59 +925,115 @@ func (th *TagHandler) processPRReviewCommentCommand(
 	mode string,
 ) error {
 	xl := xlog.NewWith(ctx)
-	xl.Infof("Processing PR review comment %s command", strings.ToLower(mode))
+	xl.Infof("Processing PR review comment %s command (Files Changed single line comment)", strings.ToLower(mode))
 
-	// PR Review Comment使用与普通PR Comment相同的处理逻辑
-	// 需要将PullRequestReviewCommentContext转换为IssueCommentContext格式
+	prNumber := event.PullRequest.GetNumber()
+	xl.Infof("%s PR #%d from review comment with AI model %s and args: %s", mode, prNumber, aiModel, cmdInfo.Args)
 
-	// 将PullRequestComment转换为IssueComment格式
-	var issueComment *github.IssueComment
-	if event.Comment != nil {
-		issueComment = &github.IssueComment{
-			ID:        event.Comment.ID,
-			Body:      event.Comment.Body,
-			User:      event.Comment.User,
-			CreatedAt: event.Comment.CreatedAt,
-			UpdatedAt: event.Comment.UpdatedAt,
+	// 1. 从工作空间管理器获取 PR 信息
+	pr := event.PullRequest
+
+	// 2. 如果没有指定AI模型，从PR分支中提取
+	if aiModel == "" {
+		branchName := pr.GetHead().GetRef()
+		aiModel = th.workspace.ExtractAIModelFromBranch(branchName)
+		if aiModel == "" {
+			// 如果无法从分支中提取，使用默认配置
+			aiModel = "claude" // TODO: 从配置获取默认值
+		}
+		xl.Infof("Extracted AI model from branch: %s", aiModel)
+	}
+
+	// 3. 获取或创建 PR 工作空间，包含AI模型信息
+	ws := th.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
+	if ws == nil {
+		return fmt.Errorf("failed to get or create workspace for PR %s from review comment", strings.ToLower(mode))
+	}
+
+	// 4. 拉取远端最新代码
+	if err := th.github.PullLatestChanges(ws, pr); err != nil {
+		xl.Errorf("Failed to pull latest changes: %v", err)
+		// 不返回错误，继续执行，因为可能是网络问题
+	}
+
+	// 5. 初始化 code client
+	codeClient, err := th.sessionManager.GetSession(ws)
+	if err != nil {
+		xl.Errorf("failed to get code client for PR %s from review comment: %v", strings.ToLower(mode), err)
+		return err
+	}
+
+	// 6. 构建 prompt，只包含评论上下文和命令参数（不包含历史评论）
+	var prompt string
+
+	// 获取行范围信息
+	startLine := event.Comment.GetStartLine()
+	endLine := event.Comment.GetLine()
+
+	var lineRangeInfo string
+	if startLine != 0 && endLine != 0 && startLine != endLine {
+		// 多行选择
+		lineRangeInfo = fmt.Sprintf("行号范围：%d-%d", startLine, endLine)
+	} else {
+		// 单行
+		lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
+	}
+
+	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n%s",
+		event.Comment.GetBody(),
+		event.Comment.GetPath(),
+		lineRangeInfo)
+
+	if cmdInfo.Args != "" {
+		if mode == "Continue" {
+			prompt = fmt.Sprintf("根据代码行评论和指令继续处理：\n\n%s\n\n指令：%s", commentContext, cmdInfo.Args)
+		} else {
+			prompt = fmt.Sprintf("根据代码行评论和指令修复：\n\n%s\n\n指令：%s", commentContext, cmdInfo.Args)
+		}
+	} else {
+		if mode == "Continue" {
+			prompt = fmt.Sprintf("根据代码行评论继续处理：\n\n%s", commentContext)
+		} else {
+			prompt = fmt.Sprintf("根据代码行评论修复：\n\n%s", commentContext)
 		}
 	}
 
-	// 将PullRequest转换为Issue格式
-	var issue *github.Issue
-	if event.PullRequest != nil {
-		issue = &github.Issue{
-			ID:               event.PullRequest.ID,
-			Number:           event.PullRequest.Number,
-			Title:            event.PullRequest.Title,
-			Body:             event.PullRequest.Body,
-			User:             event.PullRequest.User,
-			State:            event.PullRequest.State,
-			CreatedAt:        event.PullRequest.CreatedAt,
-			UpdatedAt:        event.PullRequest.UpdatedAt,
-			PullRequestLinks: &github.PullRequestLinks{}, // 标记为PR
-		}
+	// 7. 执行AI处理
+	resp, err := th.promptWithRetry(ctx, codeClient, prompt, 3)
+	if err != nil {
+		xl.Errorf("Failed to prompt for PR %s from review comment: %v", strings.ToLower(mode), err)
+		return err
 	}
 
-	// 创建一个兼容的IssueCommentContext
-	issueCommentCtx := &models.IssueCommentContext{
-		BaseContext: models.BaseContext{
-			Type:       models.EventPullRequestReviewComment,
-			Repository: event.Repository,
-			Sender:     event.Sender,
-			RawEvent:   event.RawEvent,
-			Action:     event.Action,
-			DeliveryID: event.DeliveryID,
-			Timestamp:  event.Timestamp,
-		},
-		Issue:       issue,
-		Comment:     issueComment,
-		IsPRComment: true, // 标记为PR评论
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		xl.Errorf("Failed to read output for PR %s from review comment: %v", strings.ToLower(mode), err)
+		return err
 	}
 
-	xl.Infof("Converted PR review comment to issue comment context for processing")
+	xl.Infof("PR %s from Review Comment Output length: %d", mode, len(output))
+	xl.Debugf("PR %s from Review Comment Output: %s", mode, string(output))
 
-	// 使用processPRCommand处理逻辑
-	return th.processPRCommand(ctx, issueCommentCtx, cmdInfo, aiModel, mode)
+	// 8. 提交变更并更新 PR
+	executionResult := &models.ExecutionResult{
+		Output: string(output),
+	}
+	if err := th.github.CommitAndPush(ws, executionResult, codeClient); err != nil {
+		xl.Errorf("Failed to commit and push for PR %s from review comment: %v", strings.ToLower(mode), err)
+		return err
+	}
+
+	// 9. 回复原始评论
+	commentBody := string(output)
+	if err = th.github.ReplyToReviewComment(pr, event.Comment.GetID(), commentBody); err != nil {
+		xl.Errorf("Failed to reply to review comment: %v", err)
+		// 不返回错误，因为这不是致命的，代码修改已经提交成功
+	} else {
+		xl.Infof("Successfully replied to review comment")
+	}
+
+	xl.Infof("Successfully %s PR #%d from review comment", strings.ToLower(mode), pr.GetNumber())
+	return nil
 }
 
 // buildPrompt 构建不同模式的prompt（兼容性函数）
@@ -914,7 +1071,7 @@ func (th *TagHandler) buildPromptWithCurrentComment(mode string, args string, hi
 			commentCommand = "/fix"
 			commentArgs = strings.TrimSpace(strings.TrimPrefix(currentComment, "/fix"))
 		}
-		
+
 		if commentArgs != "" {
 			currentCommentContext = fmt.Sprintf("## 当前评论\n用户刚刚发出指令：%s %s", commentCommand, commentArgs)
 		} else {
@@ -932,7 +1089,7 @@ func (th *TagHandler) buildPromptWithCurrentComment(mode string, args string, hi
 				contextParts = append(contextParts, currentCommentContext)
 			}
 			fullContext := strings.Join(contextParts, "\n\n")
-			
+
 			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
 
 %s
@@ -958,7 +1115,7 @@ func (th *TagHandler) buildPromptWithCurrentComment(mode string, args string, hi
 				contextParts = append(contextParts, currentCommentContext)
 			}
 			fullContext := strings.Join(contextParts, "\n\n")
-			
+
 			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
 
 %s
