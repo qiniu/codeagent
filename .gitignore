@@ -102,3 +102,6 @@ config.yml
 # server 二进制
 server
 codeagent
+
+# claude
+.claude

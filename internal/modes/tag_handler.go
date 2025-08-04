@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/qiniu/codeagent/internal/code"
+	ctxsys "github.com/qiniu/codeagent/internal/context"
 	ghclient "github.com/qiniu/codeagent/internal/github"
 	"github.com/qiniu/codeagent/internal/interaction"
 	"github.com/qiniu/codeagent/internal/mcp"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/xlog"
+	"time"
 )
 
 // TagHandler Tag模式处理器
@@ -27,10 +29,21 @@ type TagHandler struct {
 	workspace      *workspace.Manager
 	mcpClient      mcp.MCPClient
 	sessionManager *code.SessionManager
+	contextManager *ctxsys.ContextManager
 }
 
 // NewTagHandler 创建Tag模式处理器
 func NewTagHandler(github *ghclient.Client, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager) *TagHandler {
+	// 创建上下文管理器
+	collector := ctxsys.NewDefaultContextCollector(github)
+	formatter := ctxsys.NewDefaultContextFormatter(50000) // 50k tokens limit
+	generator := ctxsys.NewDefaultPromptGenerator(formatter)
+	contextManager := &ctxsys.ContextManager{
+		Collector: collector,
+		Formatter: formatter,
+		Generator: generator,
+	}
+
 	return &TagHandler{
 		BaseHandler: NewBaseHandler(
 			TagMode,
@@ -41,6 +54,7 @@ func NewTagHandler(github *ghclient.Client, workspace *workspace.Manager, mcpCli
 		workspace:      workspace,
 		mcpClient:      mcpClient,
 		sessionManager: sessionManager,
+		contextManager: contextManager,
 	}
 }
 
@@ -201,7 +215,66 @@ func (th *TagHandler) handlePRReviewComment(
 	}
 }
 
-// processIssueCodeCommand 处理Issue的/code命令，简化版本，只在PR部分使用进度管理
+// buildEnhancedIssuePrompt 为Issue中的/code命令构建增强提示词
+func (th *TagHandler) buildEnhancedIssuePrompt(ctx context.Context, event *models.IssueCommentContext, args string) (string, error) {
+	xl := xlog.NewWith(ctx)
+	
+	// 收集Issue的完整上下文
+	issue := event.Issue
+	repo := event.Repository
+	repoFullName := repo.GetFullName()
+	
+	// 创建增强上下文
+	ctxType := ctxsys.ContextTypeIssue
+	enhancedCtx := &ctxsys.EnhancedContext{
+		Type:      ctxType,
+		Priority:  ctxsys.PriorityHigh,
+		Timestamp: time.Now(),
+		Subject:   event,
+		Metadata: map[string]interface{}{
+			"issue_number": issue.GetNumber(),
+			"repository":   repoFullName,
+			"sender":       event.Sender.GetLogin(),
+		},
+	}
+
+	// 收集Issue的评论上下文
+	issueNumber := issue.GetNumber()
+	owner, repoName := th.extractRepoInfo(repoFullName)
+	
+	// 获取Issue的所有评论
+	comments, _, err := th.github.GetClient().Issues.ListComments(ctx, owner, repoName, issueNumber, &github.IssueListCommentsOptions{
+		Sort:      github.String("created"),
+		Direction: github.String("asc"),
+	})
+	if err != nil {
+		xl.Warnf("Failed to get issue comments: %v", err)
+	} else {
+		// 转换评论格式
+		for _, comment := range comments {
+			if comment.GetID() != event.Comment.GetID() { // 排除当前评论
+				enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
+					ID:        comment.GetID(),
+					Type:      "comment",
+					Author:    comment.GetUser().GetLogin(),
+					Body:      comment.GetBody(),
+					CreatedAt: comment.GetCreatedAt().Time,
+					UpdatedAt: comment.GetUpdatedAt().Time,
+				})
+			}
+		}
+	}
+
+	// 使用增强的提示词生成器
+	prompt, err := th.contextManager.Generator.GeneratePrompt(enhancedCtx, "Code", args)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate enhanced prompt: %w", err)
+	}
+
+	return prompt, nil
+}
+
+// processIssueCodeCommand 处理Issue的/code命令，现在使用增强上下文系统
 func (th *TagHandler) processIssueCodeCommand(
 	ctx context.Context,
 	event *models.IssueCommentContext,
@@ -342,8 +415,11 @@ func (th *TagHandler) processIssueCodeCommand(
 	}
 	xl.Infof("Code client initialized successfully")
 
-	// 执行代码修改
-	codePrompt := fmt.Sprintf(`根据Issue修改代码：
+	// 使用增强上下文生成提示词
+	codePrompt, err := th.buildEnhancedIssuePrompt(ctx, event, cmdInfo.Args)
+	if err != nil {
+		xl.Warnf("Failed to build enhanced prompt, falling back to simple prompt: %v", err)
+		codePrompt = fmt.Sprintf(`根据Issue修改代码：
 
 标题：%s
 描述：%s
@@ -353,7 +429,9 @@ func (th *TagHandler) processIssueCodeCommand(
 简要说明改动内容
 
 %s
-- 列出修改的文件和具体变动`, event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
+- 列出修改的文件和具体变动`, 
+			event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
+	}
 
 	xl.Infof("Executing code modification with AI")
 	if err := pcm.ShowSpinner(ctx, "AI is analyzing and generating code..."); err != nil {
@@ -618,25 +696,28 @@ func (th *TagHandler) processPRCommand(
 	}
 	xl.Infof("Code client initialized successfully")
 
-	// 8. 获取PR评论历史用于构建上下文
-	xl.Infof("Fetching all PR comments for historical context")
-	allComments, err := th.github.GetAllPRComments(pr)
+	// 8. 使用增强上下文系统构建上下文和prompt
+	xl.Infof("Building enhanced context for PR %s", strings.ToLower(mode))
+	prompt, err := th.buildEnhancedPrompt(ctx, "issue_comment", event.RawEvent, pr, mode, cmdInfo.Args, ws.Path)
 	if err != nil {
-		xl.Warnf("Failed to get PR comments for context: %v", err)
-		allComments = &models.PRAllComments{}
+		xl.Warnf("Failed to build enhanced prompt, falling back to simple prompt: %v", err)
+		// Fallback to original method
+		allComments, err := th.github.GetAllPRComments(pr)
+		if err != nil {
+			xl.Warnf("Failed to get PR comments for context: %v", err)
+			allComments = &models.PRAllComments{}
+		}
+		var currentCommentID int64
+		var currentComment string
+		if event.Comment != nil {
+			currentCommentID = event.Comment.GetID()
+			currentComment = event.Comment.GetBody()
+		}
+		historicalContext := th.formatHistoricalComments(allComments, currentCommentID)
+		prompt = th.buildPromptWithCurrentComment(mode, cmdInfo.Args, historicalContext, currentComment)
+	} else {
+		xl.Infof("Successfully built enhanced prompt for PR %s", strings.ToLower(mode))
 	}
-
-	// 9. 构建包含历史上下文的prompt
-	var currentCommentID int64
-	var currentComment string
-	if event.Comment != nil {
-		currentCommentID = event.Comment.GetID()
-		currentComment = event.Comment.GetBody()
-	}
-	historicalContext := th.formatHistoricalComments(allComments, currentCommentID)
-	prompt := th.buildPromptWithCurrentComment(mode, cmdInfo.Args, historicalContext, currentComment)
-
-	xl.Infof("Using %s prompt with args and historical context", strings.ToLower(mode))
 
 	// 10. 执行AI处理
 	xl.Infof("Executing AI processing for PR %s", strings.ToLower(mode))
@@ -1074,6 +1155,65 @@ func (th *TagHandler) buildPromptWithCurrentComment(mode string, args string, hi
 	return prompt
 }
 
+// buildEnhancedPrompt 使用增强上下文系统构建上下文和prompt
+func (th *TagHandler) buildEnhancedPrompt(
+	ctx context.Context,
+	eventType string,
+	payload interface{},
+	pr *github.PullRequest,
+	mode string,
+	args string,
+	repoPath string,
+) (string, error) {
+	xl := xlog.NewWith(ctx)
+
+	// 1. 收集基础上下文
+	enhancedCtx, err := th.contextManager.Collector.CollectBasicContext(eventType, payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to collect basic context: %w", err)
+	}
+
+	// 2. 收集代码上下文（如果是PR相关）
+	if pr != nil {
+		codeCtx, err := th.contextManager.Collector.CollectCodeContext(pr)
+		if err != nil {
+			xl.Warnf("Failed to collect code context: %v", err)
+		} else {
+			enhancedCtx.Code = codeCtx
+		}
+
+		// 收集评论上下文
+		var currentCommentID int64
+		if eventType == "issue_comment" {
+			if issueEvent, ok := payload.(*github.IssueCommentEvent); ok && issueEvent.Comment != nil {
+				currentCommentID = issueEvent.Comment.GetID()
+			}
+		} else if eventType == "pull_request_review_comment" {
+			if reviewCommentEvent, ok := payload.(*github.PullRequestReviewCommentEvent); ok && reviewCommentEvent.Comment != nil {
+				currentCommentID = reviewCommentEvent.Comment.GetID()
+			}
+		}
+
+		comments, err := th.contextManager.Collector.CollectCommentContext(pr, currentCommentID)
+		if err != nil {
+			xl.Warnf("Failed to collect comment context: %v", err)
+		} else {
+			enhancedCtx.Comments = comments
+		}
+	}
+
+	// 3. 项目上下文已由GitHub原生数据替代，不再收集本地项目信息
+	// 专注于GitHub交互和claude-code-action模式
+
+	// 4. 使用增强的prompt生成器
+	prompt, err := th.contextManager.Generator.GeneratePrompt(enhancedCtx, mode, args)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate prompt: %w", err)
+	}
+
+	return prompt, nil
+}
+
 // formatHistoricalComments 格式化历史评论
 func (th *TagHandler) formatHistoricalComments(allComments *models.PRAllComments, currentCommentID int64) string {
 	return code.FormatHistoricalComments(allComments, currentCommentID)
@@ -1120,4 +1260,13 @@ func (th *TagHandler) addPRCommentWithMCP(ctx context.Context, ws *models.Worksp
 
 	xl.Infof("Successfully added comment to PR via MCP")
 	return nil
+}
+
+// extractRepoInfo 从仓库全名中提取owner和repo名称
+func (th *TagHandler) extractRepoInfo(repoFullName string) (owner, repo string) {
+	parts := strings.Split(repoFullName, "/")
+	if len(parts) != 2 {
+		return "", ""
+	}
+	return parts[0], parts[1]
 }
