@@ -577,7 +577,7 @@ func (th *TagHandler) updatePRWithMCP(ctx context.Context, ws *models.Workspace,
 	return nil
 }
 
-// processPRCommand 处理PR的通用命令（continue/fix），集成渐进式评论功能
+// processPRCommand 处理PR的通用命令（continue/fix），简化版本
 func (th *TagHandler) processPRCommand(
 	ctx context.Context,
 	event *models.IssueCommentContext,
@@ -590,54 +590,9 @@ func (th *TagHandler) processPRCommand(
 	prNumber := event.Issue.GetNumber()
 	xl.Infof("%s PR #%d with AI model %s and args: %s", mode, prNumber, aiModel, cmdInfo.Args)
 
-	// 初始化渐进式评论管理器
-	pcm := interaction.NewProgressCommentManager(th.github, event.GetRepository(), prNumber)
-
-	// 定义PR处理任务列表
-	tasks := []*models.Task{
-		{ID: "validate-pr", Description: fmt.Sprintf("🔍 Validate PR #%d context", prNumber), Status: models.TaskStatusPending},
-		{ID: "setup-workspace", Description: "🗂️ Setup workspace for PR", Status: models.TaskStatusPending},
-		{ID: "process-ai", Description: fmt.Sprintf("🤖 %s code with AI", mode), Status: models.TaskStatusPending},
-		{ID: "commit-push", Description: "💾 Commit and push changes", Status: models.TaskStatusPending},
-		{ID: "add-comment", Description: "💬 Add completion comment", Status: models.TaskStatusPending},
-	}
-
-	// 初始化进度评论
-	if err := pcm.InitializeProgress(ctx, tasks); err != nil {
-		xl.Errorf("Failed to initialize progress comment: %v", err)
-	}
-
-	var result *models.ProgressExecutionResult
-
-	// 确保最终状态更新
-	defer func() {
-		if result == nil {
-			result = &models.ProgressExecutionResult{
-				Success: false,
-				Error:   "PR processing interrupted or failed",
-			}
-		}
-
-		if err := pcm.FinalizeComment(ctx, result); err != nil {
-			xl.Errorf("Failed to finalize progress comment: %v", err)
-		}
-	}()
-
 	// 1. 验证PR上下文
-	if err := pcm.UpdateTask(ctx, "validate-pr", models.TaskStatusInProgress, "Validating PR context and permissions"); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
-
 	if !event.IsPRComment {
-		result = &models.ProgressExecutionResult{
-			Success: false,
-			Error:   fmt.Sprintf("This is not a PR comment, cannot %s", strings.ToLower(mode)),
-		}
 		return fmt.Errorf("this is not a PR comment, cannot %s", strings.ToLower(mode))
-	}
-
-	if err := pcm.UpdateTask(ctx, "validate-pr", models.TaskStatusCompleted); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
 	}
 
 	// 2. 从事件中提取仓库信息（支持多种事件类型）
@@ -698,17 +653,9 @@ func (th *TagHandler) processPRCommand(
 	}
 
 	// 5. 设置工作空间
-	if err := pcm.UpdateTask(ctx, "setup-workspace", models.TaskStatusInProgress, "Setting up workspace and pulling latest code"); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
-
 	xl.Infof("Getting or creating workspace for PR with AI model: %s", aiModel)
 	ws := th.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
 	if ws == nil {
-		result = &models.ProgressExecutionResult{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to get or create workspace for PR %s", strings.ToLower(mode)),
-		}
 		return fmt.Errorf("failed to get or create workspace for PR %s", strings.ToLower(mode))
 	}
 	xl.Infof("Workspace ready: %s", ws.Path)
@@ -726,17 +673,9 @@ func (th *TagHandler) processPRCommand(
 	xl.Infof("Initializing code client")
 	codeClient, err := th.sessionManager.GetSession(ws)
 	if err != nil {
-		result = &models.ProgressExecutionResult{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to create code session: %v", err),
-		}
 		return fmt.Errorf("failed to create code session: %w", err)
 	}
 	xl.Infof("Code client initialized successfully")
-
-	if err := pcm.UpdateTask(ctx, "setup-workspace", models.TaskStatusCompleted); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
 
 	// 8. 获取PR评论历史用于构建上下文
 	xl.Infof("Fetching all PR comments for historical context")
@@ -757,49 +696,21 @@ func (th *TagHandler) processPRCommand(
 	xl.Infof("Using %s prompt with args and historical context", strings.ToLower(mode))
 
 	// 10. 执行AI处理
-	if err := pcm.UpdateTask(ctx, "process-ai", models.TaskStatusInProgress, fmt.Sprintf("AI is processing %s request...", strings.ToLower(mode))); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
-
-	if err := pcm.ShowSpinner(ctx, fmt.Sprintf("AI is working on %s...", strings.ToLower(mode))); err != nil {
-		xl.Errorf("Failed to show spinner: %v", err)
-	}
-
 	xl.Infof("Executing AI processing for PR %s", strings.ToLower(mode))
 	resp, err := th.promptWithRetry(ctx, codeClient, prompt, 3)
 	if err != nil {
-		result = &models.ProgressExecutionResult{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to process PR %s: %v", strings.ToLower(mode), err),
-		}
 		return fmt.Errorf("failed to process PR %s: %w", strings.ToLower(mode), err)
 	}
 
 	output, err := io.ReadAll(resp.Out)
 	if err != nil {
-		result = &models.ProgressExecutionResult{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to read output for PR %s: %v", strings.ToLower(mode), err),
-		}
 		return fmt.Errorf("failed to read output for PR %s: %w", strings.ToLower(mode), err)
-	}
-
-	if err := pcm.HideSpinner(ctx); err != nil {
-		xl.Errorf("Failed to hide spinner: %v", err)
 	}
 
 	xl.Infof("AI processing completed, output length: %d", len(output))
 	xl.Debugf("PR %s Output: %s", mode, string(output))
 
-	if err := pcm.UpdateTask(ctx, "process-ai", models.TaskStatusCompleted); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
-
 	// 11. 提交变更
-	if err := pcm.UpdateTask(ctx, "commit-push", models.TaskStatusInProgress, "Committing and pushing changes to repository"); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
-
 	executionResult := &models.ExecutionResult{
 		Output: string(output),
 		Error:  "",
@@ -809,10 +720,6 @@ func (th *TagHandler) processPRCommand(
 	if err := th.github.CommitAndPush(ws, executionResult, codeClient); err != nil {
 		xl.Errorf("Failed to commit and push changes: %v", err)
 		if mode == "Fix" {
-			result = &models.ProgressExecutionResult{
-				Success: false,
-				Error:   fmt.Sprintf("Failed to commit and push changes: %v", err),
-			}
 			return err
 		}
 		// Continue模式不返回错误
@@ -820,35 +727,23 @@ func (th *TagHandler) processPRCommand(
 		xl.Infof("Changes committed and pushed successfully")
 	}
 
-	if err := pcm.UpdateTask(ctx, "commit-push", models.TaskStatusCompleted); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
+	// 12. 添加完成评论并@原评论者
+	xl.Infof("Adding completion comment to PR")
+
+	// 构建包含@原评论者的评论
+	var commentBody string
+	if event.Comment != nil && event.Comment.User != nil {
+		commentBody = fmt.Sprintf("@%s \n\n%s", event.Comment.User.GetLogin(), string(output))
+	} else {
+		commentBody = string(output)
 	}
 
-	// 12. 添加完成评论
-	if err := pcm.UpdateTask(ctx, "add-comment", models.TaskStatusInProgress, "Adding completion comment to PR"); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
-
-	xl.Infof("Adding comment to PR using MCP tools")
-	err = th.addPRCommentWithMCP(ctx, ws, pr, string(output))
+	err = th.addPRCommentWithMCP(ctx, ws, pr, commentBody)
 	if err != nil {
 		xl.Errorf("Failed to add comment via MCP: %v", err)
 		// 不返回错误，因为这不是致命的
 	} else {
-		xl.Infof("Successfully added comment to PR via MCP")
-	}
-
-	if err := pcm.UpdateTask(ctx, "add-comment", models.TaskStatusCompleted); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
-
-	// 设置成功结果
-	result = &models.ProgressExecutionResult{
-		Success:        true,
-		Summary:        fmt.Sprintf("Successfully %s PR #%d", strings.ToLower(mode), prNumber),
-		BranchName:     ws.Branch,
-		PullRequestURL: pr.GetHTMLURL(),
-		FilesChanged:   []string{}, // TODO: 从git diff中提取文件列表
+		xl.Infof("Successfully added completion comment to PR via MCP")
 	}
 
 	xl.Infof("PR %s processing completed successfully", strings.ToLower(mode))

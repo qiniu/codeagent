@@ -13,6 +13,38 @@ import (
 	"github.com/qiniu/x/xlog"
 )
 
+// safeExtractInt 安全地从 interface{} 中提取 int 值
+func safeExtractInt(value interface{}, paramName string) (int, error) {
+	switch v := value.(type) {
+	case float64:
+		return int(v), nil
+	case int:
+		return v, nil
+	case int64:
+		return int(v), nil
+	case int32:
+		return int(v), nil
+	default:
+		return 0, fmt.Errorf("invalid %s type: %T", paramName, v)
+	}
+}
+
+// safeExtractInt64 安全地从 interface{} 中提取 int64 值
+func safeExtractInt64(value interface{}, paramName string) (int64, error) {
+	switch v := value.(type) {
+	case float64:
+		return int64(v), nil
+	case int:
+		return int64(v), nil
+	case int64:
+		return v, nil
+	case int32:
+		return int64(v), nil
+	default:
+		return 0, fmt.Errorf("invalid %s type: %T", paramName, v)
+	}
+}
+
 // GitHubCommentsServer GitHub评论操作MCP服务器
 // 对应claude-code-action中的GitHubCommentsServer
 type GitHubCommentsServer struct {
@@ -239,7 +271,16 @@ func (s *GitHubCommentsServer) Shutdown(ctx context.Context) error {
 
 // createComment 创建评论
 func (s *GitHubCommentsServer) createComment(ctx context.Context, call *models.ToolCall, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
-	issueNumber := int(call.Function.Arguments["issue_number"].(float64))
+	// 安全地提取 issue_number
+	issueNumber, err := safeExtractInt(call.Function.Arguments["issue_number"], "issue_number")
+	if err != nil {
+		return &models.ToolResult{
+			ID:      call.ID,
+			Success: false,
+			Error:   err.Error(),
+			Type:    "error",
+		}, nil
+	}
 	body := call.Function.Arguments["body"].(string)
 
 	// 检查写权限
@@ -280,7 +321,16 @@ func (s *GitHubCommentsServer) createComment(ctx context.Context, call *models.T
 
 // updateComment 更新评论
 func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.ToolCall, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
-	commentID := int64(call.Function.Arguments["comment_id"].(float64))
+	// 安全地提取 comment_id
+	commentID, err := safeExtractInt64(call.Function.Arguments["comment_id"], "comment_id")
+	if err != nil {
+		return &models.ToolResult{
+			ID:      call.ID,
+			Success: false,
+			Error:   err.Error(),
+			Type:    "error",
+		}, nil
+	}
 	body := call.Function.Arguments["body"].(string)
 
 	// 检查写权限
@@ -293,12 +343,12 @@ func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.T
 		}, nil
 	}
 
-	err := s.client.UpdateComment(ctx, owner, repo, commentID, body)
-	if err != nil {
+	updateErr := s.client.UpdateComment(ctx, owner, repo, commentID, body)
+	if updateErr != nil {
 		return &models.ToolResult{
 			ID:      call.ID,
 			Success: false,
-			Error:   fmt.Sprintf("failed to update comment: %v", err),
+			Error:   fmt.Sprintf("failed to update comment: %v", updateErr),
 			Type:    "error",
 		}, nil
 	}
@@ -317,24 +367,33 @@ func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.T
 
 // listComments 列出评论
 func (s *GitHubCommentsServer) listComments(ctx context.Context, call *models.ToolCall, owner, repo string) (*models.ToolResult, error) {
-	issueNumber := int(call.Function.Arguments["issue_number"].(float64))
+	// 安全地提取 issue_number
+	issueNumber, err := safeExtractInt(call.Function.Arguments["issue_number"], "issue_number")
+	if err != nil {
+		return &models.ToolResult{
+			ID:      call.ID,
+			Success: false,
+			Error:   err.Error(),
+			Type:    "error",
+		}, nil
+	}
 
 	opts := &githubapi.IssueListCommentsOptions{
 		ListOptions: githubapi.ListOptions{PerPage: 100},
 	}
 
 	if since, ok := call.Function.Arguments["since"].(string); ok && since != "" {
-		if sinceTime, err := time.Parse(time.RFC3339, since); err == nil {
+		if sinceTime, parseErr := time.Parse(time.RFC3339, since); parseErr == nil {
 			opts.Since = &sinceTime
 		}
 	}
 
-	comments, _, err := s.client.GetClient().Issues.ListComments(ctx, owner, repo, issueNumber, opts)
-	if err != nil {
+	comments, _, listErr := s.client.GetClient().Issues.ListComments(ctx, owner, repo, issueNumber, opts)
+	if listErr != nil {
 		return &models.ToolResult{
 			ID:      call.ID,
 			Success: false,
-			Error:   fmt.Sprintf("failed to list comments: %v", err),
+			Error:   fmt.Sprintf("failed to list comments: %v", listErr),
 			Type:    "error",
 		}, nil
 	}
@@ -366,11 +425,31 @@ func (s *GitHubCommentsServer) listComments(ctx context.Context, call *models.To
 
 // createReviewComment 创建review评论
 func (s *GitHubCommentsServer) createReviewComment(ctx context.Context, call *models.ToolCall, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
-	pullNumber := int(call.Function.Arguments["pull_number"].(float64))
+	// 安全地提取 pull_number
+	pullNumber, err := safeExtractInt(call.Function.Arguments["pull_number"], "pull_number")
+	if err != nil {
+		return &models.ToolResult{
+			ID:      call.ID,
+			Success: false,
+			Error:   err.Error(),
+			Type:    "error",
+		}, nil
+	}
+
 	body := call.Function.Arguments["body"].(string)
 	commitID := call.Function.Arguments["commit_id"].(string)
 	path := call.Function.Arguments["path"].(string)
-	line := int(call.Function.Arguments["line"].(float64))
+
+	// 安全地提取 line
+	line, lineErr := safeExtractInt(call.Function.Arguments["line"], "line")
+	if lineErr != nil {
+		return &models.ToolResult{
+			ID:      call.ID,
+			Success: false,
+			Error:   lineErr.Error(),
+			Type:    "error",
+		}, nil
+	}
 
 	// 检查写权限
 	if !s.hasWritePermission(mcpCtx) {
@@ -419,7 +498,25 @@ func (s *GitHubCommentsServer) createReviewComment(ctx context.Context, call *mo
 
 // listPRComments 列出PR的所有评论
 func (s *GitHubCommentsServer) listPRComments(ctx context.Context, call *models.ToolCall, owner, repo string) (*models.ToolResult, error) {
-	pullNumber := int(call.Function.Arguments["pull_number"].(float64))
+	// 安全地提取 pull_number，支持多种数字类型
+	var pullNumber int
+	switch v := call.Function.Arguments["pull_number"].(type) {
+	case float64:
+		pullNumber = int(v)
+	case int:
+		pullNumber = v
+	case int64:
+		pullNumber = int(v)
+	case int32:
+		pullNumber = int(v)
+	default:
+		return &models.ToolResult{
+			ID:      call.ID,
+			Success: false,
+			Error:   fmt.Sprintf("invalid pull_number type: %T", v),
+			Type:    "error",
+		}, nil
+	}
 
 	// 获取PR详情
 	pr, _, err := s.client.GetClient().PullRequests.Get(ctx, owner, repo, pullNumber)
