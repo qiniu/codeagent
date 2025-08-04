@@ -22,18 +22,18 @@ func (v *toolValidator) ValidateCall(call *models.ToolCall, tool *models.Tool) e
 	if call == nil {
 		return fmt.Errorf("tool call is nil")
 	}
-	
+
 	if tool == nil {
 		return fmt.Errorf("tool definition is nil")
 	}
-	
+
 	// 验证参数schema
 	if tool.InputSchema != nil {
 		if err := v.ValidateArguments(call.Function.Arguments, tool.InputSchema); err != nil {
 			return fmt.Errorf("argument validation failed: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -42,20 +42,20 @@ func (v *toolValidator) ValidatePermissions(call *models.ToolCall, mcpCtx *model
 	if mcpCtx == nil {
 		return nil // 无上下文时跳过权限检查
 	}
-	
+
 	// 检查权限约束
 	for _, constraint := range mcpCtx.Constraints {
 		if v.violatesConstraint(call, constraint) {
 			return fmt.Errorf("tool call violates constraint: %s", constraint)
 		}
 	}
-	
+
 	// 检查必需权限
 	requiredPermission := v.getRequiredPermission(call.Function.Name)
 	if requiredPermission != "" && !slices.Contains(mcpCtx.Permissions, requiredPermission) {
 		return fmt.Errorf("insufficient permissions: requires %s", requiredPermission)
 	}
-	
+
 	return nil
 }
 
@@ -64,14 +64,14 @@ func (v *toolValidator) ValidateArguments(args map[string]interface{}, schema *m
 	if schema == nil {
 		return nil
 	}
-	
+
 	// 验证必需字段
 	for _, required := range schema.Required {
 		if _, exists := args[required]; !exists {
 			return fmt.Errorf("missing required argument: %s", required)
 		}
 	}
-	
+
 	// 验证字段类型和值
 	for key, value := range args {
 		if schema.Properties != nil {
@@ -84,7 +84,7 @@ func (v *toolValidator) ValidateArguments(args map[string]interface{}, schema *m
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -93,21 +93,21 @@ func (v *toolValidator) validateValue(value interface{}, schema *models.JSONSche
 	if value == nil {
 		return nil
 	}
-	
+
 	// 类型检查
 	switch schema.Type {
 	case "string":
 		if _, ok := value.(string); !ok {
 			return fmt.Errorf("argument %s must be a string, got %T", fieldName, value)
 		}
-		
+
 		// 枚举检查
 		if len(schema.Enum) > 0 {
 			if !slices.Contains(schema.Enum, value) {
 				return fmt.Errorf("argument %s must be one of %v, got %v", fieldName, schema.Enum, value)
 			}
 		}
-		
+
 	case "number":
 		switch value.(type) {
 		case float64, float32, int, int32, int64:
@@ -115,7 +115,7 @@ func (v *toolValidator) validateValue(value interface{}, schema *models.JSONSche
 		default:
 			return fmt.Errorf("argument %s must be a number, got %T", fieldName, value)
 		}
-		
+
 	case "integer":
 		switch value.(type) {
 		case int, int32, int64:
@@ -128,18 +128,18 @@ func (v *toolValidator) validateValue(value interface{}, schema *models.JSONSche
 		default:
 			return fmt.Errorf("argument %s must be an integer, got %T", fieldName, value)
 		}
-		
+
 	case "boolean":
 		if _, ok := value.(bool); !ok {
 			return fmt.Errorf("argument %s must be a boolean, got %T", fieldName, value)
 		}
-		
+
 	case "array":
 		slice := reflect.ValueOf(value)
 		if slice.Kind() != reflect.Slice && slice.Kind() != reflect.Array {
 			return fmt.Errorf("argument %s must be an array, got %T", fieldName, value)
 		}
-		
+
 		// 验证数组元素
 		if schema.Items != nil {
 			for i := 0; i < slice.Len(); i++ {
@@ -149,13 +149,13 @@ func (v *toolValidator) validateValue(value interface{}, schema *models.JSONSche
 				}
 			}
 		}
-		
+
 	case "object":
 		objMap, ok := value.(map[string]interface{})
 		if !ok {
 			return fmt.Errorf("argument %s must be an object, got %T", fieldName, value)
 		}
-		
+
 		// 递归验证对象属性
 		if schema.Properties != nil {
 			for key, val := range objMap {
@@ -167,7 +167,7 @@ func (v *toolValidator) validateValue(value interface{}, schema *models.JSONSche
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -192,7 +192,7 @@ func (v *toolValidator) violatesConstraint(call *models.ToolCall, constraint str
 func (v *toolValidator) isWriteOperation(toolName string) bool {
 	writeKeywords := []string{"write", "create", "update", "delete", "modify", "commit", "push"}
 	lowerName := strings.ToLower(toolName)
-	
+
 	for _, keyword := range writeKeywords {
 		if strings.Contains(lowerName, keyword) {
 			return true
@@ -205,7 +205,7 @@ func (v *toolValidator) isWriteOperation(toolName string) bool {
 func (v *toolValidator) isFileOperation(toolName string) bool {
 	fileKeywords := []string{"file", "read", "write", "create", "delete", "list", "search"}
 	lowerName := strings.ToLower(toolName)
-	
+
 	for _, keyword := range fileKeywords {
 		if strings.Contains(lowerName, keyword) {
 			return true
@@ -218,7 +218,7 @@ func (v *toolValidator) isFileOperation(toolName string) bool {
 func (v *toolValidator) isExternalOperation(toolName string) bool {
 	externalKeywords := []string{"http", "fetch", "api", "webhook", "notification"}
 	lowerName := strings.ToLower(toolName)
-	
+
 	for _, keyword := range externalKeywords {
 		if strings.Contains(lowerName, keyword) {
 			return true
@@ -230,24 +230,24 @@ func (v *toolValidator) isExternalOperation(toolName string) bool {
 // getRequiredPermission 获取工具所需权限
 func (v *toolValidator) getRequiredPermission(toolName string) string {
 	lowerName := strings.ToLower(toolName)
-	
+
 	if strings.Contains(lowerName, "github") {
 		if v.isWriteOperation(toolName) {
 			return "github:write"
 		}
 		return "github:read"
 	}
-	
+
 	if strings.Contains(lowerName, "file") {
 		if v.isWriteOperation(toolName) {
 			return "filesystem:write"
 		}
 		return "filesystem:read"
 	}
-	
+
 	if v.isExternalOperation(toolName) {
 		return "network:access"
 	}
-	
+
 	return "" // 无特殊权限要求
 }

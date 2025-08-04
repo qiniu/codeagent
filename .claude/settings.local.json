@@ -14,7 +14,10 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git worktree:*)",
-      "Bash(go vet:*)"
+      "Bash(go vet:*)",
+      "Bash(golangci-lint run:*)",
+      "Bash(golangci-lint help:*)",
+      "Bash(go fmt:*)"
     ],
     "deny": []
   }

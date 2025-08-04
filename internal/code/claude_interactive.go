@@ -54,12 +54,19 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 	}
 
 	// 确保路径存在
-	workspacePath, _ := filepath.Abs(workspace.Path)
+	workspacePath, err := filepath.Abs(workspace.Path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute workspace path: %w", err)
+	}
 
 	// 确定claude配置路径
 	var claudeConfigPath string
 	if home := os.Getenv("HOME"); home != "" {
-		claudeConfigPath, _ = filepath.Abs(filepath.Join(home, ".claude"))
+		var err error
+		claudeConfigPath, err = filepath.Abs(filepath.Join(home, ".claude"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get absolute claude config path: %w", err)
+		}
 	} else {
 		claudeConfigPath = "/home/codeagent/.claude"
 	}

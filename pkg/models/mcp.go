@@ -34,13 +34,13 @@ type Tool struct {
 
 // JSONSchema JSON Schema定义
 type JSONSchema struct {
-	Type                 string                    `json:"type"`
-	Properties           map[string]*JSONSchema    `json:"properties,omitempty"`
-	Required             []string                  `json:"required,omitempty"`
-	Items                *JSONSchema               `json:"items,omitempty"`
-	Description          string                    `json:"description,omitempty"`
-	Enum                 []interface{}             `json:"enum,omitempty"`
-	AdditionalProperties bool                      `json:"additionalProperties,omitempty"`
+	Type                 string                 `json:"type"`
+	Properties           map[string]*JSONSchema `json:"properties,omitempty"`
+	Required             []string               `json:"required,omitempty"`
+	Items                *JSONSchema            `json:"items,omitempty"`
+	Description          string                 `json:"description,omitempty"`
+	Enum                 []interface{}          `json:"enum,omitempty"`
+	AdditionalProperties bool                   `json:"additionalProperties,omitempty"`
 }
 
 // ToolCall 工具调用
@@ -75,16 +75,16 @@ type MCPServerCapabilities struct {
 // MCPContext MCP执行上下文
 type MCPContext struct {
 	// 基础上下文
-	Repository   GitHubContext `json:"repository"`
-	Issue        interface{}   `json:"issue,omitempty"`
-	PullRequest  interface{}   `json:"pull_request,omitempty"`
-	User         interface{}   `json:"user,omitempty"`
-	
+	Repository  GitHubContext `json:"repository"`
+	Issue       interface{}   `json:"issue,omitempty"`
+	PullRequest interface{}   `json:"pull_request,omitempty"`
+	User        interface{}   `json:"user,omitempty"`
+
 	// 工作环境
 	WorkspacePath string            `json:"workspace_path,omitempty"`
 	BranchName    string            `json:"branch_name,omitempty"`
 	Metadata      map[string]string `json:"metadata,omitempty"`
-	
+
 	// 权限控制
 	Permissions []string `json:"permissions,omitempty"`
 	Constraints []string `json:"constraints,omitempty"`
@@ -92,11 +92,11 @@ type MCPContext struct {
 
 // MCPServerInfo MCP服务器信息
 type MCPServerInfo struct {
-	Name         string                 `json:"name"`
-	Version      string                 `json:"version"`
-	Description  string                 `json:"description"`
-	Capabilities MCPServerCapabilities  `json:"capabilities"`
-	CreatedAt    time.Time              `json:"created_at"`
+	Name         string                `json:"name"`
+	Version      string                `json:"version"`
+	Description  string                `json:"description"`
+	Capabilities MCPServerCapabilities `json:"capabilities"`
+	CreatedAt    time.Time             `json:"created_at"`
 }
 
 // ExecutionMetrics 执行指标

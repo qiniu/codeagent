@@ -54,12 +54,12 @@ func (m *MockMCPServer) HandleToolCall(ctx context.Context, call *models.ToolCal
 	if parts := strings.Split(call.Function.Name, "_"); len(parts) > 1 {
 		toolName = strings.Join(parts[1:], "_")
 	}
-	
+
 	if result, exists := m.responses[toolName]; exists {
 		result.ID = call.ID
 		return result, nil
 	}
-	
+
 	return &models.ToolResult{
 		ID:      call.ID,
 		Success: true,
@@ -94,16 +94,16 @@ func (m *MockMCPServer) SetResponse(toolName string, result *models.ToolResult) 
 func TestMCPManager_RegisterServer(t *testing.T) {
 	manager := NewManager()
 	mockServer := NewMockMCPServer("test-server")
-	
+
 	// 注册服务器
 	err := manager.RegisterServer("test", mockServer)
 	require.NoError(t, err)
-	
+
 	// 验证服务器已注册
 	servers := manager.GetServers()
 	assert.Len(t, servers, 1)
 	assert.Contains(t, servers, "test")
-	
+
 	// 验证指标已初始化
 	metrics := manager.GetMetrics()
 	assert.Len(t, metrics, 1)
@@ -114,11 +114,11 @@ func TestMCPManager_RegisterDuplicateServer(t *testing.T) {
 	manager := NewManager()
 	mockServer1 := NewMockMCPServer("test-server-1")
 	mockServer2 := NewMockMCPServer("test-server-2")
-	
+
 	// 注册第一个服务器
 	err := manager.RegisterServer("test", mockServer1)
 	require.NoError(t, err)
-	
+
 	// 尝试注册重名服务器
 	err = manager.RegisterServer("test", mockServer2)
 	assert.Error(t, err)
@@ -127,7 +127,7 @@ func TestMCPManager_RegisterDuplicateServer(t *testing.T) {
 
 func TestMCPManager_GetAvailableTools(t *testing.T) {
 	manager := NewManager()
-	
+
 	// 创建两个模拟服务器
 	server1 := NewMockMCPServer("server1")
 	server1.AddTool(models.Tool{
@@ -138,19 +138,19 @@ func TestMCPManager_GetAvailableTools(t *testing.T) {
 		Name:        "tool2",
 		Description: "Test tool 2",
 	})
-	
+
 	server2 := NewMockMCPServer("server2")
 	server2.AddTool(models.Tool{
 		Name:        "tool3",
 		Description: "Test tool 3",
 	})
-	
+
 	// 注册服务器
 	err := manager.RegisterServer("srv1", server1)
 	require.NoError(t, err)
 	err = manager.RegisterServer("srv2", server2)
 	require.NoError(t, err)
-	
+
 	// 创建测试上下文
 	mcpCtx := &models.MCPContext{
 		Repository: &models.IssueCommentContext{
@@ -165,19 +165,19 @@ func TestMCPManager_GetAvailableTools(t *testing.T) {
 		},
 		Permissions: []string{"github:read"},
 	}
-	
+
 	// 获取可用工具
 	tools, err := manager.GetAvailableTools(context.Background(), mcpCtx)
 	require.NoError(t, err)
-	
+
 	// 验证工具数量和命名
 	assert.Len(t, tools, 3)
-	
+
 	toolNames := make([]string, len(tools))
 	for i, tool := range tools {
 		toolNames[i] = tool.Name
 	}
-	
+
 	assert.Contains(t, toolNames, "srv1_tool1")
 	assert.Contains(t, toolNames, "srv1_tool2")
 	assert.Contains(t, toolNames, "srv2_tool3")
@@ -185,7 +185,7 @@ func TestMCPManager_GetAvailableTools(t *testing.T) {
 
 func TestMCPManager_GetAvailableTools_UnavailableServer(t *testing.T) {
 	manager := NewManager()
-	
+
 	// 创建不可用的服务器
 	server := NewMockMCPServer("server")
 	server.AddTool(models.Tool{
@@ -193,30 +193,30 @@ func TestMCPManager_GetAvailableTools_UnavailableServer(t *testing.T) {
 		Description: "Test tool 1",
 	})
 	server.SetAvailable(false) // 设置为不可用
-	
+
 	err := manager.RegisterServer("srv", server)
 	require.NoError(t, err)
-	
+
 	mcpCtx := &models.MCPContext{}
-	
+
 	// 获取可用工具
 	tools, err := manager.GetAvailableTools(context.Background(), mcpCtx)
 	require.NoError(t, err)
-	
+
 	// 不可用的服务器不应该提供工具
 	assert.Len(t, tools, 0)
 }
 
 func TestMCPManager_HandleToolCall(t *testing.T) {
 	manager := NewManager()
-	
+
 	// 创建模拟服务器
 	server := NewMockMCPServer("server")
 	server.AddTool(models.Tool{
 		Name:        "test_tool",
 		Description: "Test tool",
 	})
-	
+
 	// 设置预期响应
 	expectedResult := &models.ToolResult{
 		Success: true,
@@ -226,10 +226,10 @@ func TestMCPManager_HandleToolCall(t *testing.T) {
 		Type: "json",
 	}
 	server.SetResponse("test_tool", expectedResult)
-	
+
 	err := manager.RegisterServer("srv", server)
 	require.NoError(t, err)
-	
+
 	// 创建工具调用
 	call := &models.ToolCall{
 		ID: "test-call-1",
@@ -238,13 +238,13 @@ func TestMCPManager_HandleToolCall(t *testing.T) {
 			Arguments: map[string]interface{}{},
 		},
 	}
-	
+
 	mcpCtx := &models.MCPContext{}
-	
+
 	// 执行工具调用
 	result, err := manager.HandleToolCall(context.Background(), call, mcpCtx)
 	require.NoError(t, err)
-	
+
 	assert.Equal(t, "test-call-1", result.ID)
 	assert.True(t, result.Success)
 	assert.Equal(t, expectedResult.Content, result.Content)
@@ -252,7 +252,7 @@ func TestMCPManager_HandleToolCall(t *testing.T) {
 
 func TestMCPManager_HandleToolCall_UnknownServer(t *testing.T) {
 	manager := NewManager()
-	
+
 	call := &models.ToolCall{
 		ID: "test-call-1",
 		Function: models.ToolFunction{
@@ -260,13 +260,13 @@ func TestMCPManager_HandleToolCall_UnknownServer(t *testing.T) {
 			Arguments: map[string]interface{}{},
 		},
 	}
-	
+
 	mcpCtx := &models.MCPContext{}
-	
+
 	// 执行未知服务器的工具调用
 	result, err := manager.HandleToolCall(context.Background(), call, mcpCtx)
 	require.NoError(t, err)
-	
+
 	assert.Equal(t, "test-call-1", result.ID)
 	assert.False(t, result.Success)
 	assert.Contains(t, result.Error, "unknown MCP server")
@@ -274,7 +274,7 @@ func TestMCPManager_HandleToolCall_UnknownServer(t *testing.T) {
 
 func TestMCPManager_HandleToolCall_InvalidToolName(t *testing.T) {
 	manager := NewManager()
-	
+
 	call := &models.ToolCall{
 		ID: "test-call-1",
 		Function: models.ToolFunction{
@@ -282,12 +282,12 @@ func TestMCPManager_HandleToolCall_InvalidToolName(t *testing.T) {
 			Arguments: map[string]interface{}{},
 		},
 	}
-	
+
 	mcpCtx := &models.MCPContext{}
-	
+
 	result, err := manager.HandleToolCall(context.Background(), call, mcpCtx)
 	require.NoError(t, err)
-	
+
 	assert.Equal(t, "test-call-1", result.ID)
 	assert.False(t, result.Success)
 	assert.Contains(t, result.Error, "invalid tool name format")
@@ -296,30 +296,30 @@ func TestMCPManager_HandleToolCall_InvalidToolName(t *testing.T) {
 func TestMCPManager_UnregisterServer(t *testing.T) {
 	manager := NewManager()
 	mockServer := NewMockMCPServer("test-server")
-	
+
 	// 注册服务器
 	err := manager.RegisterServer("test", mockServer)
 	require.NoError(t, err)
-	
+
 	// 验证服务器已注册
 	servers := manager.GetServers()
 	assert.Len(t, servers, 1)
-	
+
 	// 取消注册服务器
 	err = manager.UnregisterServer("test")
 	require.NoError(t, err)
-	
+
 	// 验证服务器已被移除
 	servers = manager.GetServers()
 	assert.Len(t, servers, 0)
-	
+
 	metrics := manager.GetMetrics()
 	assert.Len(t, metrics, 0)
 }
 
 func TestMCPManager_UnregisterNonexistentServer(t *testing.T) {
 	manager := NewManager()
-	
+
 	err := manager.UnregisterServer("nonexistent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
@@ -327,28 +327,28 @@ func TestMCPManager_UnregisterNonexistentServer(t *testing.T) {
 
 func TestMCPManager_Shutdown(t *testing.T) {
 	manager := NewManager()
-	
+
 	// 注册多个服务器
 	server1 := NewMockMCPServer("server1")
 	server2 := NewMockMCPServer("server2")
-	
+
 	err := manager.RegisterServer("srv1", server1)
 	require.NoError(t, err)
 	err = manager.RegisterServer("srv2", server2)
 	require.NoError(t, err)
-	
+
 	// 验证服务器已注册
 	servers := manager.GetServers()
 	assert.Len(t, servers, 2)
-	
+
 	// 关闭管理器
 	err = manager.Shutdown(context.Background())
 	require.NoError(t, err)
-	
+
 	// 验证所有服务器已被清理
 	servers = manager.GetServers()
 	assert.Len(t, servers, 0)
-	
+
 	metrics := manager.GetMetrics()
 	assert.Len(t, metrics, 0)
 }

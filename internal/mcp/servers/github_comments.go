@@ -168,7 +168,7 @@ func (s *GitHubCommentsServer) IsAvailable(ctx context.Context, mcpCtx *models.M
 	if mcpCtx == nil || mcpCtx.Repository == nil {
 		return false
 	}
-	
+
 	// 检查是否有GitHub访问权限
 	if mcpCtx.Permissions != nil {
 		hasReadPerm := false
@@ -182,29 +182,29 @@ func (s *GitHubCommentsServer) IsAvailable(ctx context.Context, mcpCtx *models.M
 			return false
 		}
 	}
-	
+
 	return true
 }
 
 // HandleToolCall 处理工具调用
 func (s *GitHubCommentsServer) HandleToolCall(ctx context.Context, call *models.ToolCall, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
 	xl := xlog.NewWith(ctx)
-	
+
 	if mcpCtx.Repository == nil {
 		return nil, fmt.Errorf("no repository context available")
 	}
-	
+
 	owner := mcpCtx.Repository.GetRepository().Owner.GetLogin()
 	repo := mcpCtx.Repository.GetRepository().GetName()
-	
+
 	// 解析工具名称，去掉服务器前缀
 	toolName := call.Function.Name
 	if parts := strings.SplitN(call.Function.Name, "_", 2); len(parts) == 2 {
 		toolName = parts[1] // 获取去掉前缀的工具名称
 	}
-	
+
 	xl.Infof("Executing GitHub comments tool: %s (parsed: %s) on %s/%s", call.Function.Name, toolName, owner, repo)
-	
+
 	switch toolName {
 	case "create_comment":
 		return s.createComment(ctx, call, owner, repo, mcpCtx)
@@ -241,7 +241,7 @@ func (s *GitHubCommentsServer) Shutdown(ctx context.Context) error {
 func (s *GitHubCommentsServer) createComment(ctx context.Context, call *models.ToolCall, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
 	issueNumber := int(call.Function.Arguments["issue_number"].(float64))
 	body := call.Function.Arguments["body"].(string)
-	
+
 	// 检查写权限
 	if !s.hasWritePermission(mcpCtx) {
 		return &models.ToolResult{
@@ -251,7 +251,7 @@ func (s *GitHubCommentsServer) createComment(ctx context.Context, call *models.T
 			Type:    "error",
 		}, nil
 	}
-	
+
 	comment, err := s.client.CreateComment(ctx, owner, repo, issueNumber, body)
 	if err != nil {
 		return &models.ToolResult{
@@ -261,7 +261,7 @@ func (s *GitHubCommentsServer) createComment(ctx context.Context, call *models.T
 			Type:    "error",
 		}, nil
 	}
-	
+
 	return &models.ToolResult{
 		ID:      call.ID,
 		Success: true,
@@ -282,7 +282,7 @@ func (s *GitHubCommentsServer) createComment(ctx context.Context, call *models.T
 func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.ToolCall, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
 	commentID := int64(call.Function.Arguments["comment_id"].(float64))
 	body := call.Function.Arguments["body"].(string)
-	
+
 	// 检查写权限
 	if !s.hasWritePermission(mcpCtx) {
 		return &models.ToolResult{
@@ -292,7 +292,7 @@ func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.T
 			Type:    "error",
 		}, nil
 	}
-	
+
 	err := s.client.UpdateComment(ctx, owner, repo, commentID, body)
 	if err != nil {
 		return &models.ToolResult{
@@ -302,7 +302,7 @@ func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.T
 			Type:    "error",
 		}, nil
 	}
-	
+
 	return &models.ToolResult{
 		ID:      call.ID,
 		Success: true,
@@ -318,17 +318,17 @@ func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.T
 // listComments 列出评论
 func (s *GitHubCommentsServer) listComments(ctx context.Context, call *models.ToolCall, owner, repo string) (*models.ToolResult, error) {
 	issueNumber := int(call.Function.Arguments["issue_number"].(float64))
-	
+
 	opts := &githubapi.IssueListCommentsOptions{
 		ListOptions: githubapi.ListOptions{PerPage: 100},
 	}
-	
+
 	if since, ok := call.Function.Arguments["since"].(string); ok && since != "" {
 		if sinceTime, err := time.Parse(time.RFC3339, since); err == nil {
 			opts.Since = &sinceTime
 		}
 	}
-	
+
 	comments, _, err := s.client.GetClient().Issues.ListComments(ctx, owner, repo, issueNumber, opts)
 	if err != nil {
 		return &models.ToolResult{
@@ -338,7 +338,7 @@ func (s *GitHubCommentsServer) listComments(ctx context.Context, call *models.To
 			Type:    "error",
 		}, nil
 	}
-	
+
 	var commentList []map[string]interface{}
 	for _, comment := range comments {
 		commentInfo := map[string]interface{}{
@@ -351,7 +351,7 @@ func (s *GitHubCommentsServer) listComments(ctx context.Context, call *models.To
 		}
 		commentList = append(commentList, commentInfo)
 	}
-	
+
 	return &models.ToolResult{
 		ID:      call.ID,
 		Success: true,
@@ -371,7 +371,7 @@ func (s *GitHubCommentsServer) createReviewComment(ctx context.Context, call *mo
 	commitID := call.Function.Arguments["commit_id"].(string)
 	path := call.Function.Arguments["path"].(string)
 	line := int(call.Function.Arguments["line"].(float64))
-	
+
 	// 检查写权限
 	if !s.hasWritePermission(mcpCtx) {
 		return &models.ToolResult{
@@ -381,14 +381,14 @@ func (s *GitHubCommentsServer) createReviewComment(ctx context.Context, call *mo
 			Type:    "error",
 		}, nil
 	}
-	
+
 	comment := &githubapi.PullRequestComment{
 		Body:     &body,
 		CommitID: &commitID,
 		Path:     &path,
 		Line:     &line,
 	}
-	
+
 	createdComment, _, err := s.client.GetClient().PullRequests.CreateComment(ctx, owner, repo, pullNumber, comment)
 	if err != nil {
 		return &models.ToolResult{
@@ -398,7 +398,7 @@ func (s *GitHubCommentsServer) createReviewComment(ctx context.Context, call *mo
 			Type:    "error",
 		}, nil
 	}
-	
+
 	return &models.ToolResult{
 		ID:      call.ID,
 		Success: true,
@@ -420,7 +420,7 @@ func (s *GitHubCommentsServer) createReviewComment(ctx context.Context, call *mo
 // listPRComments 列出PR的所有评论
 func (s *GitHubCommentsServer) listPRComments(ctx context.Context, call *models.ToolCall, owner, repo string) (*models.ToolResult, error) {
 	pullNumber := int(call.Function.Arguments["pull_number"].(float64))
-	
+
 	// 获取PR详情
 	pr, _, err := s.client.GetClient().PullRequests.Get(ctx, owner, repo, pullNumber)
 	if err != nil {
@@ -431,7 +431,7 @@ func (s *GitHubCommentsServer) listPRComments(ctx context.Context, call *models.
 			Type:    "error",
 		}, nil
 	}
-	
+
 	// 获取所有评论
 	allComments, err := s.client.GetAllPRComments(pr)
 	if err != nil {
@@ -442,7 +442,7 @@ func (s *GitHubCommentsServer) listPRComments(ctx context.Context, call *models.
 			Type:    "error",
 		}, nil
 	}
-	
+
 	// 转换为统一格式
 	var issueComments []map[string]interface{}
 	for _, comment := range allComments.IssueComments {
@@ -457,7 +457,7 @@ func (s *GitHubCommentsServer) listPRComments(ctx context.Context, call *models.
 		}
 		issueComments = append(issueComments, commentInfo)
 	}
-	
+
 	var reviewComments []map[string]interface{}
 	for _, comment := range allComments.ReviewComments {
 		commentInfo := map[string]interface{}{
@@ -474,22 +474,22 @@ func (s *GitHubCommentsServer) listPRComments(ctx context.Context, call *models.
 		}
 		reviewComments = append(reviewComments, commentInfo)
 	}
-	
+
 	var reviews []map[string]interface{}
 	for _, review := range allComments.Reviews {
 		reviewInfo := map[string]interface{}{
-			"type":        "review",
-			"id":          review.GetID(),
-			"url":         review.GetHTMLURL(),
-			"body":        review.GetBody(),
-			"state":       review.GetState(),
-			"commit_id":   review.GetCommitID(),
-			"created_at":  review.GetSubmittedAt(),
-			"author":      review.User.GetLogin(),
+			"type":       "review",
+			"id":         review.GetID(),
+			"url":        review.GetHTMLURL(),
+			"body":       review.GetBody(),
+			"state":      review.GetState(),
+			"commit_id":  review.GetCommitID(),
+			"created_at": review.GetSubmittedAt(),
+			"author":     review.User.GetLogin(),
 		}
 		reviews = append(reviews, reviewInfo)
 	}
-	
+
 	return &models.ToolResult{
 		ID:      call.ID,
 		Success: true,
@@ -512,15 +512,15 @@ func (s *GitHubCommentsServer) listPRComments(ctx context.Context, call *models.
 // updatePRDescription 更新PR描述
 func (s *GitHubCommentsServer) updatePRDescription(ctx context.Context, call *models.ToolCall, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
 	xl := xlog.NewWith(ctx)
-	
+
 	// 检查写权限
 	if !s.hasWritePermission(mcpCtx) {
 		return nil, fmt.Errorf("insufficient permissions: github:write required")
 	}
-	
+
 	// 解析参数
 	xl.Infof("Received pr_number: %v (type: %T)", call.Function.Arguments["pr_number"], call.Function.Arguments["pr_number"])
-	
+
 	var prNumber int
 	switch v := call.Function.Arguments["pr_number"].(type) {
 	case float64:
@@ -532,30 +532,30 @@ func (s *GitHubCommentsServer) updatePRDescription(ctx context.Context, call *mo
 	default:
 		return nil, fmt.Errorf("pr_number must be a number, got %T: %v", v, v)
 	}
-	
+
 	body, ok := call.Function.Arguments["body"].(string)
 	if !ok {
 		return nil, fmt.Errorf("body must be a string")
 	}
-	
+
 	xl.Infof("Updating PR #%d description in %s/%s", prNumber, owner, repo)
-	
+
 	// 先获取PR对象
 	pr, err := s.client.GetPullRequest(owner, repo, prNumber)
 	if err != nil {
 		xl.Errorf("Failed to get PR: %v", err)
 		return nil, fmt.Errorf("failed to get PR: %w", err)
 	}
-	
+
 	// 更新PR描述
 	err = s.client.UpdatePullRequest(pr, body)
 	if err != nil {
 		xl.Errorf("Failed to update PR description: %v", err)
 		return nil, fmt.Errorf("failed to update PR description: %w", err)
 	}
-	
+
 	xl.Infof("Successfully updated PR #%d description", prNumber)
-	
+
 	return &models.ToolResult{
 		ID:      call.ID,
 		Success: true,
@@ -574,7 +574,7 @@ func (s *GitHubCommentsServer) hasWritePermission(mcpCtx *models.MCPContext) boo
 	if mcpCtx.Permissions == nil {
 		return false
 	}
-	
+
 	for _, perm := range mcpCtx.Permissions {
 		if perm == "github:write" || perm == "github:admin" {
 			return true

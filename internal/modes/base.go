@@ -13,10 +13,10 @@ type ExecutionMode string
 const (
 	// TagMode @codeagent 提及模式 - 对应claude-code-action的tag模式
 	TagMode ExecutionMode = "tag"
-	
+
 	// AgentMode 自动化模式 - 对应claude-code-action的agent模式
 	AgentMode ExecutionMode = "agent"
-	
+
 	// ReviewMode 自动审查模式 - 对应claude-code-action的review模式
 	ReviewMode ExecutionMode = "review"
 )
@@ -26,19 +26,19 @@ const (
 type ModeHandler interface {
 	// CanHandle 检查是否能处理给定的事件上下文
 	CanHandle(ctx context.Context, event models.GitHubContext) bool
-	
+
 	// Execute 执行模式逻辑
 	Execute(ctx context.Context, event models.GitHubContext) error
-	
+
 	// GetPriority 获取处理器优先级（数字越小优先级越高）
 	GetPriority() int
-	
+
 	// GetMode 获取模式类型
 	GetMode() ExecutionMode
-	
+
 	// GetDescription 获取模式描述
 	GetDescription() string
-	
+
 	// GetHandlerName 获取处理器名称
 	GetHandlerName() string
 }
@@ -97,7 +97,7 @@ func NewModeManager() *ModeManager {
 // RegisterHandler 注册模式处理器
 func (mm *ModeManager) RegisterHandler(handler ModeHandler) {
 	mm.handlers = append(mm.handlers, handler)
-	
+
 	// 按优先级排序（优先级数字越小越优先）
 	for i := len(mm.handlers) - 1; i > 0; i-- {
 		if mm.handlers[i].GetPriority() < mm.handlers[i-1].GetPriority() {
@@ -141,13 +141,13 @@ func (mm *ModeManager) FindHandler(ctx context.Context, event models.GitHubConte
 		if !mm.IsEnabled(handler.GetMode()) {
 			continue
 		}
-		
+
 		// 检查处理器是否能处理该事件
 		if handler.CanHandle(ctx, event) {
 			return handler, nil
 		}
 	}
-	
+
 	return nil, fmt.Errorf("no suitable handler found for event type: %s", event.GetEventType())
 }
 
@@ -157,7 +157,7 @@ func (mm *ModeManager) Execute(ctx context.Context, event models.GitHubContext) 
 	if err != nil {
 		return fmt.Errorf("failed to find handler: %w", err)
 	}
-	
+
 	return handler.Execute(ctx, event)
 }
 

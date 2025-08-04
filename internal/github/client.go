@@ -682,12 +682,12 @@ func (c *Client) CreateComment(ctx context.Context, owner, repo string, issueNum
 	comment := &github.IssueComment{
 		Body: github.String(body),
 	}
-	
+
 	createdComment, _, err := c.client.Issues.CreateComment(ctx, owner, repo, issueNumber, comment)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create comment: %w", err)
 	}
-	
+
 	return createdComment, nil
 }
 
@@ -696,12 +696,12 @@ func (c *Client) UpdateComment(ctx context.Context, owner, repo string, commentI
 	comment := &github.IssueComment{
 		Body: github.String(body),
 	}
-	
+
 	_, _, err := c.client.Issues.EditComment(ctx, owner, repo, commentID, comment)
 	if err != nil {
 		return fmt.Errorf("failed to update comment: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -711,7 +711,7 @@ func (c *Client) GetComment(ctx context.Context, owner, repo string, commentID i
 	if err != nil {
 		return nil, fmt.Errorf("failed to get comment: %w", err)
 	}
-	
+
 	return comment, nil
 }
 

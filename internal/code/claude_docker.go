@@ -33,7 +33,10 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	}
 
 	// 确保路径存在
-	workspacePath, _ := filepath.Abs(workspace.Path)
+	workspacePath, err := filepath.Abs(workspace.Path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute workspace path: %w", err)
+	}
 
 	claudeConfigPath, err := createIsolatedClaudeConfig(workspace, cfg)
 	if err != nil {

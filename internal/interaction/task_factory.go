@@ -76,7 +76,7 @@ func (tf *TaskFactory) CreateBatchReviewTasks() []*models.Task {
 // CreateCustomTasks 创建自定义任务列表
 func (tf *TaskFactory) CreateCustomTasks(taskDefinitions []TaskDefinition) []*models.Task {
 	tasks := make([]*models.Task, 0, len(taskDefinitions))
-	
+
 	for _, def := range taskDefinitions {
 		task := models.NewTask(def.ID, def.Name, def.Description)
 		if def.Metadata != nil {
@@ -84,7 +84,7 @@ func (tf *TaskFactory) CreateCustomTasks(taskDefinitions []TaskDefinition) []*mo
 		}
 		tasks = append(tasks, task)
 	}
-	
+
 	return tasks
 }
 
@@ -105,13 +105,13 @@ func (tf *TaskFactory) GetTasksForCommand(command string, isPR bool) []*models.T
 			return tf.CreatePRContinueTasks()
 		}
 		return tf.CreateIssueProcessingTasks()
-		
+
 	case models.CommandContinue:
 		return tf.CreatePRContinueTasks()
-		
+
 	case models.CommandFix:
 		return tf.CreatePRFixTasks()
-		
+
 	default:
 		// 默认的通用任务列表
 		return []*models.Task{

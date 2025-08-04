@@ -24,7 +24,7 @@ func NewManager() *Manager {
 // RegisterHandler 注册模式处理器
 func (m *Manager) RegisterHandler(handler ModeHandler) {
 	m.handlers = append(m.handlers, handler)
-	
+
 	// 按优先级排序（高优先级在前）
 	sort.Slice(m.handlers, func(i, j int) bool {
 		return m.handlers[i].GetPriority() > m.handlers[j].GetPriority()
@@ -39,16 +39,16 @@ func (m *Manager) GetHandlerCount() int {
 // SelectHandler 选择合适的处理器处理事件
 func (m *Manager) SelectHandler(ctx context.Context, event models.GitHubContext) (ModeHandler, error) {
 	xl := xlog.NewWith(ctx)
-	
+
 	// 按优先级顺序查找能处理的处理器
 	for _, handler := range m.handlers {
 		if handler.CanHandle(ctx, event) {
-			xl.Infof("Selected handler: %s for event type: %s", 
+			xl.Infof("Selected handler: %s for event type: %s",
 				handler.GetHandlerName(), event.GetEventType())
 			return handler, nil
 		}
 	}
-	
+
 	return nil, fmt.Errorf("no handler found for event type: %s", event.GetEventType())
 }
 
@@ -58,7 +58,7 @@ func (m *Manager) ProcessEvent(ctx context.Context, event models.GitHubContext) 
 	if err != nil {
 		return err
 	}
-	
+
 	return handler.Execute(ctx, event)
 }
 

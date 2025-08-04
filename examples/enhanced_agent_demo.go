@@ -24,7 +24,7 @@ func main() {
 			Token: "your-github-token", // 在实际使用中替换为真实token
 		},
 		CodeProvider: "claude",
-		UseDocker: false,
+		UseDocker:    false,
 		Server: config.ServerConfig{
 			Port: 8888,
 		},
@@ -32,7 +32,7 @@ func main() {
 
 	// 2. 创建工作空间管理器
 	workspaceManager := workspace.NewManager(cfg)
-	
+
 	// 3. 创建增强版Agent
 	fmt.Println("Initializing Enhanced Agent...")
 	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
@@ -52,7 +52,7 @@ func main() {
 
 func demonstrateAgentCapabilities(agent *agent.EnhancedAgent) {
 	fmt.Println("\n📊 Agent Capabilities:")
-	
+
 	// MCP服务器信息
 	mcpManager := agent.GetMCPManager()
 	servers := mcpManager.GetServers()
@@ -60,11 +60,11 @@ func demonstrateAgentCapabilities(agent *agent.EnhancedAgent) {
 	for name := range servers {
 		fmt.Printf("  • %s\n", name)
 	}
-	
+
 	// 模式处理器信息
 	modeManager := agent.GetModeManager()
 	fmt.Printf("- Mode Handlers: %d registered\n", modeManager.GetHandlerCount())
-	
+
 	// MCP工具信息
 	mcpCtx := createDemoMCPContext()
 	tools, err := mcpManager.GetAvailableTools(context.Background(), mcpCtx)
@@ -81,19 +81,19 @@ func demonstrateAgentCapabilities(agent *agent.EnhancedAgent) {
 
 func demonstrateEventProcessing(agent *agent.EnhancedAgent) {
 	fmt.Println("\n🎯 Event Processing Demo:")
-	
+
 	// 创建模拟Issue评论事件
 	event := createDemoIssueCommentEvent()
-	
+
 	fmt.Printf("Processing Issue Comment Event:\n")
 	fmt.Printf("- Issue: #%d - %s\n", event.Issue.GetNumber(), event.Issue.GetTitle())
 	fmt.Printf("- Comment: %s\n", event.Comment.GetBody())
 	fmt.Printf("- Repository: %s\n", event.Repo.GetFullName())
-	
+
 	// 注意：由于使用demo token，这会失败，但可以展示流程
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	err := agent.ProcessGitHubEvent(ctx, "issue_comment", event)
 	if err != nil {
 		fmt.Printf("❌ Processing failed (expected with demo token): %v\n", err)

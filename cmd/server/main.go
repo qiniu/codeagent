@@ -67,16 +67,16 @@ func main() {
 	// 根据参数选择使用原始Agent还是Enhanced Agent
 	if *useEnhanced {
 		log.Infof("Starting with Enhanced Agent (支持MCP、模式系统等新功能)")
-		
+
 		// 初始化 Enhanced Agent
 		enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
 		if err != nil {
 			log.Fatalf("Failed to create Enhanced Agent: %v", err)
 		}
-		
+
 		// 初始化 Enhanced Webhook 处理器
 		webhookHandler = webhook.NewEnhancedHandler(cfg, enhancedAgent)
-		
+
 		// 注册优雅关闭处理
 		defer func() {
 			log.Infof("Shutting down Enhanced Agent...")
@@ -88,10 +88,10 @@ func main() {
 		}()
 	} else {
 		log.Infof("Starting with Original Agent (传统模式)")
-		
+
 		// 初始化原始 Agent
 		originalAgent := agent.New(cfg, workspaceManager)
-		
+
 		// 初始化原始 Webhook 处理器
 		webhookHandler = webhook.NewHandler(cfg, originalAgent)
 	}

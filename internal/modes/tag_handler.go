@@ -47,21 +47,21 @@ func NewTagHandler(github *ghclient.Client, workspace *workspace.Manager, mcpCli
 // CanHandle 检查是否能处理给定的事件
 func (th *TagHandler) CanHandle(ctx context.Context, event models.GitHubContext) bool {
 	xl := xlog.NewWith(ctx)
-	
+
 	// 检查是否包含命令
 	cmdInfo, hasCmd := models.HasCommand(event)
 	if !hasCmd {
 		xl.Debugf("No command found in event")
 		return false
 	}
-	
+
 	xl.Infof("Found command: %s with AI model: %s", cmdInfo.Command, cmdInfo.AIModel)
-	
+
 	// Tag模式处理所有包含命令的事件
 	switch event.GetEventType() {
 	case models.EventIssueComment,
-		 models.EventPullRequestReview,
-		 models.EventPullRequestReviewComment:
+		models.EventPullRequestReview,
+		models.EventPullRequestReviewComment:
 		return true
 	default:
 		xl.Debugf("Event type %s not supported by TagHandler", event.GetEventType())
@@ -73,22 +73,22 @@ func (th *TagHandler) CanHandle(ctx context.Context, event models.GitHubContext)
 func (th *TagHandler) Execute(ctx context.Context, event models.GitHubContext) error {
 	xl := xlog.NewWith(ctx)
 	xl.Infof("TagHandler executing for event type: %s", event.GetEventType())
-	
+
 	// 提取命令信息
 	cmdInfo, hasCmd := models.HasCommand(event)
 	if !hasCmd {
 		return fmt.Errorf("no command found in event")
 	}
-	
+
 	// 设置默认AI模型（如果未指定）
 	aiModel := cmdInfo.AIModel
 	if aiModel == "" {
 		aiModel = "claude" // 默认使用claude，实际应该从配置获取
 	}
-	
-	xl.Infof("Executing command: %s with AI model: %s, args: %s", 
+
+	xl.Infof("Executing command: %s with AI model: %s, args: %s",
 		cmdInfo.Command, aiModel, cmdInfo.Args)
-	
+
 	// 根据事件类型和命令类型分发处理
 	switch event.GetEventType() {
 	case models.EventIssueComment:
@@ -110,14 +110,14 @@ func (th *TagHandler) handleIssueComment(
 	aiModel string,
 ) error {
 	xl := xlog.NewWith(ctx)
-	
+
 	// 将事件转换为原始GitHub事件类型（兼容现有agent接口）
 	_ = event.RawEvent.(*github.IssueCommentEvent)
-	
+
 	if event.IsPRComment {
 		// 这是PR评论
 		xl.Infof("Processing PR comment with command: %s", cmdInfo.Command)
-		
+
 		switch cmdInfo.Command {
 		case models.CommandContinue:
 			// 实现PR继续逻辑，集成原始Agent功能
@@ -133,7 +133,7 @@ func (th *TagHandler) handleIssueComment(
 	} else {
 		// 这是Issue评论
 		xl.Infof("Processing Issue comment with command: %s", cmdInfo.Command)
-		
+
 		switch cmdInfo.Command {
 		case models.CommandCode:
 			// 实现Issue处理逻辑，集成原始Agent功能
@@ -154,10 +154,10 @@ func (th *TagHandler) handlePRReview(
 ) error {
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Processing PR review with command: %s", cmdInfo.Command)
-	
+
 	// 将事件转换为原始GitHub事件类型
 	_ = event.RawEvent.(*github.PullRequestReviewEvent)
-	
+
 	// PR Review支持批量处理命令
 	switch cmdInfo.Command {
 	case models.CommandContinue:
@@ -182,10 +182,10 @@ func (th *TagHandler) handlePRReviewComment(
 ) error {
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Processing PR review comment with command: %s", cmdInfo.Command)
-	
+
 	// 将事件转换为原始GitHub事件类型
 	_ = event.RawEvent.(*github.PullRequestReviewCommentEvent)
-	
+
 	// PR Review评论支持行级命令
 	switch cmdInfo.Command {
 	case models.CommandContinue:
@@ -201,7 +201,7 @@ func (th *TagHandler) handlePRReviewComment(
 	}
 }
 
-// processIssueCodeCommand 处理Issue的/code命令，集成渐进式评论功能
+// processIssueCodeCommand 处理Issue的/code命令，简化版本，只在PR部分使用进度管理
 func (th *TagHandler) processIssueCodeCommand(
 	ctx context.Context,
 	event *models.IssueCommentContext,
@@ -213,30 +213,12 @@ func (th *TagHandler) processIssueCodeCommand(
 	issueNumber := event.Issue.GetNumber()
 	issueTitle := event.Issue.GetTitle()
 
-	xl.Infof("Starting issue code processing with progress tracking: issue=#%d, title=%s, AI model=%s", 
+	xl.Infof("Starting issue code processing: issue=#%d, title=%s, AI model=%s",
 		issueNumber, issueTitle, aiModel)
-
-	// 0. 初始化渐进式评论管理器
-	pcm := interaction.NewProgressCommentManager(th.github, event.GetRepository(), issueNumber)
-	
-	// 定义任务列表 - 重新设计工作流顺序
-	tasks := []*models.Task{
-		{ID: "analyze-issue", Description: "📋 Analyze issue requirements", Status: models.TaskStatusPending},
-		{ID: "create-workspace", Description: "🗂️ Create workspace and branch", Status: models.TaskStatusPending},
-		{ID: "create-pr", Description: "🚀 Create pull request", Status: models.TaskStatusPending},
-		{ID: "generate-code", Description: "🤖 Generate code implementation", Status: models.TaskStatusPending},
-		{ID: "commit-changes", Description: "💾 Commit and push changes", Status: models.TaskStatusPending},
-		{ID: "update-pr", Description: "📝 Update PR description", Status: models.TaskStatusPending},
-	}
-
-	// 初始化进度评论
-	if err := pcm.InitializeProgress(ctx, tasks); err != nil {
-		xl.Errorf("Failed to initialize progress comment: %v", err)
-		// 继续执行，不因为评论失败而中断主流程
-	}
 
 	var ws *models.Workspace
 	var pr *github.PullRequest
+	var pcm *interaction.ProgressCommentManager
 	var result *models.ProgressExecutionResult
 
 	// 使用defer确保最终状态更新
@@ -247,7 +229,7 @@ func (th *TagHandler) processIssueCodeCommand(
 				Error:   "Process interrupted or failed",
 			}
 		}
-		
+
 		// 添加工作空间和PR信息
 		if ws != nil {
 			result.BranchName = ws.Branch
@@ -255,27 +237,13 @@ func (th *TagHandler) processIssueCodeCommand(
 		if pr != nil {
 			result.PullRequestURL = pr.GetHTMLURL()
 		}
-		
-		if err := pcm.FinalizeComment(ctx, result); err != nil {
-			xl.Errorf("Failed to finalize progress comment: %v", err)
+
+		if pcm != nil {
+			if err := pcm.FinalizeComment(ctx, result); err != nil {
+				xl.Errorf("Failed to finalize progress comment: %v", err)
+			}
 		}
 	}()
-
-	// 1. 分析Issue要求
-	if err := pcm.UpdateTask(ctx, "analyze-issue", models.TaskStatusInProgress, "Reading issue details and planning implementation"); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
-
-	xl.Infof("Analyzing issue requirements")
-	
-	if err := pcm.UpdateTask(ctx, "analyze-issue", models.TaskStatusCompleted); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
-
-	// 2. 创建工作空间和分支
-	if err := pcm.UpdateTask(ctx, "create-workspace", models.TaskStatusInProgress, "Setting up workspace and creating branch"); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
 
 	// 创建Issue工作空间，包含AI模型信息
 	ws = th.workspace.CreateWorkspaceFromIssueWithAI(event.Issue, aiModel)
@@ -299,15 +267,7 @@ func (th *TagHandler) processIssueCodeCommand(
 	}
 	xl.Infof("Branch created successfully")
 
-	if err := pcm.UpdateTask(ctx, "create-workspace", models.TaskStatusCompleted); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
-
-	// 3. 创建初始PR（在代码生成之前）
-	if err := pcm.UpdateTask(ctx, "create-pr", models.TaskStatusInProgress, "Creating pull request for issue"); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
-
+	// 创建初始PR（在代码生成之前）
 	xl.Infof("Creating initial PR before code generation")
 	var err error
 	pr, err = th.github.CreatePullRequest(ws)
@@ -343,33 +303,27 @@ func (th *TagHandler) processIssueCodeCommand(
 	ws.PullRequest = pr
 	th.workspace.RegisterWorkspace(ws, pr)
 
-	xl.Infof("Workspace registered: issue=#%d, workspace=%s, session=%s", 
+	xl.Infof("Workspace registered: issue=#%d, workspace=%s, session=%s",
 		issueNumber, ws.Path, ws.SessionPath)
 
-	if err := pcm.UpdateTask(ctx, "create-pr", models.TaskStatusCompleted); err != nil {
-		xl.Errorf("Failed to update task: %v", err)
-	}
+	// 在PR中初始化进度管理
+	xl.Infof("Initializing progress tracking in PR #%d", pr.GetNumber())
 
-	// 切换进度评论到PR（重要！）
-	xl.Infof("Switching progress comments to PR #%d", pr.GetNumber())
-	
-	// 创建新的PR进度评论管理器
-	prPCM := interaction.NewProgressCommentManager(th.github, event.GetRepository(), pr.GetNumber())
-	
-	// 创建剩余任务的进度跟踪
-	remainingTasks := []*models.Task{
+	// 创建PR进度评论管理器
+	pcm = interaction.NewProgressCommentManager(th.github, event.GetRepository(), pr.GetNumber())
+
+	// 定义PR中的任务列表
+	tasks := []*models.Task{
 		{ID: "generate-code", Description: "🤖 Generate code implementation", Status: models.TaskStatusPending},
 		{ID: "commit-changes", Description: "💾 Commit and push changes", Status: models.TaskStatusPending},
 		{ID: "update-pr", Description: "📝 Update PR description", Status: models.TaskStatusPending},
 	}
-	
-	// 在PR中初始化剩余步骤的进度
-	if err := prPCM.InitializeProgress(ctx, remainingTasks); err != nil {
+
+	// 在PR中初始化进度
+	if err := pcm.InitializeProgress(ctx, tasks); err != nil {
 		xl.Errorf("Failed to initialize progress in PR: %v", err)
+		// 继续执行，不因为评论失败而中断主流程
 	}
-	
-	// 从这里开始使用PR的进度管理器
-	pcm = prPCM
 
 	// 4. 生成代码实现
 	if err := pcm.UpdateTask(ctx, "generate-code", models.TaskStatusInProgress, "Calling AI to generate code implementation"); err != nil {
@@ -499,11 +453,11 @@ func (th *TagHandler) processIssueCodeCommand(
 
 	// 设置成功结果
 	result = &models.ProgressExecutionResult{
-		Success:         true,
-		Summary:         summary,
-		BranchName:      ws.Branch,
-		PullRequestURL:  pr.GetHTMLURL(),
-		FilesChanged:    []string{}, // TODO: 从git diff中提取文件列表
+		Success:        true,
+		Summary:        summary,
+		BranchName:     ws.Branch,
+		PullRequestURL: pr.GetHTMLURL(),
+		FilesChanged:   []string{}, // TODO: 从git diff中提取文件列表
 	}
 
 	xl.Infof("Issue code processing completed successfully")
@@ -513,25 +467,25 @@ func (th *TagHandler) processIssueCodeCommand(
 // promptWithRetry 带重试的提示执行
 func (th *TagHandler) promptWithRetry(ctx context.Context, codeClient code.Code, prompt string, maxRetries int) (*code.Response, error) {
 	xl := xlog.NewWith(ctx)
-	
+
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
 		xl.Infof("Executing prompt (attempt %d/%d)", i+1, maxRetries)
-		
+
 		resp, err := codeClient.Prompt(prompt)
 		if err == nil {
 			xl.Infof("Prompt executed successfully on attempt %d", i+1)
 			return resp, nil
 		}
-		
+
 		lastErr = err
 		xl.Warnf("Prompt failed on attempt %d: %v", i+1, err)
-		
+
 		if i < maxRetries-1 {
 			xl.Infof("Retrying...")
 		}
 	}
-	
+
 	return nil, fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
 }
 
@@ -540,13 +494,13 @@ func (th *TagHandler) parseStructuredOutput(output string) (summary, changes, te
 	// 这里实现解析逻辑，提取summary、changes和testPlan
 	// 简化版本，实际中应该有更复杂的解析逻辑
 	lines := strings.Split(output, "\n")
-	
+
 	currentSection := ""
 	var summaryLines, changesLines, testPlanLines []string
-	
+
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		
+
 		if strings.Contains(trimmed, models.SectionSummary) {
 			currentSection = "summary"
 			continue
@@ -557,7 +511,7 @@ func (th *TagHandler) parseStructuredOutput(output string) (summary, changes, te
 			currentSection = "testplan"
 			continue
 		}
-		
+
 		switch currentSection {
 		case "summary":
 			if trimmed != "" {
@@ -573,16 +527,16 @@ func (th *TagHandler) parseStructuredOutput(output string) (summary, changes, te
 			}
 		}
 	}
-	
-	return strings.Join(summaryLines, "\n"), 
-		   strings.Join(changesLines, "\n"), 
-		   strings.Join(testPlanLines, "\n")
+
+	return strings.Join(summaryLines, "\n"),
+		strings.Join(changesLines, "\n"),
+		strings.Join(testPlanLines, "\n")
 }
 
 // updatePRWithMCP 使用MCP工具更新PR
 func (th *TagHandler) updatePRWithMCP(ctx context.Context, ws *models.Workspace, pr *github.PullRequest, prBody, originalOutput string) error {
 	xl := xlog.NewWith(ctx)
-	
+
 	// 创建MCP上下文
 	mcpCtx := &models.MCPContext{
 		Repository: &models.IssueCommentContext{
@@ -599,7 +553,7 @@ func (th *TagHandler) updatePRWithMCP(ctx context.Context, ws *models.Workspace,
 		Permissions: []string{"github:read", "github:write"},
 		Constraints: []string{},
 	}
-	
+
 	// 使用MCP工具更新PR描述
 	updateCall := &models.ToolCall{
 		ID: "update_pr_" + fmt.Sprintf("%d", pr.GetNumber()),
@@ -611,7 +565,7 @@ func (th *TagHandler) updatePRWithMCP(ctx context.Context, ws *models.Workspace,
 			},
 		},
 	}
-	
+
 	_, err := th.mcpClient.ExecuteToolCalls(ctx, []*models.ToolCall{updateCall}, mcpCtx)
 	if err != nil {
 		xl.Errorf("Failed to update PR description via MCP: %v", err)
@@ -619,7 +573,7 @@ func (th *TagHandler) updatePRWithMCP(ctx context.Context, ws *models.Workspace,
 	} else {
 		xl.Infof("Successfully updated PR description via MCP")
 	}
-	
+
 	return nil
 }
 
@@ -632,13 +586,13 @@ func (th *TagHandler) processPRCommand(
 	mode string,
 ) error {
 	xl := xlog.NewWith(ctx)
-	
+
 	prNumber := event.Issue.GetNumber()
 	xl.Infof("%s PR #%d with AI model %s and args: %s", mode, prNumber, aiModel, cmdInfo.Args)
 
 	// 初始化渐进式评论管理器
 	pcm := interaction.NewProgressCommentManager(th.github, event.GetRepository(), prNumber)
-	
+
 	// 定义PR处理任务列表
 	tasks := []*models.Task{
 		{ID: "validate-pr", Description: fmt.Sprintf("🔍 Validate PR #%d context", prNumber), Status: models.TaskStatusPending},
@@ -663,12 +617,12 @@ func (th *TagHandler) processPRCommand(
 				Error:   "PR processing interrupted or failed",
 			}
 		}
-		
+
 		if err := pcm.FinalizeComment(ctx, result); err != nil {
 			xl.Errorf("Failed to finalize progress comment: %v", err)
 		}
 	}()
-	
+
 	// 1. 验证PR上下文
 	if err := pcm.UpdateTask(ctx, "validate-pr", models.TaskStatusInProgress, "Validating PR context and permissions"); err != nil {
 		xl.Errorf("Failed to update task: %v", err)
@@ -685,10 +639,10 @@ func (th *TagHandler) processPRCommand(
 	if err := pcm.UpdateTask(ctx, "validate-pr", models.TaskStatusCompleted); err != nil {
 		xl.Errorf("Failed to update task: %v", err)
 	}
-	
+
 	// 2. 从事件中提取仓库信息（支持多种事件类型）
 	var repoOwner, repoName string
-	
+
 	// 根据事件类型安全地提取仓库信息
 	switch event.GetEventType() {
 	case models.EventIssueComment:
@@ -715,14 +669,14 @@ func (th *TagHandler) processPRCommand(
 			repoName = event.Repository.GetName()
 		}
 	}
-	
+
 	if repoOwner == "" || repoName == "" {
 		xl.Errorf("Failed to extract repository info from event type: %s", event.GetEventType())
 		return fmt.Errorf("failed to extract repository info from event")
 	}
-	
+
 	xl.Infof("Extracted repository info: owner=%s, name=%s", repoOwner, repoName)
-	
+
 	// 3. 从GitHub API获取完整的PR信息
 	xl.Infof("Fetching PR information from GitHub API")
 	pr, err := th.github.GetPullRequest(repoOwner, repoName, prNumber)
@@ -731,7 +685,7 @@ func (th *TagHandler) processPRCommand(
 		return fmt.Errorf("failed to get PR information: %w", err)
 	}
 	xl.Infof("PR information fetched successfully")
-	
+
 	// 4. 如果没有指定AI模型，从PR分支中提取
 	if aiModel == "" {
 		branchName := pr.GetHead().GetRef()
@@ -742,7 +696,7 @@ func (th *TagHandler) processPRCommand(
 		}
 		xl.Infof("Extracted AI model from branch: %s", aiModel)
 	}
-	
+
 	// 5. 设置工作空间
 	if err := pcm.UpdateTask(ctx, "setup-workspace", models.TaskStatusInProgress, "Setting up workspace and pulling latest code"); err != nil {
 		xl.Errorf("Failed to update task: %v", err)
@@ -758,7 +712,7 @@ func (th *TagHandler) processPRCommand(
 		return fmt.Errorf("failed to get or create workspace for PR %s", strings.ToLower(mode))
 	}
 	xl.Infof("Workspace ready: %s", ws.Path)
-	
+
 	// 6. 拉取远端最新代码
 	xl.Infof("Pulling latest changes from remote")
 	if err := th.github.PullLatestChanges(ws, pr); err != nil {
@@ -783,7 +737,7 @@ func (th *TagHandler) processPRCommand(
 	if err := pcm.UpdateTask(ctx, "setup-workspace", models.TaskStatusCompleted); err != nil {
 		xl.Errorf("Failed to update task: %v", err)
 	}
-	
+
 	// 8. 获取PR评论历史用于构建上下文
 	xl.Infof("Fetching all PR comments for historical context")
 	allComments, err := th.github.GetAllPRComments(pr)
@@ -791,7 +745,7 @@ func (th *TagHandler) processPRCommand(
 		xl.Warnf("Failed to get PR comments for context: %v", err)
 		allComments = &models.PRAllComments{}
 	}
-	
+
 	// 9. 构建包含历史上下文的prompt
 	var currentCommentID int64
 	if event.Comment != nil {
@@ -799,9 +753,9 @@ func (th *TagHandler) processPRCommand(
 	}
 	historicalContext := th.formatHistoricalComments(allComments, currentCommentID)
 	prompt := th.buildPrompt(mode, cmdInfo.Args, historicalContext)
-	
+
 	xl.Infof("Using %s prompt with args and historical context", strings.ToLower(mode))
-	
+
 	// 10. 执行AI处理
 	if err := pcm.UpdateTask(ctx, "process-ai", models.TaskStatusInProgress, fmt.Sprintf("AI is processing %s request...", strings.ToLower(mode))); err != nil {
 		xl.Errorf("Failed to update task: %v", err)
@@ -820,7 +774,7 @@ func (th *TagHandler) processPRCommand(
 		}
 		return fmt.Errorf("failed to process PR %s: %w", strings.ToLower(mode), err)
 	}
-	
+
 	output, err := io.ReadAll(resp.Out)
 	if err != nil {
 		result = &models.ProgressExecutionResult{
@@ -833,14 +787,14 @@ func (th *TagHandler) processPRCommand(
 	if err := pcm.HideSpinner(ctx); err != nil {
 		xl.Errorf("Failed to hide spinner: %v", err)
 	}
-	
+
 	xl.Infof("AI processing completed, output length: %d", len(output))
 	xl.Debugf("PR %s Output: %s", mode, string(output))
 
 	if err := pcm.UpdateTask(ctx, "process-ai", models.TaskStatusCompleted); err != nil {
 		xl.Errorf("Failed to update task: %v", err)
 	}
-	
+
 	// 11. 提交变更
 	if err := pcm.UpdateTask(ctx, "commit-push", models.TaskStatusInProgress, "Committing and pushing changes to repository"); err != nil {
 		xl.Errorf("Failed to update task: %v", err)
@@ -850,7 +804,7 @@ func (th *TagHandler) processPRCommand(
 		Output: string(output),
 		Error:  "",
 	}
-	
+
 	xl.Infof("Committing and pushing changes for PR %s", strings.ToLower(mode))
 	if err := th.github.CommitAndPush(ws, executionResult, codeClient); err != nil {
 		xl.Errorf("Failed to commit and push changes: %v", err)
@@ -869,7 +823,7 @@ func (th *TagHandler) processPRCommand(
 	if err := pcm.UpdateTask(ctx, "commit-push", models.TaskStatusCompleted); err != nil {
 		xl.Errorf("Failed to update task: %v", err)
 	}
-	
+
 	// 12. 添加完成评论
 	if err := pcm.UpdateTask(ctx, "add-comment", models.TaskStatusInProgress, "Adding completion comment to PR"); err != nil {
 		xl.Errorf("Failed to update task: %v", err)
@@ -896,7 +850,7 @@ func (th *TagHandler) processPRCommand(
 		PullRequestURL: pr.GetHTMLURL(),
 		FilesChanged:   []string{}, // TODO: 从git diff中提取文件列表
 	}
-	
+
 	xl.Infof("PR %s processing completed successfully", strings.ToLower(mode))
 	return nil
 }
@@ -911,10 +865,10 @@ func (th *TagHandler) processPRReviewCommand(
 ) error {
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Processing PR review %s command", strings.ToLower(mode))
-	
+
 	// PR Review使用与普通PR Comment相似的处理逻辑
 	// 需要将PullRequestReviewContext转换为IssueCommentContext格式
-	
+
 	// 创建一个兼容的IssueCommentContext，使用Review的body作为comment
 	var reviewComment *github.IssueComment
 	if event.Review != nil && event.Review.Body != nil {
@@ -926,23 +880,23 @@ func (th *TagHandler) processPRReviewCommand(
 			UpdatedAt: event.Review.SubmittedAt,
 		}
 	}
-	
+
 	// 将PullRequest转换为Issue格式
 	var issue *github.Issue
 	if event.PullRequest != nil {
 		issue = &github.Issue{
-			ID:     event.PullRequest.ID,
-			Number: event.PullRequest.Number,
-			Title:  event.PullRequest.Title,
-			Body:   event.PullRequest.Body,
-			User:   event.PullRequest.User,
-			State:  event.PullRequest.State,
-			CreatedAt: event.PullRequest.CreatedAt,
-			UpdatedAt: event.PullRequest.UpdatedAt,
+			ID:               event.PullRequest.ID,
+			Number:           event.PullRequest.Number,
+			Title:            event.PullRequest.Title,
+			Body:             event.PullRequest.Body,
+			User:             event.PullRequest.User,
+			State:            event.PullRequest.State,
+			CreatedAt:        event.PullRequest.CreatedAt,
+			UpdatedAt:        event.PullRequest.UpdatedAt,
 			PullRequestLinks: &github.PullRequestLinks{}, // 标记为PR
 		}
 	}
-	
+
 	issueCommentCtx := &models.IssueCommentContext{
 		BaseContext: models.BaseContext{
 			Type:       models.EventPullRequestReview,
@@ -957,9 +911,9 @@ func (th *TagHandler) processPRReviewCommand(
 		Comment:     reviewComment,
 		IsPRComment: true, // 标记为PR评论
 	}
-	
+
 	xl.Infof("Converted PR review to issue comment context for processing")
-	
+
 	// 使用processPRCommand处理逻辑
 	return th.processPRCommand(ctx, issueCommentCtx, cmdInfo, aiModel, mode)
 }
@@ -974,10 +928,10 @@ func (th *TagHandler) processPRReviewCommentCommand(
 ) error {
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Processing PR review comment %s command", strings.ToLower(mode))
-	
+
 	// PR Review Comment使用与普通PR Comment相同的处理逻辑
 	// 需要将PullRequestReviewCommentContext转换为IssueCommentContext格式
-	
+
 	// 将PullRequestComment转换为IssueComment格式
 	var issueComment *github.IssueComment
 	if event.Comment != nil {
@@ -989,23 +943,23 @@ func (th *TagHandler) processPRReviewCommentCommand(
 			UpdatedAt: event.Comment.UpdatedAt,
 		}
 	}
-	
+
 	// 将PullRequest转换为Issue格式
 	var issue *github.Issue
 	if event.PullRequest != nil {
 		issue = &github.Issue{
-			ID:     event.PullRequest.ID,
-			Number: event.PullRequest.Number,
-			Title:  event.PullRequest.Title,
-			Body:   event.PullRequest.Body,
-			User:   event.PullRequest.User,
-			State:  event.PullRequest.State,
-			CreatedAt: event.PullRequest.CreatedAt,
-			UpdatedAt: event.PullRequest.UpdatedAt,
+			ID:               event.PullRequest.ID,
+			Number:           event.PullRequest.Number,
+			Title:            event.PullRequest.Title,
+			Body:             event.PullRequest.Body,
+			User:             event.PullRequest.User,
+			State:            event.PullRequest.State,
+			CreatedAt:        event.PullRequest.CreatedAt,
+			UpdatedAt:        event.PullRequest.UpdatedAt,
 			PullRequestLinks: &github.PullRequestLinks{}, // 标记为PR
 		}
 	}
-	
+
 	// 创建一个兼容的IssueCommentContext
 	issueCommentCtx := &models.IssueCommentContext{
 		BaseContext: models.BaseContext{
@@ -1021,9 +975,9 @@ func (th *TagHandler) processPRReviewCommentCommand(
 		Comment:     issueComment,
 		IsPRComment: true, // 标记为PR评论
 	}
-	
+
 	xl.Infof("Converted PR review comment to issue comment context for processing")
-	
+
 	// 使用processPRCommand处理逻辑
 	return th.processPRCommand(ctx, issueCommentCtx, cmdInfo, aiModel, mode)
 }
@@ -1033,7 +987,7 @@ func (th *TagHandler) buildPrompt(mode string, args string, historicalContext st
 	var prompt string
 	var taskDescription string
 	var defaultTask string
-	
+
 	switch mode {
 	case "Continue":
 		taskDescription = "请根据上述PR描述、历史讨论和当前指令，进行相应的代码修改。"
@@ -1045,7 +999,7 @@ func (th *TagHandler) buildPrompt(mode string, args string, historicalContext st
 		taskDescription = "请根据上述PR描述、历史讨论和当前指令，进行相应的代码处理。"
 		defaultTask = "处理代码任务"
 	}
-	
+
 	if args != "" {
 		if historicalContext != "" {
 			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
@@ -1074,7 +1028,7 @@ func (th *TagHandler) buildPrompt(mode string, args string, historicalContext st
 			prompt = fmt.Sprintf("%s", defaultTask)
 		}
 	}
-	
+
 	return prompt
 }
 
@@ -1083,41 +1037,41 @@ func (th *TagHandler) formatHistoricalComments(allComments *models.PRAllComments
 	if allComments == nil {
 		return ""
 	}
-	
+
 	var contextParts []string
-	
+
 	// 添加PR描述
 	if allComments.PRBody != "" {
 		contextParts = append(contextParts, "## PR描述\n"+allComments.PRBody)
 	}
-	
+
 	// 添加Issue评论
 	if len(allComments.IssueComments) > 0 {
 		contextParts = append(contextParts, "## PR讨论")
 		for _, comment := range allComments.IssueComments {
 			if comment.GetID() != currentCommentID {
-				contextParts = append(contextParts, fmt.Sprintf("**%s**: %s", 
+				contextParts = append(contextParts, fmt.Sprintf("**%s**: %s",
 					comment.User.GetLogin(), comment.GetBody()))
 			}
 		}
 	}
-	
+
 	// 添加Review评论
 	if len(allComments.ReviewComments) > 0 {
 		contextParts = append(contextParts, "## 代码审查评论")
 		for _, comment := range allComments.ReviewComments {
-			contextParts = append(contextParts, fmt.Sprintf("**%s** (文件: %s): %s", 
+			contextParts = append(contextParts, fmt.Sprintf("**%s** (文件: %s): %s",
 				comment.User.GetLogin(), comment.GetPath(), comment.GetBody()))
 		}
 	}
-	
+
 	return strings.Join(contextParts, "\n\n")
 }
 
 // addPRCommentWithMCP 使用MCP工具添加PR评论
 func (th *TagHandler) addPRCommentWithMCP(ctx context.Context, ws *models.Workspace, pr *github.PullRequest, comment string) error {
 	xl := xlog.NewWith(ctx)
-	
+
 	// 创建MCP上下文
 	mcpCtx := &models.MCPContext{
 		Repository: &models.IssueCommentContext{
@@ -1134,7 +1088,7 @@ func (th *TagHandler) addPRCommentWithMCP(ctx context.Context, ws *models.Worksp
 		Permissions: []string{"github:read", "github:write"},
 		Constraints: []string{},
 	}
-	
+
 	// 使用MCP工具添加评论
 	commentCall := &models.ToolCall{
 		ID: "comment_pr_" + fmt.Sprintf("%d", pr.GetNumber()),
@@ -1146,13 +1100,13 @@ func (th *TagHandler) addPRCommentWithMCP(ctx context.Context, ws *models.Worksp
 			},
 		},
 	}
-	
+
 	_, err := th.mcpClient.ExecuteToolCalls(ctx, []*models.ToolCall{commentCall}, mcpCtx)
 	if err != nil {
 		xl.Errorf("Failed to add comment via MCP: %v", err)
 		return err
 	}
-	
+
 	xl.Infof("Successfully added comment to PR via MCP")
 	return nil
 }

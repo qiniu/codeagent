@@ -42,13 +42,24 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	}
 
 	// 确保路径存在
-	workspacePath, _ := filepath.Abs(workspace.Path)
-	sessionPath, _ := filepath.Abs(workspace.SessionPath)
+	workspacePath, err := filepath.Abs(workspace.Path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute workspace path: %w", err)
+	}
+	
+	sessionPath, err := filepath.Abs(workspace.SessionPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute session path: %w", err)
+	}
 
 	// 确定gemini配置路径
 	var geminiConfigPath string
 	if home := os.Getenv("HOME"); home != "" {
-		geminiConfigPath, _ = filepath.Abs(filepath.Join(home, ".gemini"))
+		var err error
+		geminiConfigPath, err = filepath.Abs(filepath.Join(home, ".gemini"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get absolute gemini config path: %w", err)
+		}
 	} else {
 		geminiConfigPath = "/home/codeagent/.gemini"
 	}

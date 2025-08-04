@@ -145,7 +145,7 @@ func (s *GitHubFilesServer) IsAvailable(ctx context.Context, mcpCtx *models.MCPC
 	if mcpCtx == nil || mcpCtx.Repository == nil {
 		return false
 	}
-	
+
 	// 检查是否有GitHub访问权限
 	if mcpCtx.Permissions != nil {
 		hasReadPerm := false
@@ -159,23 +159,23 @@ func (s *GitHubFilesServer) IsAvailable(ctx context.Context, mcpCtx *models.MCPC
 			return false
 		}
 	}
-	
+
 	return true
 }
 
 // HandleToolCall 处理工具调用
 func (s *GitHubFilesServer) HandleToolCall(ctx context.Context, call *models.ToolCall, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
 	xl := xlog.NewWith(ctx)
-	
+
 	if mcpCtx.Repository == nil {
 		return nil, fmt.Errorf("no repository context available")
 	}
-	
+
 	owner := mcpCtx.Repository.GetRepository().Owner.GetLogin()
 	repo := mcpCtx.Repository.GetRepository().GetName()
-	
+
 	xl.Infof("Executing GitHub files tool: %s on %s/%s", call.Function.Name, owner, repo)
-	
+
 	switch call.Function.Name {
 	case "read_file":
 		return s.readFile(ctx, call, owner, repo)
@@ -211,7 +211,7 @@ func (s *GitHubFilesServer) readFile(ctx context.Context, call *models.ToolCall,
 	if r, ok := call.Function.Arguments["ref"].(string); ok && r != "" {
 		ref = r
 	}
-	
+
 	// 使用GitHub API获取文件内容
 	opts := &githubapi.RepositoryContentGetOptions{Ref: ref}
 	fileContent, _, _, err := s.client.GetClient().Repositories.GetContents(ctx, owner, repo, path, opts)
@@ -223,7 +223,7 @@ func (s *GitHubFilesServer) readFile(ctx context.Context, call *models.ToolCall,
 			Type:    "error",
 		}, nil
 	}
-	
+
 	if fileContent == nil {
 		return &models.ToolResult{
 			ID:      call.ID,
@@ -232,7 +232,7 @@ func (s *GitHubFilesServer) readFile(ctx context.Context, call *models.ToolCall,
 			Type:    "error",
 		}, nil
 	}
-	
+
 	// 解码文件内容
 	content, err := fileContent.GetContent()
 	if err != nil {
@@ -243,7 +243,7 @@ func (s *GitHubFilesServer) readFile(ctx context.Context, call *models.ToolCall,
 			Type:    "error",
 		}, nil
 	}
-	
+
 	return &models.ToolResult{
 		ID:      call.ID,
 		Success: true,
@@ -263,17 +263,17 @@ func (s *GitHubFilesServer) writeFile(ctx context.Context, call *models.ToolCall
 	path := call.Function.Arguments["path"].(string)
 	content := call.Function.Arguments["content"].(string)
 	message := call.Function.Arguments["message"].(string)
-	
+
 	branch := ""
 	if b, ok := call.Function.Arguments["branch"].(string); ok {
 		branch = b
 	}
-	
+
 	encoding := "text"
 	if e, ok := call.Function.Arguments["encoding"].(string); ok {
 		encoding = e
 	}
-	
+
 	// 检查写权限
 	hasWritePerm := false
 	if mcpCtx.Permissions != nil {
@@ -284,7 +284,7 @@ func (s *GitHubFilesServer) writeFile(ctx context.Context, call *models.ToolCall
 			}
 		}
 	}
-	
+
 	if !hasWritePerm {
 		return &models.ToolResult{
 			ID:      call.ID,
@@ -293,7 +293,7 @@ func (s *GitHubFilesServer) writeFile(ctx context.Context, call *models.ToolCall
 			Type:    "error",
 		}, nil
 	}
-	
+
 	// 准备文件内容
 	var encodedContent string
 	if encoding == "base64" {
@@ -301,24 +301,24 @@ func (s *GitHubFilesServer) writeFile(ctx context.Context, call *models.ToolCall
 	} else {
 		encodedContent = base64.StdEncoding.EncodeToString([]byte(content))
 	}
-	
+
 	// 尝试获取现有文件的SHA（用于更新）
 	var existingSHA *string
 	if fileContent, _, _, err := s.client.GetClient().Repositories.GetContents(ctx, owner, repo, path, nil); err == nil && fileContent != nil {
 		existingSHA = fileContent.SHA
 	}
-	
+
 	// 创建或更新文件
 	opts := &githubapi.RepositoryContentFileOptions{
 		Message: &message,
 		Content: []byte(encodedContent),
 		SHA:     existingSHA,
 	}
-	
+
 	if branch != "" {
 		opts.Branch = &branch
 	}
-	
+
 	result, _, err := s.client.GetClient().Repositories.CreateFile(ctx, owner, repo, path, opts)
 	if err != nil {
 		return &models.ToolResult{
@@ -328,7 +328,7 @@ func (s *GitHubFilesServer) writeFile(ctx context.Context, call *models.ToolCall
 			Type:    "error",
 		}, nil
 	}
-	
+
 	return &models.ToolResult{
 		ID:      call.ID,
 		Success: true,
@@ -348,17 +348,17 @@ func (s *GitHubFilesServer) listFiles(ctx context.Context, call *models.ToolCall
 	if p, ok := call.Function.Arguments["path"].(string); ok {
 		path = p
 	}
-	
+
 	ref := "HEAD"
 	if r, ok := call.Function.Arguments["ref"].(string); ok && r != "" {
 		ref = r
 	}
-	
+
 	recursive := false
 	if r, ok := call.Function.Arguments["recursive"].(bool); ok {
 		recursive = r
 	}
-	
+
 	opts := &githubapi.RepositoryContentGetOptions{Ref: ref}
 	_, directoryContent, _, err := s.client.GetClient().Repositories.GetContents(ctx, owner, repo, path, opts)
 	if err != nil {
@@ -369,9 +369,9 @@ func (s *GitHubFilesServer) listFiles(ctx context.Context, call *models.ToolCall
 			Type:    "error",
 		}, nil
 	}
-	
+
 	var files []map[string]interface{}
-	
+
 	for _, item := range directoryContent {
 		fileInfo := map[string]interface{}{
 			"name":     item.GetName(),
@@ -382,9 +382,9 @@ func (s *GitHubFilesServer) listFiles(ctx context.Context, call *models.ToolCall
 			"url":      item.GetHTMLURL(),
 			"download": item.GetDownloadURL(),
 		}
-		
+
 		files = append(files, fileInfo)
-		
+
 		// 递归列出子目录（如果启用）
 		if recursive && item.GetType() == "dir" {
 			subCall := &models.ToolCall{
@@ -398,7 +398,7 @@ func (s *GitHubFilesServer) listFiles(ctx context.Context, call *models.ToolCall
 					},
 				},
 			}
-			
+
 			subResult, err := s.listFiles(ctx, subCall, owner, repo)
 			if err == nil && subResult.Success {
 				if subFiles, ok := subResult.Content.(map[string]interface{})["files"].([]map[string]interface{}); ok {
@@ -407,7 +407,7 @@ func (s *GitHubFilesServer) listFiles(ctx context.Context, call *models.ToolCall
 			}
 		}
 	}
-	
+
 	return &models.ToolResult{
 		ID:      call.ID,
 		Success: true,
@@ -423,17 +423,17 @@ func (s *GitHubFilesServer) listFiles(ctx context.Context, call *models.ToolCall
 // searchFiles 搜索文件
 func (s *GitHubFilesServer) searchFiles(ctx context.Context, call *models.ToolCall, owner, repo string) (*models.ToolResult, error) {
 	query := call.Function.Arguments["query"].(string)
-	
+
 	searchPath := ""
 	if p, ok := call.Function.Arguments["path"].(string); ok {
 		searchPath = p
 	}
-	
+
 	extension := ""
 	if e, ok := call.Function.Arguments["extension"].(string); ok {
 		extension = e
 	}
-	
+
 	// 构建GitHub搜索查询
 	searchQuery := fmt.Sprintf("%s repo:%s/%s", query, owner, repo)
 	if searchPath != "" {
@@ -445,12 +445,12 @@ func (s *GitHubFilesServer) searchFiles(ctx context.Context, call *models.ToolCa
 		}
 		searchQuery += fmt.Sprintf(" extension:%s", extension[1:])
 	}
-	
+
 	// 执行搜索
 	opts := &githubapi.SearchOptions{
 		ListOptions: githubapi.ListOptions{PerPage: 100},
 	}
-	
+
 	result, _, err := s.client.GetClient().Search.Code(ctx, searchQuery, opts)
 	if err != nil {
 		return &models.ToolResult{
@@ -460,7 +460,7 @@ func (s *GitHubFilesServer) searchFiles(ctx context.Context, call *models.ToolCa
 			Type:    "error",
 		}, nil
 	}
-	
+
 	var files []map[string]interface{}
 	for _, item := range result.CodeResults {
 		fileInfo := map[string]interface{}{
@@ -472,7 +472,7 @@ func (s *GitHubFilesServer) searchFiles(ctx context.Context, call *models.ToolCa
 		}
 		files = append(files, fileInfo)
 	}
-	
+
 	return &models.ToolResult{
 		ID:      call.ID,
 		Success: true,

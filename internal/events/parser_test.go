@@ -147,16 +147,16 @@ func TestHasCommand(t *testing.T) {
 			hasCmd: true,
 		},
 		{
-			name:    "no command",
-			content: "just a regular comment",
+			name:     "no command",
+			content:  "just a regular comment",
 			expected: nil,
-			hasCmd: false,
+			hasCmd:   false,
 		},
 		{
-			name:    "command in middle",
-			content: "please /code this feature",
+			name:     "command in middle",
+			content:  "please /code this feature",
 			expected: nil,
-			hasCmd: false,
+			hasCmd:   false,
 		},
 	}
 
@@ -171,7 +171,7 @@ func TestHasCommand(t *testing.T) {
 
 			cmdInfo, hasCmd := models.HasCommand(ctx)
 			assert.Equal(t, tt.hasCmd, hasCmd)
-			
+
 			if tt.hasCmd {
 				require.NotNil(t, cmdInfo)
 				assert.Equal(t, tt.expected.Command, cmdInfo.Command)

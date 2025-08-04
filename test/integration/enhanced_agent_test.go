@@ -21,37 +21,37 @@ func TestEnhancedAgentIntegration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	
+
 	// 1. 创建测试配置
 	cfg := &config.Config{
 		GitHub: config.GitHubConfig{
 			Token: "fake-token-for-testing",
 		},
 		CodeProvider: "claude",
-		UseDocker: false,
+		UseDocker:    false,
 		Server: config.ServerConfig{
 			Port: 8888,
 		},
 	}
-	
+
 	// 2. 创建工作空间管理器
 	workspaceManager := workspace.NewManager(cfg)
-	
+
 	// 3. 创建增强版Agent
 	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
 	require.NoError(t, err)
 	defer enhancedAgent.Shutdown(context.Background())
-	
+
 	// 4. 验证Agent初始化
 	assert.NotNil(t, enhancedAgent.GetMCPManager())
 	assert.NotNil(t, enhancedAgent.GetModeManager())
-	
+
 	// 验证MCP服务器已注册
 	mcpServers := enhancedAgent.GetMCPManager().GetServers()
 	assert.Len(t, mcpServers, 2) // github-files and github-comments
 	assert.Contains(t, mcpServers, "github-files")
 	assert.Contains(t, mcpServers, "github-comments")
-	
+
 	// 验证模式处理器已注册
 	assert.Equal(t, 3, enhancedAgent.GetModeManager().GetHandlerCount())
 }
@@ -61,20 +61,20 @@ func TestEnhancedAgentIssueCommentFlow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	
+
 	// 创建测试Agent
 	cfg := createTestConfig()
 	workspaceManager := workspace.NewManager(cfg)
 	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
 	require.NoError(t, err)
 	defer enhancedAgent.Shutdown(context.Background())
-	
+
 	// 创建模拟Issue评论事件
 	event := createMockIssueCommentEvent()
-	
+
 	// 使用新的事件处理入口
 	err = enhancedAgent.ProcessGitHubEvent(context.Background(), "issue_comment", event)
-	
+
 	// 由于我们使用TODO占位符实现，目前会成功返回
 	// 在实际实现后，fake token会导致GitHub API调用失败
 	if err != nil {
@@ -91,7 +91,7 @@ func TestMCPToolsIntegration(t *testing.T) {
 	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
 	require.NoError(t, err)
 	defer enhancedAgent.Shutdown(context.Background())
-	
+
 	// 创建MCP上下文
 	mcpCtx := &models.MCPContext{
 		Repository: &models.IssueCommentContext{
@@ -110,26 +110,26 @@ func TestMCPToolsIntegration(t *testing.T) {
 		},
 		Permissions: []string{"github:read", "github:write"},
 	}
-	
+
 	// 测试工具准备
 	mcpClient := enhancedAgent.GetMCPManager()
 	tools, err := mcpClient.GetAvailableTools(context.Background(), mcpCtx)
 	require.NoError(t, err)
-	
+
 	// 验证工具数量和命名
 	assert.True(t, len(tools) > 0)
-	
+
 	toolNames := make([]string, len(tools))
 	for i, tool := range tools {
 		toolNames[i] = tool.Name
 	}
-	
+
 	// 验证GitHub文件操作工具
 	assert.Contains(t, toolNames, "github-files_read_file")
 	assert.Contains(t, toolNames, "github-files_write_file")
 	assert.Contains(t, toolNames, "github-files_list_files")
 	assert.Contains(t, toolNames, "github-files_search_files")
-	
+
 	// 验证GitHub评论操作工具
 	assert.Contains(t, toolNames, "github-comments_create_comment")
 	assert.Contains(t, toolNames, "github-comments_update_comment")
@@ -144,15 +144,15 @@ func TestProgressCommentIntegration(t *testing.T) {
 	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
 	require.NoError(t, err)
 	defer enhancedAgent.Shutdown(context.Background())
-	
+
 	// 验证组件能够正确创建和初始化
 	assert.NotNil(t, enhancedAgent)
-	
+
 	// 测试任务工厂
 	mcpManager := enhancedAgent.GetMCPManager()
 	metrics := mcpManager.GetMetrics()
 	assert.NotNil(t, metrics)
-	
+
 	// 验证所有服务器都有指标跟踪
 	assert.Contains(t, metrics, "github-files")
 	assert.Contains(t, metrics, "github-comments")
@@ -166,7 +166,7 @@ func createTestConfig() *config.Config {
 			Token: "fake-token-for-testing",
 		},
 		CodeProvider: "claude",
-		UseDocker: false,
+		UseDocker:    false,
 		Server: config.ServerConfig{
 			Port: 8888,
 		},

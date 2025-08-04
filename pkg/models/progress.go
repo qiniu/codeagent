@@ -11,7 +11,7 @@ type TaskStatus string
 
 const (
 	TaskStatusPending    TaskStatus = "pending"     // ⏳ 等待执行
-	TaskStatusInProgress TaskStatus = "in_progress" // 🔄 正在执行  
+	TaskStatusInProgress TaskStatus = "in_progress" // 🔄 正在执行
 	TaskStatusCompleted  TaskStatus = "completed"   // ✅ 已完成
 	TaskStatusFailed     TaskStatus = "failed"      // ❌ 执行失败
 	TaskStatusSkipped    TaskStatus = "skipped"     // ⏭️ 已跳过
@@ -129,10 +129,10 @@ func (t *Task) GetStatusIcon() string {
 
 // SpinnerState Spinner动画状态
 type SpinnerState struct {
-	Active    bool      `json:"active"`
-	Message   string    `json:"message"`
-	StartTime time.Time `json:"start_time"`
-	FrameIndex int      `json:"frame_index"`
+	Active     bool      `json:"active"`
+	Message    string    `json:"message"`
+	StartTime  time.Time `json:"start_time"`
+	FrameIndex int       `json:"frame_index"`
 }
 
 // SpinnerFrames Spinner动画帧（对应claude-code-action的spinner）
@@ -143,7 +143,7 @@ func (s *SpinnerState) GetCurrentFrame() string {
 	if !s.Active || len(SpinnerFrames) == 0 {
 		return ""
 	}
-	
+
 	// 基于时间计算当前帧
 	elapsed := time.Since(s.StartTime)
 	frameIndex := int(elapsed.Milliseconds()/100) % len(SpinnerFrames)
@@ -266,7 +266,7 @@ func (pt *ProgressTracker) GetOverallProgress() float64 {
 	if len(pt.Tasks) == 0 {
 		return 0.0
 	}
-	
+
 	var totalProgress float64
 	for _, task := range pt.Tasks {
 		switch task.Status {
@@ -278,7 +278,7 @@ func (pt *ProgressTracker) GetOverallProgress() float64 {
 			// 失败或跳过的任务不计入进度
 		}
 	}
-	
+
 	return totalProgress / float64(len(pt.Tasks))
 }
 
@@ -311,16 +311,16 @@ func (pt *ProgressTracker) HasErrors() bool {
 
 // ProgressExecutionResult 带进度信息的执行结果
 type ProgressExecutionResult struct {
-	Success        bool                  `json:"success"`
-	Output         string                `json:"output"`
-	Error          string                `json:"error,omitempty"`
-	FilesChanged   []string              `json:"files_changed"`
-	Duration       time.Duration         `json:"duration"`
-	Summary        string                `json:"summary"`
-	CommitSHA      string                `json:"commit_sha,omitempty"`
-	BranchName     string                `json:"branch_name,omitempty"`
-	PullRequestURL string                `json:"pull_request_url,omitempty"`
-	TaskResults    []*Task               `json:"task_results"`
+	Success        bool                   `json:"success"`
+	Output         string                 `json:"output"`
+	Error          string                 `json:"error,omitempty"`
+	FilesChanged   []string               `json:"files_changed"`
+	Duration       time.Duration          `json:"duration"`
+	Summary        string                 `json:"summary"`
+	CommitSHA      string                 `json:"commit_sha,omitempty"`
+	BranchName     string                 `json:"branch_name,omitempty"`
+	PullRequestURL string                 `json:"pull_request_url,omitempty"`
+	TaskResults    []*Task                `json:"task_results"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 

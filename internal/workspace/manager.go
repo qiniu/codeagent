@@ -334,7 +334,11 @@ func (m *Manager) recoverPRWorkspace(org, repo, worktreePath, remoteURL string, 
 
 	// 创建对应的 session 目录（与 repo 同级）
 	// session目录格式：{aiModel}-{repo}-session-{prNumber}-{timestamp}
-	timestampInt, _ := strconv.ParseInt(timestamp, 10, 64)
+	timestampInt, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		log.Warnf("Failed to parse timestamp %s, using current time: %v", timestamp, err)
+		timestampInt = time.Now().Unix()
+	}
 	sessionPath := m.createSessionPathWithTimestamp(m.baseDir, aiModel, repo, prNumber, timestampInt)
 
 	// 恢复工作空间对象

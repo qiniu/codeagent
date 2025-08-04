@@ -48,20 +48,20 @@ func NewProgressCommentManager(github GitHubCommentClient, repo *githubapi.Repos
 // 对应claude-code-action中的createProgressComment
 func (pcm *ProgressCommentManager) InitializeProgress(ctx context.Context, tasks []*models.Task) error {
 	xl := xlog.NewWith(ctx)
-	
+
 	pcm.updateMutex.Lock()
 	defer pcm.updateMutex.Unlock()
-	
+
 	// 添加任务到跟踪器
 	for _, task := range tasks {
 		pcm.tracker.AddTask(task)
 	}
-	
+
 	// 生成初始评论内容
 	content := pcm.renderInitialComment()
 	pcm.context.InitialContent = content
 	pcm.context.LastContent = content
-	
+
 	// 创建GitHub评论
 	comment, err := pcm.github.CreateComment(
 		ctx,
@@ -73,10 +73,10 @@ func (pcm *ProgressCommentManager) InitializeProgress(ctx context.Context, tasks
 	if err != nil {
 		return fmt.Errorf("failed to create progress comment: %w", err)
 	}
-	
+
 	pcm.context.CommentID = comment.ID
 	pcm.lastUpdate = time.Now()
-	
+
 	xl.Infof("Created progress comment with ID: %d", *comment.ID)
 	return nil
 }
@@ -84,15 +84,15 @@ func (pcm *ProgressCommentManager) InitializeProgress(ctx context.Context, tasks
 // UpdateTask 更新任务状态
 func (pcm *ProgressCommentManager) UpdateTask(ctx context.Context, taskID string, status models.TaskStatus, message ...string) error {
 	xl := xlog.NewWith(ctx)
-	
+
 	pcm.updateMutex.Lock()
 	defer pcm.updateMutex.Unlock()
-	
+
 	task := pcm.tracker.GetTask(taskID)
 	if task == nil {
 		return fmt.Errorf("task not found: %s", taskID)
 	}
-	
+
 	// 更新任务状态
 	switch status {
 	case models.TaskStatusInProgress:
@@ -118,9 +118,9 @@ func (pcm *ProgressCommentManager) UpdateTask(ctx context.Context, taskID string
 		}
 		task.Skip(reason)
 	}
-	
+
 	xl.Infof("Updated task %s to status %s", taskID, status)
-	
+
 	// 更新评论内容
 	return pcm.updateComment(ctx)
 }
@@ -129,7 +129,7 @@ func (pcm *ProgressCommentManager) UpdateTask(ctx context.Context, taskID string
 func (pcm *ProgressCommentManager) ShowSpinner(ctx context.Context, message string) error {
 	pcm.updateMutex.Lock()
 	defer pcm.updateMutex.Unlock()
-	
+
 	pcm.tracker.StartSpinner(message)
 	return pcm.updateComment(ctx)
 }
@@ -138,7 +138,7 @@ func (pcm *ProgressCommentManager) ShowSpinner(ctx context.Context, message stri
 func (pcm *ProgressCommentManager) HideSpinner(ctx context.Context) error {
 	pcm.updateMutex.Lock()
 	defer pcm.updateMutex.Unlock()
-	
+
 	pcm.tracker.StopSpinner()
 	return pcm.updateComment(ctx)
 }
@@ -146,21 +146,21 @@ func (pcm *ProgressCommentManager) HideSpinner(ctx context.Context) error {
 // FinalizeComment 完成评论（最终状态）
 func (pcm *ProgressCommentManager) FinalizeComment(ctx context.Context, result *models.ProgressExecutionResult) error {
 	xl := xlog.NewWith(ctx)
-	
+
 	pcm.updateMutex.Lock()
 	defer pcm.updateMutex.Unlock()
-	
+
 	// 更新跟踪器状态
 	if result.Success {
 		pcm.tracker.Complete()
 	} else {
 		pcm.tracker.Fail(fmt.Errorf("%s", result.Error))
 	}
-	
+
 	// 生成最终评论内容
 	content := pcm.renderFinalComment(result)
 	pcm.context.LastContent = content
-	
+
 	// 更新GitHub评论
 	if pcm.context.CommentID != nil {
 		err := pcm.github.UpdateComment(
@@ -173,14 +173,14 @@ func (pcm *ProgressCommentManager) FinalizeComment(ctx context.Context, result *
 		if err != nil {
 			return fmt.Errorf("failed to finalize comment: %w", err)
 		}
-		
+
 		pcm.context.UpdateCount++
 		now := time.Now()
 		pcm.context.LastUpdatedAt = &now
-		
+
 		xl.Infof("Finalized progress comment")
 	}
-	
+
 	return nil
 }
 
@@ -189,16 +189,16 @@ func (pcm *ProgressCommentManager) updateComment(ctx context.Context) error {
 	if pcm.context.CommentID == nil {
 		return fmt.Errorf("comment not initialized")
 	}
-	
+
 	// 限制更新频率（避免过于频繁的API调用）
 	if !pcm.testMode && time.Since(pcm.lastUpdate) < 2*time.Second {
 		return nil
 	}
-	
+
 	// 生成当前进度内容
 	content := pcm.renderProgressUpdate()
 	pcm.context.LastContent = content
-	
+
 	// 更新GitHub评论
 	err := pcm.github.UpdateComment(
 		ctx,
@@ -210,43 +210,43 @@ func (pcm *ProgressCommentManager) updateComment(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to update comment: %w", err)
 	}
-	
+
 	pcm.context.UpdateCount++
 	pcm.lastUpdate = time.Now()
 	now := time.Now()
 	pcm.context.LastUpdatedAt = &now
-	
+
 	return nil
 }
 
 // renderInitialComment 渲染初始评论内容
 func (pcm *ProgressCommentManager) renderInitialComment() string {
 	var sb strings.Builder
-	
+
 	sb.WriteString("## 🤖 CodeAgent is working on this...\n\n")
-	
+
 	// 任务列表
 	for _, task := range pcm.tracker.Tasks {
 		sb.WriteString(fmt.Sprintf("%s %s\n", task.GetStatusIcon(), task.Description))
 	}
-	
+
 	sb.WriteString("\n---\n")
 	sb.WriteString(fmt.Sprintf("*Started at: %s*\n", pcm.tracker.StartTime.Format("15:04:05 MST")))
-	
+
 	return sb.String()
 }
 
 // renderProgressUpdate 渲染进度更新内容
 func (pcm *ProgressCommentManager) renderProgressUpdate() string {
 	var sb strings.Builder
-	
+
 	sb.WriteString("## 🤖 CodeAgent is working on this...\n\n")
-	
+
 	// 任务列表
 	for _, task := range pcm.tracker.Tasks {
 		icon := task.GetStatusIcon()
 		description := task.Description
-		
+
 		// 为当前任务添加额外信息
 		if task.ID == pcm.tracker.CurrentTaskID && task.IsActive() {
 			if pcm.tracker.Spinner.Active {
@@ -256,81 +256,81 @@ func (pcm *ProgressCommentManager) renderProgressUpdate() string {
 				}
 			}
 		}
-		
+
 		// 添加持续时间（对于已完成的任务）
 		if task.IsCompleted() && task.Duration > 0 {
 			description += fmt.Sprintf(" *(%.1fs)*", task.Duration.Seconds())
 		}
-		
+
 		// 添加错误信息（对于失败的任务）
 		if task.IsFailed() && task.Error != "" {
 			description += fmt.Sprintf(" - **Error**: %s", task.Error)
 		}
-		
+
 		sb.WriteString(fmt.Sprintf("%s %s\n", icon, description))
 	}
-	
+
 	// 当前Spinner信息
 	if pcm.tracker.Spinner.Active && pcm.tracker.Spinner.Message != "" {
-		sb.WriteString(fmt.Sprintf("\n%s Working on: %s\n", 
-			pcm.tracker.Spinner.GetCurrentFrame(), 
+		sb.WriteString(fmt.Sprintf("\n%s Working on: %s\n",
+			pcm.tracker.Spinner.GetCurrentFrame(),
 			pcm.tracker.Spinner.Message))
 	}
-	
+
 	// 进度信息
 	progress := pcm.tracker.GetOverallProgress()
 	completedTasks := pcm.tracker.GetCompletedTasksCount()
 	totalTasks := len(pcm.tracker.Tasks)
-	
-	sb.WriteString(fmt.Sprintf("\n**Progress**: %.0f%% (%d/%d tasks completed)\n", 
+
+	sb.WriteString(fmt.Sprintf("\n**Progress**: %.0f%% (%d/%d tasks completed)\n",
 		progress*100, completedTasks, totalTasks))
-	
+
 	sb.WriteString("\n---\n")
 	sb.WriteString(fmt.Sprintf("*Started: %s", pcm.tracker.StartTime.Format("15:04:05 MST")))
-	
+
 	if pcm.tracker.Status == models.TaskStatusInProgress {
 		elapsed := time.Since(pcm.tracker.StartTime)
 		sb.WriteString(fmt.Sprintf(" | Elapsed: %s*\n", formatDuration(elapsed)))
 	} else {
 		sb.WriteString("*\n")
 	}
-	
+
 	return sb.String()
 }
 
 // renderFinalComment 渲染最终评论内容
 func (pcm *ProgressCommentManager) renderFinalComment(result *models.ProgressExecutionResult) string {
 	var sb strings.Builder
-	
+
 	if result.Success {
 		sb.WriteString("## ✅ CodeAgent completed successfully!\n\n")
 	} else {
 		sb.WriteString("## ❌ CodeAgent encountered an error\n\n")
 	}
-	
+
 	// 最终任务状态
 	for _, task := range pcm.tracker.Tasks {
 		icon := task.GetStatusIcon()
 		description := task.Description
-		
+
 		// 添加持续时间
 		if task.Duration > 0 {
 			description += fmt.Sprintf(" *(%.1fs)*", task.Duration.Seconds())
 		}
-		
+
 		// 添加错误信息
 		if task.IsFailed() && task.Error != "" {
 			description += fmt.Sprintf(" - **Error**: %s", task.Error)
 		}
-		
+
 		sb.WriteString(fmt.Sprintf("%s %s\n", icon, description))
 	}
-	
+
 	// 结果摘要
 	if result.Summary != "" {
 		sb.WriteString(fmt.Sprintf("\n### Summary\n%s\n", result.Summary))
 	}
-	
+
 	// 文件变更信息
 	if len(result.FilesChanged) > 0 {
 		sb.WriteString("\n### Files Changed\n")
@@ -338,25 +338,25 @@ func (pcm *ProgressCommentManager) renderFinalComment(result *models.ProgressExe
 			sb.WriteString(fmt.Sprintf("- `%s`\n", file))
 		}
 	}
-	
+
 	// 分支和PR信息
 	if result.BranchName != "" {
 		sb.WriteString(fmt.Sprintf("\n### Branch\n`%s`\n", result.BranchName))
 	}
-	
+
 	if result.PullRequestURL != "" {
 		sb.WriteString(fmt.Sprintf("\n### Pull Request\n[View Pull Request](%s)\n", result.PullRequestURL))
 	}
-	
+
 	// 错误信息
 	if !result.Success && result.Error != "" {
 		sb.WriteString(fmt.Sprintf("\n### Error Details\n```\n%s\n```\n", result.Error))
 	}
-	
+
 	// 时间统计
 	sb.WriteString("\n---\n")
 	sb.WriteString(fmt.Sprintf("*Completed in %s*\n", formatDuration(result.Duration)))
-	
+
 	return sb.String()
 }
 

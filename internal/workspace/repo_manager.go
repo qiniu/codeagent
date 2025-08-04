@@ -512,7 +512,7 @@ func (r *RepoManager) EnsureMainRepositoryUpToDate() error {
 // handleExistingWorktree 处理已存在的 worktree 冲突
 func (r *RepoManager) handleExistingWorktree(branch string, targetPath string) error {
 	log.Infof("Checking for existing worktrees using branch: %s", branch)
-	
+
 	// 获取当前所有 worktree
 	cmd := exec.Command("git", "worktree", "list", "--porcelain")
 	cmd.Dir = r.repoPath
@@ -521,30 +521,30 @@ func (r *RepoManager) handleExistingWorktree(branch string, targetPath string) e
 		log.Warnf("Failed to list worktrees: %v", err)
 		return nil // 不阻止创建，继续执行
 	}
-	
+
 	worktrees, err := r.parseWorktreeList(string(output))
 	if err != nil {
 		log.Warnf("Failed to parse worktree list: %v", err)
 		return nil // 不阻止创建，继续执行
 	}
-	
+
 	// 检查是否有 worktree 正在使用相同的分支
 	for _, wt := range worktrees {
 		if strings.Contains(wt.Branch, branch) || strings.Contains(branch, strings.TrimPrefix(wt.Branch, "refs/heads/")) {
 			log.Warnf("Found existing worktree using branch %s at path: %s", branch, wt.Worktree)
-			
+
 			// 如果目标路径和现有路径不同，需要清理现有的 worktree
 			if wt.Worktree != targetPath {
 				log.Infof("Removing conflicting worktree: %s", wt.Worktree)
-				
+
 				// 强制删除现有的 worktree
 				removeCmd := exec.Command("git", "worktree", "remove", "--force", wt.Worktree)
 				removeCmd.Dir = r.repoPath
 				removeOutput, removeErr := removeCmd.CombinedOutput()
 				if removeErr != nil {
-					log.Errorf("Failed to remove existing worktree %s: %v, output: %s", 
+					log.Errorf("Failed to remove existing worktree %s: %v, output: %s",
 						wt.Worktree, removeErr, string(removeOutput))
-					
+
 					// 尝试手动删除目录
 					if err := r.forceRemoveDirectory(wt.Worktree); err != nil {
 						log.Errorf("Failed to manually remove directory %s: %v", wt.Worktree, err)
@@ -553,7 +553,7 @@ func (r *RepoManager) handleExistingWorktree(branch string, targetPath string) e
 				} else {
 					log.Infof("Successfully removed conflicting worktree: %s", wt.Worktree)
 				}
-				
+
 				// 尝试删除相关的本地分支（如果存在且不是主分支）
 				branchName := strings.TrimPrefix(wt.Branch, "refs/heads/")
 				if branchName != "main" && branchName != "master" && branchName != "" {
@@ -562,7 +562,7 @@ func (r *RepoManager) handleExistingWorktree(branch string, targetPath string) e
 					branchCmd.Dir = r.repoPath
 					branchOutput, err := branchCmd.CombinedOutput()
 					if err != nil {
-						log.Warnf("Failed to delete local branch %s: %v, output: %s", 
+						log.Warnf("Failed to delete local branch %s: %v, output: %s",
 							branchName, err, string(branchOutput))
 					} else {
 						log.Infof("Successfully deleted local branch: %s", branchName)
@@ -577,26 +577,26 @@ func (r *RepoManager) handleExistingWorktree(branch string, targetPath string) e
 			}
 		}
 	}
-	
+
 	return nil
 }
 
 // forceRemoveDirectory 强制删除目录
 func (r *RepoManager) forceRemoveDirectory(dirPath string) error {
 	log.Infof("Force removing directory: %s", dirPath)
-	
+
 	// 检查目录是否存在
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
 		log.Infof("Directory does not exist: %s", dirPath)
 		return nil
 	}
-	
+
 	// 尝试删除目录
 	if err := os.RemoveAll(dirPath); err != nil {
 		log.Errorf("Failed to remove directory %s: %v", dirPath, err)
 		return err
 	}
-	
+
 	log.Infof("Successfully removed directory: %s", dirPath)
 	return nil
 }
@@ -612,7 +612,7 @@ func (r *RepoManager) RestoreWorktrees() error {
 		base := filepath.Base(wt.Worktree)
 		if strings.Contains(base, "-pr-") {
 			log.Infof("Parsing worktree directory name: %s", base)
-			
+
 			// 解析目录名格式：{aiModel}-{repo-name-with-dashes}-pr-{prNumber}-{timestamp}
 			// 使用 -pr- 作为分隔符来准确分割
 			prIndex := strings.Index(base, "-pr-")
@@ -620,10 +620,10 @@ func (r *RepoManager) RestoreWorktrees() error {
 				log.Warnf("Invalid worktree name format (no -pr- found): %s", base)
 				continue
 			}
-			
+
 			// 提取前缀部分（AI模型和仓库名）
 			prefix := base[:prIndex]
-			
+
 			// 提取后缀部分（PR编号和时间戳）
 			suffix := base[prIndex+4:] // 跳过 "-pr-"
 			suffixParts := strings.Split(suffix, "-")
@@ -631,26 +631,26 @@ func (r *RepoManager) RestoreWorktrees() error {
 				log.Warnf("Invalid worktree name format (insufficient suffix parts): %s", base)
 				continue
 			}
-			
+
 			// 解析PR编号
 			prNumber, err := strconv.Atoi(suffixParts[0])
 			if err != nil {
 				log.Warnf("Invalid PR number in worktree name: %s, error: %v", base, err)
 				continue
 			}
-			
+
 			// 提取AI模型（从前缀的第一部分）
 			prefixParts := strings.Split(prefix, "-")
 			if len(prefixParts) < 2 {
 				log.Warnf("Invalid worktree name format (insufficient prefix parts): %s", base)
 				continue
 			}
-			
+
 			aiModel := prefixParts[0]
 			repoName := strings.Join(prefixParts[1:], "-")
-			
+
 			log.Infof("Parsed worktree: aiModel=%s, repo=%s, prNumber=%d", aiModel, repoName, prNumber)
-			
+
 			// 验证AI模型是否有效
 			if aiModel == "gemini" || aiModel == "claude" {
 				r.RegisterWorktreeWithAI(prNumber, aiModel, wt)
@@ -659,14 +659,14 @@ func (r *RepoManager) RestoreWorktrees() error {
 				// 如果第一部分不是有效的AI模型，可能是旧格式或者其他格式
 				// 尝试向后兼容处理
 				log.Warnf("Unknown AI model '%s' in worktree name: %s", aiModel, base)
-				
+
 				// 检查是否是旧格式（没有AI模型前缀）
 				if strings.Contains(base, "issue-") {
 					// 可能是Issue工作空间，跳过
 					log.Infof("Skipping Issue worktree: %s", base)
 					continue
 				}
-				
+
 				// 使用默认方式注册
 				r.RegisterWorktree(prNumber, wt)
 				log.Infof("Restored worktree for PR #%d (unknown AI model): %s", prNumber, wt.Worktree)
