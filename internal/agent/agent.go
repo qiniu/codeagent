@@ -434,7 +434,7 @@ func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueC
 
 	// 9. 执行 AI 处理
 	log.Infof("Executing AI processing for PR %s", strings.ToLower(mode))
-	resp, err := a.promptWithRetry(ctx, codeClient, prompt, 3)
+	resp, err := code.PromptWithRetry(ctx, codeClient, prompt, 3)
 	if err != nil {
 		log.Errorf("Failed to process PR %s: %v", strings.ToLower(mode), err)
 		return fmt.Errorf("failed to process PR %s: %w", strings.ToLower(mode), err)
@@ -515,7 +515,7 @@ func (a *Agent) buildPromptWithCurrentComment(mode string, args string, historic
 			commentCommand = "/fix"
 			commentArgs = strings.TrimSpace(strings.TrimPrefix(currentComment, "/fix"))
 		}
-		
+
 		if commentArgs != "" {
 			currentCommentContext = fmt.Sprintf("## 当前评论\n用户刚刚发出指令：%s %s", commentCommand, commentArgs)
 		} else {
@@ -533,7 +533,7 @@ func (a *Agent) buildPromptWithCurrentComment(mode string, args string, historic
 				contextParts = append(contextParts, currentCommentContext)
 			}
 			fullContext := strings.Join(contextParts, "\n\n")
-			
+
 			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
 
 %s
@@ -559,7 +559,7 @@ func (a *Agent) buildPromptWithCurrentComment(mode string, args string, historic
 				contextParts = append(contextParts, currentCommentContext)
 			}
 			fullContext := strings.Join(contextParts, "\n\n")
-			
+
 			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
 
 %s

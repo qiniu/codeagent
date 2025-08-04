@@ -204,6 +204,12 @@ func (m *Manager) cleanupWorkspaceWithWorktree(ws *models.Workspace) bool {
 		}
 	}
 
+	// 清理相关的Docker容器
+	containerRemoved := m.cleanupRelatedContainers(ws)
+	if !containerRemoved {
+		log.Warnf("Failed to cleanup containers for workspace %s", ws.Path)
+	}
+
 	// 只有 worktree 和 session 都清理成功才返回 true
 	return worktreeRemoved && sessionRemoved
 }
@@ -830,4 +836,63 @@ func (m *Manager) GetExpiredWorkspaces() []*models.Workspace {
 	m.mutex.RUnlock()
 
 	return expiredWorkspaces
+}
+
+// cleanupRelatedContainers 清理与工作空间相关的Docker容器
+func (m *Manager) cleanupRelatedContainers(ws *models.Workspace) bool {
+	if ws == nil {
+		return false
+	}
+
+	// 构建可能的容器名称模式
+	containerPatterns := []string{
+		fmt.Sprintf("claude__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
+		fmt.Sprintf("gemini__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
+		fmt.Sprintf("claude__interactive__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
+	}
+
+	// 也检查旧的命名格式（向后兼容）
+	oldContainerPatterns := []string{
+		fmt.Sprintf("claude-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
+		fmt.Sprintf("gemini-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
+		fmt.Sprintf("claude-interactive-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
+	}
+
+	allPatterns := append(containerPatterns, oldContainerPatterns...)
+	removedCount := 0
+
+	for _, pattern := range allPatterns {
+		if m.removeContainerIfExists(pattern) {
+			removedCount++
+			log.Infof("Successfully removed container: %s", pattern)
+		}
+	}
+
+	return removedCount > 0 || len(allPatterns) == 0
+}
+
+// removeContainerIfExists 如果容器存在则删除它
+func (m *Manager) removeContainerIfExists(containerName string) bool {
+	// 检查容器是否存在
+	checkCmd := exec.Command("docker", "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}")
+	output, err := checkCmd.Output()
+	if err != nil {
+		log.Debugf("Failed to check container %s: %v", containerName, err)
+		return false
+	}
+
+	containerStatus := strings.TrimSpace(string(output))
+	if containerStatus == "" {
+		// 容器不存在或未运行
+		return false
+	}
+
+	// 强制删除容器
+	removeCmd := exec.Command("docker", "rm", "-f", containerName)
+	if err := removeCmd.Run(); err != nil {
+		log.Errorf("Failed to remove container %s: %v", containerName, err)
+		return false
+	}
+
+	return true
 }

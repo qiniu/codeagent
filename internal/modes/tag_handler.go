@@ -466,71 +466,12 @@ func (th *TagHandler) processIssueCodeCommand(
 
 // promptWithRetry 带重试的提示执行
 func (th *TagHandler) promptWithRetry(ctx context.Context, codeClient code.Code, prompt string, maxRetries int) (*code.Response, error) {
-	xl := xlog.NewWith(ctx)
-
-	var lastErr error
-	for i := 0; i < maxRetries; i++ {
-		xl.Infof("Executing prompt (attempt %d/%d)", i+1, maxRetries)
-
-		resp, err := codeClient.Prompt(prompt)
-		if err == nil {
-			xl.Infof("Prompt executed successfully on attempt %d", i+1)
-			return resp, nil
-		}
-
-		lastErr = err
-		xl.Warnf("Prompt failed on attempt %d: %v", i+1, err)
-
-		if i < maxRetries-1 {
-			xl.Infof("Retrying...")
-		}
-	}
-
-	return nil, fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
+	return code.PromptWithRetry(ctx, codeClient, prompt, maxRetries)
 }
 
 // parseStructuredOutput 解析结构化输出
 func (th *TagHandler) parseStructuredOutput(output string) (summary, changes, testPlan string) {
-	// 这里实现解析逻辑，提取summary、changes和testPlan
-	// 简化版本，实际中应该有更复杂的解析逻辑
-	lines := strings.Split(output, "\n")
-
-	currentSection := ""
-	var summaryLines, changesLines, testPlanLines []string
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		if strings.Contains(trimmed, models.SectionSummary) {
-			currentSection = "summary"
-			continue
-		} else if strings.Contains(trimmed, models.SectionChanges) {
-			currentSection = "changes"
-			continue
-		} else if strings.Contains(trimmed, models.SectionTestPlan) {
-			currentSection = "testplan"
-			continue
-		}
-
-		switch currentSection {
-		case "summary":
-			if trimmed != "" {
-				summaryLines = append(summaryLines, trimmed)
-			}
-		case "changes":
-			if trimmed != "" {
-				changesLines = append(changesLines, trimmed)
-			}
-		case "testplan":
-			if trimmed != "" {
-				testPlanLines = append(testPlanLines, trimmed)
-			}
-		}
-	}
-
-	return strings.Join(summaryLines, "\n"),
-		strings.Join(changesLines, "\n"),
-		strings.Join(testPlanLines, "\n")
+	return code.ParseStructuredOutput(output)
 }
 
 // updatePRWithMCP 使用MCP工具更新PR
@@ -1135,38 +1076,7 @@ func (th *TagHandler) buildPromptWithCurrentComment(mode string, args string, hi
 
 // formatHistoricalComments 格式化历史评论
 func (th *TagHandler) formatHistoricalComments(allComments *models.PRAllComments, currentCommentID int64) string {
-	if allComments == nil {
-		return ""
-	}
-
-	var contextParts []string
-
-	// 添加PR描述
-	if allComments.PRBody != "" {
-		contextParts = append(contextParts, "## PR描述\n"+allComments.PRBody)
-	}
-
-	// 添加Issue评论
-	if len(allComments.IssueComments) > 0 {
-		contextParts = append(contextParts, "## PR讨论")
-		for _, comment := range allComments.IssueComments {
-			if comment.GetID() != currentCommentID {
-				contextParts = append(contextParts, fmt.Sprintf("**%s**: %s",
-					comment.User.GetLogin(), comment.GetBody()))
-			}
-		}
-	}
-
-	// 添加Review评论
-	if len(allComments.ReviewComments) > 0 {
-		contextParts = append(contextParts, "## 代码审查评论")
-		for _, comment := range allComments.ReviewComments {
-			contextParts = append(contextParts, fmt.Sprintf("**%s** (文件: %s): %s",
-				comment.User.GetLogin(), comment.GetPath(), comment.GetBody()))
-		}
-	}
-
-	return strings.Join(contextParts, "\n\n")
+	return code.FormatHistoricalComments(allComments, currentCommentID)
 }
 
 // addPRCommentWithMCP 使用MCP工具添加PR评论
