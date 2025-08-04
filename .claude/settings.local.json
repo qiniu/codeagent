@@ -17,7 +17,12 @@
       "Bash(go vet:*)",
       "Bash(golangci-lint run:*)",
       "Bash(golangci-lint help:*)",
-      "Bash(go fmt:*)"
+      "Bash(go fmt:*)",
+      "Bash(gofmt:*)",
+      "Bash(if [ \"$(gofmt -l . | wc -l)\" -gt 0 ])",
+      "Bash(then echo \"Format issues found\")",
+      "Bash(else echo \"Format check passed\")",
+      "Bash(fi)"
     ],
     "deny": []
   }

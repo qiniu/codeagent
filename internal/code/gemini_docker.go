@@ -46,7 +46,7 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to get absolute workspace path: %w", err)
 	}
-	
+
 	sessionPath, err := filepath.Abs(workspace.SessionPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get absolute session path: %w", err)
