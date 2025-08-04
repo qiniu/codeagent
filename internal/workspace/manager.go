@@ -844,31 +844,48 @@ func (m *Manager) cleanupRelatedContainers(ws *models.Workspace) bool {
 		return false
 	}
 
-	// 构建可能的容器名称模式
-	containerPatterns := []string{
-		fmt.Sprintf("claude__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
-		fmt.Sprintf("gemini__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
-		fmt.Sprintf("claude__interactive__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
+	// 基于工作空间的AI模型和PR信息构建容器名称
+	var containerNames []string
+
+	// 根据AI模型类型构建对应的容器名称
+	switch ws.AIModel {
+	case "claude":
+		// 新的命名格式
+		containerNames = append(containerNames, fmt.Sprintf("claude__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber))
+		// 旧的命名格式（向后兼容）
+		containerNames = append(containerNames, fmt.Sprintf("claude-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber))
+
+		// 检查是否有interactive容器
+		containerNames = append(containerNames, fmt.Sprintf("claude__interactive__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber))
+		containerNames = append(containerNames, fmt.Sprintf("claude-interactive-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber))
+
+	case "gemini":
+		// 新的命名格式
+		containerNames = append(containerNames, fmt.Sprintf("gemini__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber))
+		// 旧的命名格式（向后兼容）
+		containerNames = append(containerNames, fmt.Sprintf("gemini-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber))
+
+	default:
+		// 如果AI模型未知，尝试所有可能的模式
+		containerNames = append(containerNames,
+			fmt.Sprintf("claude__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
+			fmt.Sprintf("gemini__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
+			fmt.Sprintf("claude__interactive__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
+			fmt.Sprintf("claude-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
+			fmt.Sprintf("gemini-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
+			fmt.Sprintf("claude-interactive-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
+		)
 	}
 
-	// 也检查旧的命名格式（向后兼容）
-	oldContainerPatterns := []string{
-		fmt.Sprintf("claude-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
-		fmt.Sprintf("gemini-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
-		fmt.Sprintf("claude-interactive-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
-	}
-
-	allPatterns := append(containerPatterns, oldContainerPatterns...)
 	removedCount := 0
-
-	for _, pattern := range allPatterns {
-		if m.removeContainerIfExists(pattern) {
+	for _, containerName := range containerNames {
+		if m.removeContainerIfExists(containerName) {
 			removedCount++
-			log.Infof("Successfully removed container: %s", pattern)
+			log.Infof("Successfully removed container: %s", containerName)
 		}
 	}
 
-	return removedCount > 0 || len(allPatterns) == 0
+	return removedCount > 0 || len(containerNames) == 0
 }
 
 // removeContainerIfExists 如果容器存在则删除它
