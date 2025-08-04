@@ -116,6 +116,7 @@ func (c *claudeCode) Prompt(message string) (*Response, error) {
 		c.containerName,
 		"claude",
 		"--dangerously-skip-permissions",
+		"-c",
 		"-p",
 		message,
 	}
