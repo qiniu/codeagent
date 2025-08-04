@@ -687,11 +687,13 @@ func (th *TagHandler) processPRCommand(
 
 	// 9. 构建包含历史上下文的prompt
 	var currentCommentID int64
+	var currentComment string
 	if event.Comment != nil {
 		currentCommentID = event.Comment.GetID()
+		currentComment = event.Comment.GetBody()
 	}
 	historicalContext := th.formatHistoricalComments(allComments, currentCommentID)
-	prompt := th.buildPrompt(mode, cmdInfo.Args, historicalContext)
+	prompt := th.buildPromptWithCurrentComment(mode, cmdInfo.Args, historicalContext, currentComment)
 
 	xl.Infof("Using %s prompt with args and historical context", strings.ToLower(mode))
 
@@ -877,8 +879,13 @@ func (th *TagHandler) processPRReviewCommentCommand(
 	return th.processPRCommand(ctx, issueCommentCtx, cmdInfo, aiModel, mode)
 }
 
-// buildPrompt 构建不同模式的prompt
+// buildPrompt 构建不同模式的prompt（兼容性函数）
 func (th *TagHandler) buildPrompt(mode string, args string, historicalContext string) string {
+	return th.buildPromptWithCurrentComment(mode, args, historicalContext, "")
+}
+
+// buildPromptWithCurrentComment 构建不同模式的prompt，包含当前评论信息
+func (th *TagHandler) buildPromptWithCurrentComment(mode string, args string, historicalContext string, currentComment string) string {
 	var prompt string
 	var taskDescription string
 	var defaultTask string
@@ -895,32 +902,74 @@ func (th *TagHandler) buildPrompt(mode string, args string, historicalContext st
 		defaultTask = "处理代码任务"
 	}
 
+	// 构建当前评论的上下文信息
+	var currentCommentContext string
+	if currentComment != "" {
+		// 从当前评论中提取command和args
+		var commentCommand, commentArgs string
+		if strings.HasPrefix(currentComment, "/continue") {
+			commentCommand = "/continue"
+			commentArgs = strings.TrimSpace(strings.TrimPrefix(currentComment, "/continue"))
+		} else if strings.HasPrefix(currentComment, "/fix") {
+			commentCommand = "/fix"
+			commentArgs = strings.TrimSpace(strings.TrimPrefix(currentComment, "/fix"))
+		}
+		
+		if commentArgs != "" {
+			currentCommentContext = fmt.Sprintf("## 当前评论\n用户刚刚发出指令：%s %s", commentCommand, commentArgs)
+		} else {
+			currentCommentContext = fmt.Sprintf("## 当前评论\n用户刚刚发出指令：%s", commentCommand)
+		}
+	}
+
 	if args != "" {
-		if historicalContext != "" {
+		if historicalContext != "" || currentCommentContext != "" {
+			contextParts := []string{}
+			if historicalContext != "" {
+				contextParts = append(contextParts, historicalContext)
+			}
+			if currentCommentContext != "" {
+				contextParts = append(contextParts, currentCommentContext)
+			}
+			fullContext := strings.Join(contextParts, "\n\n")
+			
 			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
 
 %s
 
-## 当前指令
+## 执行指令
 %s
 
 %s注意：
 1. 当前指令是主要任务，历史信息仅作为上下文参考
 2. 请确保修改符合PR的整体目标和已有的讨论共识
 3. 如果发现与历史讨论有冲突，请优先执行当前指令并在回复中说明`,
-				strings.ToLower(mode), historicalContext, args, taskDescription)
+				strings.ToLower(mode), fullContext, args, taskDescription)
 		} else {
 			prompt = fmt.Sprintf("根据指令%s：\n\n%s", strings.ToLower(mode), args)
 		}
 	} else {
-		if historicalContext != "" {
+		if historicalContext != "" || currentCommentContext != "" {
+			contextParts := []string{}
+			if historicalContext != "" {
+				contextParts = append(contextParts, historicalContext)
+			}
+			if currentCommentContext != "" {
+				contextParts = append(contextParts, currentCommentContext)
+			}
+			fullContext := strings.Join(contextParts, "\n\n")
+			
 			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
 
 %s
 
-%s`, strings.ToLower(mode), historicalContext, taskDescription)
+## 任务
+%s
+
+请根据上述PR描述和历史讨论，进行相应的代码修改和改进。`,
+				strings.ToLower(mode), fullContext, defaultTask)
 		} else {
-			prompt = fmt.Sprintf("%s", defaultTask)
+			prompt = defaultTask
 		}
 	}
 

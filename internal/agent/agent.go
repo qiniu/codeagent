@@ -417,16 +417,18 @@ func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueC
 		allComments = &models.PRAllComments{}
 	}
 
-	// 8. 构建包含历史上下文的 prompt
+	// 8. 构建包含历史上下文和当前评论的 prompt
 	var prompt string
 	var currentCommentID int64
+	var currentComment string
 	if event.Comment != nil {
 		currentCommentID = event.Comment.GetID()
+		currentComment = event.Comment.GetBody()
 	}
 	historicalContext := a.formatHistoricalComments(allComments, currentCommentID)
 
 	// 根据模式生成不同的 prompt
-	prompt = a.buildPrompt(mode, args, historicalContext)
+	prompt = a.buildPromptWithCurrentComment(mode, args, historicalContext, currentComment)
 
 	log.Infof("Using %s prompt with args and historical context", strings.ToLower(mode))
 
@@ -478,8 +480,13 @@ func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueC
 	return nil
 }
 
-// buildPrompt 构建不同模式的 prompt
+// buildPrompt 构建不同模式的 prompt（兼容性函数）
 func (a *Agent) buildPrompt(mode string, args string, historicalContext string) string {
+	return a.buildPromptWithCurrentComment(mode, args, historicalContext, "")
+}
+
+// buildPromptWithCurrentComment 构建不同模式的 prompt，包含当前评论信息
+func (a *Agent) buildPromptWithCurrentComment(mode string, args string, historicalContext string, currentComment string) string {
 	var prompt string
 	var taskDescription string
 	var defaultTask string
@@ -496,25 +503,63 @@ func (a *Agent) buildPrompt(mode string, args string, historicalContext string) 
 		defaultTask = "处理代码任务"
 	}
 
+	// 构建当前评论的上下文信息
+	var currentCommentContext string
+	if currentComment != "" {
+		// 从当前评论中提取command和args
+		var commentCommand, commentArgs string
+		if strings.HasPrefix(currentComment, "/continue") {
+			commentCommand = "/continue"
+			commentArgs = strings.TrimSpace(strings.TrimPrefix(currentComment, "/continue"))
+		} else if strings.HasPrefix(currentComment, "/fix") {
+			commentCommand = "/fix"
+			commentArgs = strings.TrimSpace(strings.TrimPrefix(currentComment, "/fix"))
+		}
+		
+		if commentArgs != "" {
+			currentCommentContext = fmt.Sprintf("## 当前评论\n用户刚刚发出指令：%s %s", commentCommand, commentArgs)
+		} else {
+			currentCommentContext = fmt.Sprintf("## 当前评论\n用户刚刚发出指令：%s", commentCommand)
+		}
+	}
+
 	if args != "" {
-		if historicalContext != "" {
+		if historicalContext != "" || currentCommentContext != "" {
+			contextParts := []string{}
+			if historicalContext != "" {
+				contextParts = append(contextParts, historicalContext)
+			}
+			if currentCommentContext != "" {
+				contextParts = append(contextParts, currentCommentContext)
+			}
+			fullContext := strings.Join(contextParts, "\n\n")
+			
 			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
 
 %s
 
-## 当前指令
+## 执行指令
 %s
 
 %s注意：
 1. 当前指令是主要任务，历史信息仅作为上下文参考
 2. 请确保修改符合PR的整体目标和已有的讨论共识
 3. 如果发现与历史讨论有冲突，请优先执行当前指令并在回复中说明`,
-				strings.ToLower(mode), historicalContext, args, taskDescription)
+				strings.ToLower(mode), fullContext, args, taskDescription)
 		} else {
 			prompt = fmt.Sprintf("根据指令%s：\n\n%s", strings.ToLower(mode), args)
 		}
 	} else {
-		if historicalContext != "" {
+		if historicalContext != "" || currentCommentContext != "" {
+			contextParts := []string{}
+			if historicalContext != "" {
+				contextParts = append(contextParts, historicalContext)
+			}
+			if currentCommentContext != "" {
+				contextParts = append(contextParts, currentCommentContext)
+			}
+			fullContext := strings.Join(contextParts, "\n\n")
+			
 			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
 
 %s
@@ -523,7 +568,7 @@ func (a *Agent) buildPrompt(mode string, args string, historicalContext string) 
 %s
 
 请根据上述PR描述和历史讨论，进行相应的代码修改和改进。`,
-				strings.ToLower(mode), historicalContext, defaultTask)
+				strings.ToLower(mode), fullContext, defaultTask)
 		} else {
 			prompt = defaultTask
 		}
