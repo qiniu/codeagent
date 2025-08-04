@@ -183,7 +183,7 @@ func createIsolatedClaudeConfig(workspace *models.Workspace, cfg *config.Config)
 }
 
 func shouldCopyHostClaudeConfig(cfg *config.Config) bool {
-	return cfg.Claude.APIKey == "" && cfg.Claude.AuthToken == "" && cfg.Claude.BaseURL == ""
+	return cfg.Claude.APIKey == "" && cfg.Claude.AuthToken == ""
 }
 
 func copyHostClaudeConfig(isolatedConfigDir string) error {
