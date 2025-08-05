@@ -128,7 +128,7 @@ func (th *TagHandler) handleIssueComment(
 
 	// 将事件转换为原始GitHub事件类型（兼容现有agent接口）
 	issueCommentEvent := event.RawEvent.(*github.IssueCommentEvent)
-	
+
 	// 处理 created 和 edited 状态的评论，允许用户修改命令
 	action := issueCommentEvent.GetAction()
 	if action != "created" && action != "edited" {
@@ -179,7 +179,7 @@ func (th *TagHandler) handlePRReview(
 
 	// 将事件转换为原始GitHub事件类型
 	reviewEvent := event.RawEvent.(*github.PullRequestReviewEvent)
-	
+
 	// 只处理 submitted 状态的review，忽略 edited 等其他状态
 	if reviewEvent.GetAction() != "submitted" {
 		xl.Infof("Skipping PR review event with action: %s (only processing 'submitted')", reviewEvent.GetAction())
@@ -213,7 +213,7 @@ func (th *TagHandler) handlePRReviewComment(
 
 	// 将事件转换为原始GitHub事件类型
 	reviewCommentEvent := event.RawEvent.(*github.PullRequestReviewCommentEvent)
-	
+
 	// 处理 created 和 edited 状态的review comment，允许用户修改命令
 	action := reviewCommentEvent.GetAction()
 	if action != "created" && action != "edited" {
@@ -762,14 +762,15 @@ func (th *TagHandler) processPRCommand(
 	}
 
 	xl.Infof("Committing and pushing changes for PR %s", strings.ToLower(mode))
-	if _, err := th.github.CommitAndPush(ws, executionResult, codeClient); err != nil {
+	commitHash, err := th.github.CommitAndPush(ws, executionResult, codeClient)
+	if err != nil {
 		xl.Errorf("Failed to commit and push changes: %v", err)
 		if mode == "Fix" {
 			return err
 		}
 		// Continue模式不返回错误
 	} else {
-		xl.Infof("Changes committed and pushed successfully")
+		xl.Infof("Changes committed and pushed successfully, commit hash: %s", commitHash)
 	}
 
 	// 12. 更新PR描述并添加完成评论
@@ -801,11 +802,23 @@ func (th *TagHandler) processPRCommand(
 
 	// 添加简洁的完成评论
 	var commentBody string
-	if event.Comment != nil && event.Comment.User != nil {
-		commentBody = fmt.Sprintf("@%s 已根据指令完成处理 ✅\n\n**查看详情**: %s",
-			event.Comment.User.GetLogin(), pr.GetHTMLURL())
+	if commitHash != "" {
+		// 使用commit URL
+		commitURL := fmt.Sprintf("%s/commits/%s", pr.GetHTMLURL(), commitHash)
+		if event.Comment != nil && event.Comment.User != nil {
+			commentBody = fmt.Sprintf("@%s 已根据指令完成处理 ✅\n\n**查看代码变更**: %s",
+				event.Comment.User.GetLogin(), commitURL)
+		} else {
+			commentBody = fmt.Sprintf("✅ 处理完成！\n\n**查看代码变更**: %s", commitURL)
+		}
 	} else {
-		commentBody = fmt.Sprintf("✅ 处理完成！\n\n**查看详情**: %s", pr.GetHTMLURL())
+		// 如果没有commit hash，使用PR URL作为fallback
+		if event.Comment != nil && event.Comment.User != nil {
+			commentBody = fmt.Sprintf("@%s 已根据指令完成处理 ✅\n\n**查看详情**: %s",
+				event.Comment.User.GetLogin(), pr.GetHTMLURL())
+		} else {
+			commentBody = fmt.Sprintf("✅ 处理完成！\n\n**查看详情**: %s", pr.GetHTMLURL())
+		}
 	}
 
 	err = th.addPRCommentWithMCP(ctx, ws, pr, commentBody)
@@ -945,10 +958,12 @@ func (th *TagHandler) processPRReviewCommand(
 	executionResult := &models.ExecutionResult{
 		Output: string(output),
 	}
-	if _, err := th.github.CommitAndPush(ws, executionResult, codeClient); err != nil {
+	commitHash, err := th.github.CommitAndPush(ws, executionResult, codeClient)
+	if err != nil {
 		xl.Errorf("Failed to commit and push for PR batch processing from review: %v", err)
 		return err
 	}
+	xl.Infof("Successfully committed and pushed changes, commit hash: %s", commitHash)
 
 	// 10. 更新PR描述并创建完成评论
 	xl.Infof("Processing review batch results")
@@ -983,17 +998,36 @@ func (th *TagHandler) processPRReviewCommand(
 	}
 
 	var commentBody string
-	if triggerUser != "" {
-		if len(reviewComments) == 0 {
-			commentBody = fmt.Sprintf("@%s ✅ 已根据review说明完成批量处理\n\n**查看详情**: %s", triggerUser, pr.GetHTMLURL())
+	if commitHash != "" {
+		// 使用commit URL
+		commitURL := fmt.Sprintf("%s/commits/%s", pr.GetHTMLURL(), commitHash)
+		if triggerUser != "" {
+			if len(reviewComments) == 0 {
+				commentBody = fmt.Sprintf("@%s ✅ 已根据review说明完成批量处理\n\n**查看代码变更**: %s", triggerUser, commitURL)
+			} else {
+				commentBody = fmt.Sprintf("@%s ✅ 已批量处理此次review的%d个评论\n\n**查看代码变更**: %s", triggerUser, len(reviewComments), commitURL)
+			}
 		} else {
-			commentBody = fmt.Sprintf("@%s ✅ 已批量处理此次review的%d个评论\n\n**查看详情**: %s", triggerUser, len(reviewComments), pr.GetHTMLURL())
+			if len(reviewComments) == 0 {
+				commentBody = fmt.Sprintf("✅ 已根据review说明完成批量处理\n\n**查看代码变更**: %s", commitURL)
+			} else {
+				commentBody = fmt.Sprintf("✅ 已批量处理此次review的%d个评论\n\n**查看代码变更**: %s", len(reviewComments), commitURL)
+			}
 		}
 	} else {
-		if len(reviewComments) == 0 {
-			commentBody = fmt.Sprintf("✅ 已根据review说明完成批量处理\n\n**查看详情**: %s", pr.GetHTMLURL())
+		// 如果没有commit hash，使用PR URL作为fallback
+		if triggerUser != "" {
+			if len(reviewComments) == 0 {
+				commentBody = fmt.Sprintf("@%s ✅ 已根据review说明完成批量处理\n\n**查看详情**: %s", triggerUser, pr.GetHTMLURL())
+			} else {
+				commentBody = fmt.Sprintf("@%s ✅ 已批量处理此次review的%d个评论\n\n**查看详情**: %s", triggerUser, len(reviewComments), pr.GetHTMLURL())
+			}
 		} else {
-			commentBody = fmt.Sprintf("✅ 已批量处理此次review的%d个评论\n\n**查看详情**: %s", len(reviewComments), pr.GetHTMLURL())
+			if len(reviewComments) == 0 {
+				commentBody = fmt.Sprintf("✅ 已根据review说明完成批量处理\n\n**查看详情**: %s", pr.GetHTMLURL())
+			} else {
+				commentBody = fmt.Sprintf("✅ 已批量处理此次review的%d个评论\n\n**查看详情**: %s", len(reviewComments), pr.GetHTMLURL())
+			}
 		}
 	}
 
@@ -1123,7 +1157,7 @@ func (th *TagHandler) processPRReviewCommentCommand(
 
 	// 创建简洁的回复，指向具体的commit
 	var replyBody string
-	commitURL := fmt.Sprintf("%s/commits/%s", pr.GetHTMLURL(), commitHash)
+	commitURL := fmt.Sprintf("%s/commit/%s", pr.GetHTMLURL(), commitHash)
 	if triggerUser := event.Comment.GetUser(); triggerUser != nil {
 		replyBody = fmt.Sprintf("@%s ✅ 处理完成！\n\n**变更摘要**: %s\n\n[查看代码变更](%s)",
 			triggerUser.GetLogin(),

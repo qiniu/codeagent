@@ -36,7 +36,19 @@ func (f *PRFormatter) FormatPRDescription(
 	builder.WriteString(f.formatHeader(issueTitle, issueNumber))
 	builder.WriteString("\n\n")
 
-	// 技术细节（关键实现点）
+	// 修改总结（如果有的话）
+	if summary != "" {
+		builder.WriteString(f.formatSummary(summary))
+		builder.WriteString("\n\n")
+	}
+
+	// 变更详情（如果有的话）
+	if changes != "" {
+		builder.WriteString(f.formatChanges(changes))
+		builder.WriteString("\n\n")
+	}
+
+	// 技术细节（关键实现点和AI详细分析）
 	builder.WriteString(f.formatTechnicalDetails(aiOutput))
 	builder.WriteString("\n\n")
 
@@ -101,15 +113,17 @@ func (f *PRFormatter) formatTechnicalDetails(aiOutput string) string {
 
 	var builder strings.Builder
 
+	// 添加关键实现点（如果有的话）
 	if len(keyPoints) > 0 {
 		builder.WriteString("### Key Implementation Points:\n")
 		for _, point := range keyPoints {
 			builder.WriteString(fmt.Sprintf("- %s\n", point))
 		}
+		builder.WriteString("\n")
 	}
 
 	// 添加AI生成的完整分析作为折叠内容
-	builder.WriteString("\n<details>\n")
+	builder.WriteString("<details>\n")
 	builder.WriteString("<summary><b>🤖 Full AI Analysis</b></summary>\n\n")
 	builder.WriteString("```\n")
 	// 截断过长的输出
@@ -194,6 +208,11 @@ func (f *PRFormatter) extractKeyPoints(aiOutput string) []string {
 		"removed",
 		"enhanced",
 		"optimized",
+		"deleted",
+		"changed",
+		"improved",
+		"simplified",
+		"restructured",
 	}
 
 	lines := strings.Split(aiOutput, "\n")
@@ -201,12 +220,26 @@ func (f *PRFormatter) extractKeyPoints(aiOutput string) []string {
 		line = strings.TrimSpace(line)
 		lineLower := strings.ToLower(line)
 
+		// 跳过空行和过短的行
+		if line == "" || len(line) < 10 {
+			continue
+		}
+
+		// 跳过明显的标题行
+		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "##") {
+			continue
+		}
+
 		for _, pattern := range patterns {
-			if strings.Contains(lineLower, pattern) && len(line) > 10 && len(line) < 150 {
+			if strings.Contains(lineLower, pattern) && len(line) < 200 {
 				// 清理行首的符号
 				cleanLine := strings.TrimPrefix(line, "- ")
 				cleanLine = strings.TrimPrefix(cleanLine, "* ")
 				cleanLine = strings.TrimPrefix(cleanLine, "• ")
+				cleanLine = strings.TrimPrefix(cleanLine, "✅ ")
+				cleanLine = strings.TrimPrefix(cleanLine, "1. ")
+				cleanLine = strings.TrimPrefix(cleanLine, "2. ")
+				cleanLine = strings.TrimPrefix(cleanLine, "3. ")
 
 				if cleanLine != "" && !f.containsPoint(points, cleanLine) {
 					points = append(points, cleanLine)
@@ -217,8 +250,8 @@ func (f *PRFormatter) extractKeyPoints(aiOutput string) []string {
 	}
 
 	// 限制关键点数量
-	if len(points) > 8 {
-		points = points[:8]
+	if len(points) > 6 {
+		points = points[:6]
 	}
 
 	return points

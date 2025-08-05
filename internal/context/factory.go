@@ -1,8 +1,8 @@
 package context
 
 import (
-	"github.com/qiniu/x/xlog"
 	ghclient "github.com/qiniu/codeagent/internal/github"
+	"github.com/qiniu/x/xlog"
 )
 
 // Factory 上下文工厂，提供统一的创建和管理接口

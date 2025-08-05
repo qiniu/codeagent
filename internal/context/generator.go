@@ -66,7 +66,8 @@ func (g *DefaultPromptGenerator) generateSystemRole(ctx *EnhancedContext) string
 - Read and analyze code
 - Write and modify files
 - Search through repositories
-- Understand GitHub workflows`}
+- Understand GitHub workflows`
+}
 
 // generateTaskDescription 生成任务描述
 func (g *DefaultPromptGenerator) generateTaskDescription(ctx *EnhancedContext, mode string, args string) string {

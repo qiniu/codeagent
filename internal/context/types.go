@@ -72,13 +72,13 @@ type CommentContext struct {
 // 对齐claude-code-action的模式，专注于GitHub数据
 
 type GitHubContext struct {
-	Repository string             `json:"repository"`
-	PRNumber   int                `json:"pr_number,omitempty"`
-	IssueNumber int               `json:"issue_number,omitempty"`
-	PR         *PullRequestContext `json:"pr,omitempty"`
-	Issue      *IssueContext      `json:"issue,omitempty"`
-	Files      []FileChange       `json:"files"`
-	Comments   []CommentContext   `json:"comments"`
+	Repository  string              `json:"repository"`
+	PRNumber    int                 `json:"pr_number,omitempty"`
+	IssueNumber int                 `json:"issue_number,omitempty"`
+	PR          *PullRequestContext `json:"pr,omitempty"`
+	Issue       *IssueContext       `json:"issue,omitempty"`
+	Files       []FileChange        `json:"files"`
+	Comments    []CommentContext    `json:"comments"`
 }
 
 type PullRequestContext struct {

@@ -56,11 +56,11 @@ func (f *DefaultContextFormatter) formatGitHubContext(ctx *EnhancedContext) stri
 // formatBasicContext 格式化基础上下文信息
 func (f *DefaultContextFormatter) formatBasicContext(ctx *EnhancedContext) string {
 	var info []string
-	
+
 	info = append(info, "## Context")
 	info = append(info, fmt.Sprintf("- **Type**: %s", ctx.Type))
 	info = append(info, fmt.Sprintf("- **Priority**: %s", f.priorityToString(ctx.Priority)))
-	
+
 	if len(ctx.Metadata) > 0 {
 		if prNumber, ok := ctx.Metadata["pr_number"]; ok {
 			info = append(info, fmt.Sprintf("- **PR Number**: #%v", prNumber))
@@ -80,7 +80,7 @@ func (f *DefaultContextFormatter) formatBasicContext(ctx *EnhancedContext) strin
 			info = append(info, fmt.Sprintf("- **Issue Description**: %s", body))
 		}
 	}
-	
+
 	return strings.Join(info, "\n")
 }
 
@@ -264,7 +264,6 @@ func (f *DefaultContextFormatter) TrimToTokenLimit(ctx *EnhancedContext, maxToke
 			currentTokens += estimateTokens(fileCopy.Path + fileCopy.Patch)
 		}
 	}
-
 
 	// 评论历史（按重要性排序）
 	if len(ctx.Comments) > 0 && currentTokens < maxTokens {
