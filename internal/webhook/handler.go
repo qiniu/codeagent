@@ -150,8 +150,7 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 	log.Infof("Processing issue comment: issue=#%d, title=%s, comment_length=%d",
 		issueNumber, issueTitle, len(comment))
 
-	// 检查是否是 PR 评论（Issue 的 PullRequest 字段不为空）
-	if event.Issue.PullRequestLinks != nil {
+	if event.Issue.IsPullRequest() {
 		log.Infof("Detected PR comment for PR #%d", issueNumber)
 
 		// 这是 PR 评论，处理 /continue 和 /fix 命令
@@ -200,16 +199,8 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 		}
 	}
 
-	// Handle /code command for Issues only (not for PRs)
-	if strings.HasPrefix(comment, "/code") {
-		// Check if this is a PR comment, ignore if it is
-		if event.Issue.PullRequestLinks != nil {
-			log.Infof("Ignoring /code command in PR #%d (use /continue or /fix instead)", issueNumber)
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("/code command is not supported in PRs, use /continue or /fix instead"))
-			return
-		}
-
+	// Handle /code command for issues only (not for PRs)
+	if strings.HasPrefix(comment, "/code") && !event.Issue.IsPullRequest() {
 		log.Infof("Received /code command for Issue: %s, title: %s",
 			event.Issue.GetHTMLURL(), issueTitle)
 
