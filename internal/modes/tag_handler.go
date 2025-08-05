@@ -66,13 +66,13 @@ func (th *TagHandler) CanHandle(ctx context.Context, event models.GitHubContext)
 	// 检查是否包含命令
 	cmdInfo, hasCmd := models.HasCommand(event)
 	if !hasCmd {
-		xl.Debugf("No command found in event")
+		xl.Debugf("No command found in event type: %s", event.GetEventType())
 		return false
 	}
 
-	xl.Infof("Found command: %s with AI model: %s", cmdInfo.Command, cmdInfo.AIModel)
+	xl.Infof("Found command: %s with AI model: %s in event type: %s", cmdInfo.Command, cmdInfo.AIModel, event.GetEventType())
 
-	// Tag模式处理所有包含命令的事件
+	// Tag模式只处理包含命令的事件
 	switch event.GetEventType() {
 	case models.EventIssueComment,
 		models.EventPullRequestReview,
@@ -127,7 +127,14 @@ func (th *TagHandler) handleIssueComment(
 	xl := xlog.NewWith(ctx)
 
 	// 将事件转换为原始GitHub事件类型（兼容现有agent接口）
-	_ = event.RawEvent.(*github.IssueCommentEvent)
+	issueCommentEvent := event.RawEvent.(*github.IssueCommentEvent)
+	
+	// 处理 created 和 edited 状态的评论，允许用户修改命令
+	action := issueCommentEvent.GetAction()
+	if action != "created" && action != "edited" {
+		xl.Infof("Skipping issue comment event with action: %s (only processing 'created' and 'edited')", action)
+		return nil
+	}
 
 	if event.IsPRComment {
 		// 这是PR评论
@@ -171,7 +178,13 @@ func (th *TagHandler) handlePRReview(
 	xl.Infof("Processing PR review with command: %s", cmdInfo.Command)
 
 	// 将事件转换为原始GitHub事件类型
-	_ = event.RawEvent.(*github.PullRequestReviewEvent)
+	reviewEvent := event.RawEvent.(*github.PullRequestReviewEvent)
+	
+	// 只处理 submitted 状态的review，忽略 edited 等其他状态
+	if reviewEvent.GetAction() != "submitted" {
+		xl.Infof("Skipping PR review event with action: %s (only processing 'submitted')", reviewEvent.GetAction())
+		return nil
+	}
 
 	// PR Review支持批量处理命令
 	switch cmdInfo.Command {
@@ -199,7 +212,14 @@ func (th *TagHandler) handlePRReviewComment(
 	xl.Infof("Processing PR review comment with command: %s", cmdInfo.Command)
 
 	// 将事件转换为原始GitHub事件类型
-	_ = event.RawEvent.(*github.PullRequestReviewCommentEvent)
+	reviewCommentEvent := event.RawEvent.(*github.PullRequestReviewCommentEvent)
+	
+	// 处理 created 和 edited 状态的review comment，允许用户修改命令
+	action := reviewCommentEvent.GetAction()
+	if action != "created" && action != "edited" {
+		xl.Infof("Skipping PR review comment event with action: %s (only processing 'created' and 'edited')", action)
+		return nil
+	}
 
 	// PR Review评论支持行级命令
 	switch cmdInfo.Command {

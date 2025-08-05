@@ -60,11 +60,13 @@ func parseCommandArgs(comment, command string, defaultAIModel string) (aiModel, 
 func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	// 如果配置了Enhanced Agent，使用Enhanced处理模式
 	if h.enhancedAgent != nil {
+		xlog.New("").Infof("Using Enhanced Agent for webhook processing")
 		h.handleEnhancedWebhook(w, r)
 		return
 	}
 
 	// 否则使用原始处理模式
+	xlog.New("").Infof("Using Original Agent for webhook processing")
 	h.handleOriginalWebhook(w, r)
 }
 
