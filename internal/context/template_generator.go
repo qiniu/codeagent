@@ -8,7 +8,6 @@ import (
 )
 
 // TemplatePromptGenerator 基于模板的提示词生成器
-// 模仿claude-code-action的变量替换模式
 type TemplatePromptGenerator struct {
 	formatter ContextFormatter
 }

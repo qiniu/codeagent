@@ -11,18 +11,17 @@ import (
 type ExecutionMode string
 
 const (
-	// TagMode @codeagent 提及模式 - 对应claude-code-action的tag模式
+	// TagMode @codeagent 提及模式
 	TagMode ExecutionMode = "tag"
 
-	// AgentMode 自动化模式 - 对应claude-code-action的agent模式
+	// AgentMode 自动化模式
 	AgentMode ExecutionMode = "agent"
 
-	// ReviewMode 自动审查模式 - 对应claude-code-action的review模式
+	// ReviewMode 自动审查模式
 	ReviewMode ExecutionMode = "review"
 )
 
 // ModeHandler 模式处理器接口
-// 对应claude-code-action中的BaseMode抽象类
 type ModeHandler interface {
 	// CanHandle 检查是否能处理给定的事件上下文
 	CanHandle(ctx context.Context, event models.GitHubContext) bool
@@ -76,7 +75,6 @@ func (bh *BaseHandler) GetHandlerName() string {
 }
 
 // ModeManager 模式管理器
-// 对应claude-code-action中的模式选择逻辑
 type ModeManager struct {
 	handlers []ModeHandler
 	enabled  map[ExecutionMode]bool

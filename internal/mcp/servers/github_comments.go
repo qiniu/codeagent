@@ -46,7 +46,6 @@ func safeExtractInt64(value interface{}, paramName string) (int64, error) {
 }
 
 // GitHubCommentsServer GitHub评论操作MCP服务器
-// 对应claude-code-action中的GitHubCommentsServer
 type GitHubCommentsServer struct {
 	client *github.Client
 	info   *models.MCPServerInfo

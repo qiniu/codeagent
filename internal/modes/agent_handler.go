@@ -15,7 +15,6 @@ import (
 )
 
 // AgentHandler Agent模式处理器
-// 对应claude-code-action中的AgentMode
 // 处理自动化触发的事件（Issue分配、标签添加等）
 type AgentHandler struct {
 	*BaseHandler

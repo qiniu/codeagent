@@ -15,7 +15,6 @@ import (
 )
 
 // GitHubFilesServer GitHub文件操作MCP服务器
-// 对应claude-code-action中的GitHubFileOperationsServer
 type GitHubFilesServer struct {
 	client *github.Client
 	info   *models.MCPServerInfo

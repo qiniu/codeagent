@@ -22,13 +22,11 @@ func NewDefaultContextFormatter(maxTokens int) *DefaultContextFormatter {
 }
 
 // FormatToMarkdown 格式化为Markdown
-// 对齐claude-code-action模式，专注于GitHub原生数据展示
 func (f *DefaultContextFormatter) FormatToMarkdown(ctx *EnhancedContext) (string, error) {
 	return f.formatGitHubContext(ctx), nil
 }
 
 // formatGitHubContext 格式化GitHub上下文为Markdown
-// 模仿claude-code-action的格式化模式
 func (f *DefaultContextFormatter) formatGitHubContext(ctx *EnhancedContext) string {
 	var sections []string
 

@@ -6,7 +6,6 @@ import (
 )
 
 // DefaultPromptGenerator 默认提示词生成器实现
-// 采用claude-code-action的模板化方法
 type DefaultPromptGenerator struct {
 	formatter ContextFormatter
 }
@@ -54,7 +53,7 @@ func (g *DefaultPromptGenerator) GeneratePrompt(ctx *EnhancedContext, mode strin
 // generateSystemRole 生成系统角色
 // 简化系统角色定义，专注于GitHub交互
 func (g *DefaultPromptGenerator) generateSystemRole(ctx *EnhancedContext) string {
-	return `You are Claude, an AI assistant designed to help with GitHub issues and pull requests. 
+	return `You are an AI-powered code development assistant designed to help with GitHub issues and pull requests. 
 
 **Your role:**
 - Analyze the provided GitHub context and respond appropriately

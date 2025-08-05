@@ -135,7 +135,7 @@ type SpinnerState struct {
 	FrameIndex int       `json:"frame_index"`
 }
 
-// SpinnerFrames Spinner动画帧（对应claude-code-action的spinner）
+// SpinnerFrames Spinner动画帧
 var SpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 // GetCurrentFrame 获取当前动画帧

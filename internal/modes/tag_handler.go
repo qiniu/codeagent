@@ -22,7 +22,6 @@ import (
 )
 
 // TagHandler Tag模式处理器
-// 对应claude-code-action中的TagMode
 // 处理包含命令的GitHub事件（/code, /continue, /fix）
 type TagHandler struct {
 	*BaseHandler
@@ -965,31 +964,8 @@ func (th *TagHandler) processPRReviewCommand(
 	}
 	xl.Infof("Successfully committed and pushed changes, commit hash: %s", commitHash)
 
-	// 10. 更新PR描述并创建完成评论
-	xl.Infof("Processing review batch results")
-
-	// 解析结构化输出用于PR描述
-	summary, changes, testPlan := th.parseStructuredOutput(string(output))
-
-	// 使用新的PR格式化器创建优雅描述
-	prFormatter := ctxsys.NewPRFormatter()
-	prBody := prFormatter.FormatPRDescription(
-		pr.GetTitle(),
-		pr.GetBody(),
-		summary,
-		changes,
-		testPlan,
-		string(output),
-		pr.GetNumber(),
-	)
-
-	// 更新PR描述
-	err = th.updatePRWithMCP(ctx, ws, pr, prBody, string(output))
-	if err != nil {
-		xl.Errorf("Failed to update PR description via MCP: %v", err)
-	} else {
-		xl.Infof("Successfully updated PR description via MCP")
-	}
+	// 在PR review场景下，只需要添加完成评论，不更新PR描述
+	xl.Infof("Processing review batch results - skipping PR description update for review comments")
 
 	// 创建简洁的完成评论
 	var triggerUser string
@@ -1325,7 +1301,6 @@ func (th *TagHandler) buildEnhancedPrompt(
 	}
 
 	// 3. 项目上下文已由GitHub原生数据替代，不再收集本地项目信息
-	// 专注于GitHub交互和claude-code-action模式
 
 	// 4. 使用增强的prompt生成器
 	prompt, err := th.contextManager.Generator.GeneratePrompt(enhancedCtx, mode, args)

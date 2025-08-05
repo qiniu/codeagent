@@ -20,7 +20,6 @@ type GitHubCommentClient interface {
 }
 
 // ProgressCommentManager 进度评论管理器
-// 对应claude-code-action中的CommentManager
 type ProgressCommentManager struct {
 	github      GitHubCommentClient
 	context     *models.CommentContext
@@ -45,7 +44,6 @@ func NewProgressCommentManager(github GitHubCommentClient, repo *githubapi.Repos
 }
 
 // InitializeProgress 初始化进度评论
-// 对应claude-code-action中的createProgressComment
 func (pcm *ProgressCommentManager) InitializeProgress(ctx context.Context, tasks []*models.Task) error {
 	xl := xlog.NewWith(ctx)
 

@@ -7,7 +7,6 @@ import (
 )
 
 // MCPServer MCP服务器接口
-// 对应claude-code-action中的MCPServer实现
 type MCPServer interface {
 	// GetInfo 获取服务器信息
 	GetInfo() *models.MCPServerInfo
@@ -29,7 +28,6 @@ type MCPServer interface {
 }
 
 // MCPManager MCP管理器接口
-// 对应claude-code-action中的MCPManager
 type MCPManager interface {
 	// RegisterServer 注册MCP服务器
 	RegisterServer(name string, server MCPServer) error

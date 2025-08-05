@@ -12,7 +12,6 @@ import (
 )
 
 // Manager MCP管理器实现
-// 对应claude-code-action中的MCPManager
 type Manager struct {
 	servers   map[string]MCPServer
 	metrics   map[string]*models.ExecutionMetrics

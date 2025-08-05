@@ -69,7 +69,6 @@ type CommentContext struct {
 }
 
 // GitHubContext GitHub原生上下文
-// 对齐claude-code-action的模式，专注于GitHub数据
 
 type GitHubContext struct {
 	Repository  string              `json:"repository"`
@@ -127,7 +126,7 @@ type ContextCollector interface {
 	// 收集代码上下文
 	CollectCodeContext(pr *github.PullRequest) (*CodeContext, error)
 
-	// 收集GitHub上下文（对齐claude-code-action模式）
+	// 收集GitHub上下文
 	CollectGitHubContext(repoFullName string, prNumber int) (*GitHubContext, error)
 
 	// 收集评论上下文

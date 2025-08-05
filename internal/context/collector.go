@@ -12,7 +12,6 @@ import (
 
 // DefaultContextCollector 默认上下文收集器实现
 // 专注于GitHub交互，移除本地项目智能分析
-// 对齐claude-code-action的设计模式
 
 type DefaultContextCollector struct {
 	githubClient *ghclient.Client
@@ -147,7 +146,7 @@ func (c *DefaultContextCollector) CollectCodeContext(pr *github.PullRequest) (*C
 }
 
 // CollectGitHubContext 收集GitHub上下文信息
-// 基于claude-code-action模式，专注于GitHub原生数据收集
+// 专注于GitHub原生数据收集
 func (c *DefaultContextCollector) CollectGitHubContext(repoFullName string, prNumber int) (*GitHubContext, error) {
 	ctx := &GitHubContext{
 		Repository: repoFullName,

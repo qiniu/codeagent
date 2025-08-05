@@ -22,7 +22,6 @@ import (
 )
 
 // EnhancedAgent 增强版Agent，集成了新的组件架构
-// 对应claude-code-action的完整智能化功能
 type EnhancedAgent struct {
 	// 原有组件
 	config         *config.Config

@@ -15,7 +15,6 @@ import (
 )
 
 // ReviewHandler Review模式处理器
-// 对应claude-code-action中的ReviewMode
 // 处理自动代码审查相关的事件
 type ReviewHandler struct {
 	*BaseHandler

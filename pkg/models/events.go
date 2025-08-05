@@ -22,7 +22,6 @@ const (
 )
 
 // GitHubContext 是所有GitHub事件上下文的接口
-// 对应claude-code-action中的判别式联合类型
 type GitHubContext interface {
 	GetEventType() EventType
 	GetRepository() *github.Repository
