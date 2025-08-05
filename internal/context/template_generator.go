@@ -204,7 +204,7 @@ Your response should include:
 
 // getContinueTemplate 继续开发模板
 func (g *TemplatePromptGenerator) getContinueTemplate() string {
-	return `You are an AI-powered assistant designed to help continue development work in GitHub PRs.
+	return `You are an AI-powered code development assistant designed to help continue development work in GitHub PRs.
 
 ## Context Information
 
@@ -246,7 +246,7 @@ $ARGS
 
 // getFixTemplate 修复问题模板
 func (g *TemplatePromptGenerator) getFixTemplate() string {
-	return `You are an AI-powered assistant designed to fix code issues in GitHub PRs and issues.
+	return `You are an AI-powered code development assistant designed to fix code issues in GitHub PRs and issues.
 
 ## Context Information
 
@@ -288,7 +288,7 @@ Fix the specified issue in the codebase. Analyze the problem, identify the root 
 
 // getCodeTemplate 代码实现模板
 func (g *TemplatePromptGenerator) getCodeTemplate() string {
-	return `You are an AI-powered assistant designed to implement code functionality for GitHub issues and PRs.
+	return `You are an AI-powered code development assistant designed to implement code functionality for GitHub issues and PRs.
 
 ## Context Information
 
@@ -331,7 +331,7 @@ Implement the requested functionality. Create new code, modify existing code as 
 
 // getReviewTemplate 代码审查模板
 func (g *TemplatePromptGenerator) getReviewTemplate() string {
-	return `You are an AI-powered assistant designed to review code changes in GitHub PRs.
+	return `You are an AI-powered code development assistant designed to review code changes in GitHub PRs.
 
 ## Context Information
 
@@ -435,7 +435,7 @@ func (g *TemplatePromptGenerator) GenerateToolsList(ctx *EnhancedContext, mode s
 
 // GenerateSystemPrompt 生成系统提示词
 func (g *TemplatePromptGenerator) GenerateSystemPrompt(ctx *EnhancedContext) (string, error) {
-	return `You are Claude, an AI assistant specialized in software development and code collaboration through GitHub.
+	return `You are an AI-powered code development assistant specialized in software development and code collaboration through GitHub.
 
 Key principles:
 - Write clean, maintainable, and well-tested code

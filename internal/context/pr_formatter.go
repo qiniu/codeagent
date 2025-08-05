@@ -36,19 +36,23 @@ func (f *PRFormatter) FormatPRDescription(
 	builder.WriteString(f.formatHeader(issueTitle, issueNumber))
 	builder.WriteString("\n\n")
 
-	// 修改总结（如果有的话）
+	// 简洁的summary（限制长度，避免啰嗦）
 	if summary != "" {
-		builder.WriteString(f.formatSummary(summary))
+		builder.WriteString(f.formatConciseSummary(summary))
+		builder.WriteString("\n\n")
+	} else {
+		// 如果没有结构化summary，生成简洁的
+		builder.WriteString(f.formatConciseSummary(f.generateBriefSummary(aiOutput, issueTitle)))
 		builder.WriteString("\n\n")
 	}
 
-	// 变更详情（如果有的话）
+	// 变更详情（保持简洁）
 	if changes != "" {
-		builder.WriteString(f.formatChanges(changes))
+		builder.WriteString(f.formatConciseChanges(changes))
 		builder.WriteString("\n\n")
 	}
 
-	// 技术细节（关键实现点和AI详细分析）
+	// 技术细节（可选，保持折叠）
 	builder.WriteString(f.formatTechnicalDetails(aiOutput))
 	builder.WriteString("\n\n")
 
@@ -85,11 +89,87 @@ func (f *PRFormatter) formatIssueContext(title, body string) string {
 	return builder.String()
 }
 
-// formatSummary 格式化摘要
+// formatSummary 格式化摘要（原始版本）
 func (f *PRFormatter) formatSummary(summary string) string {
 	return fmt.Sprintf(`## 🎯 Implementation Summary
 
 %s`, f.formatMarkdownSection(summary))
+}
+
+// formatConciseSummary 格式化简洁摘要
+func (f *PRFormatter) formatConciseSummary(summary string) string {
+	// 提取核心描述，避免主观语言
+	concise := strings.TrimSpace(summary)
+
+	// 移除主观开头和冗余词汇
+	patterns := []string{
+		"我已经", "我已", "我", "我们", "完全", "彻底", "主要", "重要",
+		"成功", "完美", "优秀", "刚刚", "刚刚完成", "解决了",
+	}
+
+	for _, pattern := range patterns {
+		concise = strings.ReplaceAll(concise, pattern, "")
+	}
+
+	// 移除标题行
+	concise = strings.ReplaceAll(concise, "## Implementation Summary", "")
+	concise = strings.ReplaceAll(concise, "## Summary", "")
+	concise = strings.ReplaceAll(concise, "## Changes", "")
+	concise = strings.TrimSpace(concise)
+
+	// 重新组织语言使其更客观
+	replacements := map[string]string{
+		"重构了": "Refactored",
+		"重构":  "Refactored",
+		"解决了": "Fixed",
+		"改进了": "Improved",
+		"添加了": "Added",
+		"实现了": "Implemented",
+		"优化了": "Optimized",
+	}
+
+	for old, new := range replacements {
+		concise = strings.ReplaceAll(concise, old, new)
+	}
+
+	// 清理多余的空格
+	concise = strings.Join(strings.Fields(concise), " ")
+
+	// 限制到简洁描述
+	maxLength := 120
+	if len(concise) > maxLength {
+		words := strings.Fields(concise)
+		var result []string
+		currentLen := 0
+
+		for _, word := range words {
+			if currentLen+len(word)+1 > maxLength-3 {
+				break
+			}
+			result = append(result, word)
+			currentLen += len(word) + 1
+		}
+
+		if len(result) > 0 {
+			concise = strings.Join(result, " ") + "..."
+		} else {
+			concise = concise[:maxLength] + "..."
+		}
+	}
+
+	// 确保描述以功能为主
+	if concise == "" {
+		concise = "Implemented requested functionality"
+	}
+
+	// 首字母大写
+	if len(concise) > 0 {
+		concise = strings.ToUpper(concise[:1]) + concise[1:]
+	}
+
+	return fmt.Sprintf(`## 🎯 Summary
+
+%s`, concise)
 }
 
 // formatChanges 格式化变更详情
@@ -97,6 +177,39 @@ func (f *PRFormatter) formatChanges(changes string) string {
 	return fmt.Sprintf(`## 📝 Changes Made
 
 %s`, f.formatMarkdownSection(changes))
+}
+
+// formatConciseChanges 格式化简洁变更
+func (f *PRFormatter) formatConciseChanges(changes string) string {
+	// 提取前3个关键变更点
+	lines := strings.Split(changes, "\n")
+	var keyChanges []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			// 清理项目符号
+			clean := strings.TrimPrefix(trimmed, "- ")
+			clean = strings.TrimPrefix(clean, "• ")
+			clean = strings.TrimPrefix(clean, "* ")
+			if clean != "" && len(clean) > 3 {
+				keyChanges = append(keyChanges, clean)
+				if len(keyChanges) >= 3 {
+					break
+				}
+			}
+		}
+	}
+
+	if len(keyChanges) == 0 {
+		return "## 📝 Changes Made\n\n- Implemented requested functionality"
+	}
+
+	result := "## 📝 Changes Made\n\n"
+	for _, change := range keyChanges {
+		result += fmt.Sprintf("- %s\n", change)
+	}
+	return result
 }
 
 // formatTestPlan 格式化测试计划
@@ -192,6 +305,43 @@ func (f *PRFormatter) cleanIssueBody(body string) string {
 	return body
 }
 
+// extractFromAIOutput 从AI输出中提取summary和changes
+func (f *PRFormatter) extractFromAIOutput(aiOutput string) (summary, changes string) {
+	lines := strings.Split(aiOutput, "\n")
+
+	var summaryLines, changesLines []string
+	currentSection := ""
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// 检测章节标题
+		if strings.Contains(trimmed, "## 总结") || strings.Contains(trimmed, "## Summary") {
+			currentSection = "summary"
+			continue
+		} else if strings.Contains(trimmed, "## 改动") || strings.Contains(trimmed, "## Changes") ||
+			strings.Contains(trimmed, "## 修改") || strings.Contains(trimmed, "## 变更") {
+			currentSection = "changes"
+			continue
+		} else if strings.Contains(trimmed, "### ") && currentSection != "" {
+			// 子章节，继续当前部分
+		} else if strings.HasPrefix(trimmed, "## ") && currentSection != "" {
+			// 新的主章节，结束当前部分
+			currentSection = ""
+			continue
+		}
+
+		// 收集内容
+		if currentSection == "summary" && trimmed != "" && !strings.HasPrefix(trimmed, "##") {
+			summaryLines = append(summaryLines, trimmed)
+		} else if currentSection == "changes" && trimmed != "" && !strings.HasPrefix(trimmed, "##") {
+			changesLines = append(changesLines, trimmed)
+		}
+	}
+
+	return strings.Join(summaryLines, "\n"), strings.Join(changesLines, "\n")
+}
+
 // extractKeyPoints 从AI输出中提取关键点
 func (f *PRFormatter) extractKeyPoints(aiOutput string) []string {
 	var points []string
@@ -266,6 +416,29 @@ func (f *PRFormatter) containsPoint(points []string, newPoint string) bool {
 		}
 	}
 	return false
+}
+
+// generateBriefSummary 从AI输出生成简洁摘要
+func (f *PRFormatter) generateBriefSummary(aiOutput string, issueTitle string) string {
+	// 提取第一句话作为摘要
+	lines := strings.Split(aiOutput, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && len(trimmed) > 10 && !strings.HasPrefix(trimmed, "#") {
+			// 限制到一句话
+			if len(trimmed) > 150 {
+				// 找到第一个句号
+				if idx := strings.Index(trimmed, "."); idx > 0 && idx < 150 {
+					return trimmed[:idx+1]
+				}
+				return trimmed[:150] + "..."
+			}
+			return trimmed
+		}
+	}
+
+	// 回退描述
+	return fmt.Sprintf("Implements the requested functionality: %s", issueTitle)
 }
 
 // GenerateSimpleSummary 生成简单的摘要
