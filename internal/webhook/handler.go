@@ -200,8 +200,16 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 		}
 	}
 
-	// 处理 Issue 的 /code 命令
+	// Handle /code command for Issues only (not for PRs)
 	if strings.HasPrefix(comment, "/code") {
+		// Check if this is a PR comment, ignore if it is
+		if event.Issue.PullRequestLinks != nil {
+			log.Infof("Ignoring /code command in PR #%d (use /continue or /fix instead)", issueNumber)
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("/code command is not supported in PRs, use /continue or /fix instead"))
+			return
+		}
+
 		log.Infof("Received /code command for Issue: %s, title: %s",
 			event.Issue.GetHTMLURL(), issueTitle)
 
