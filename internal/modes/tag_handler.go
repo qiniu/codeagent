@@ -15,9 +15,10 @@ import (
 	"github.com/qiniu/codeagent/internal/workspace"
 	"github.com/qiniu/codeagent/pkg/models"
 
+	"time"
+
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/xlog"
-	"time"
 )
 
 // TagHandler Tag模式处理器
@@ -218,12 +219,12 @@ func (th *TagHandler) handlePRReviewComment(
 // buildEnhancedIssuePrompt 为Issue中的/code命令构建增强提示词
 func (th *TagHandler) buildEnhancedIssuePrompt(ctx context.Context, event *models.IssueCommentContext, args string) (string, error) {
 	xl := xlog.NewWith(ctx)
-	
+
 	// 收集Issue的完整上下文
 	issue := event.Issue
 	repo := event.Repository
 	repoFullName := repo.GetFullName()
-	
+
 	// 创建增强上下文
 	ctxType := ctxsys.ContextTypeIssue
 	enhancedCtx := &ctxsys.EnhancedContext{
@@ -243,7 +244,7 @@ func (th *TagHandler) buildEnhancedIssuePrompt(ctx context.Context, event *model
 	// 收集Issue的评论上下文
 	issueNumber := issue.GetNumber()
 	owner, repoName := th.extractRepoInfo(repoFullName)
-	
+
 	// 获取Issue的所有评论
 	comments, _, err := th.github.GetClient().Issues.ListComments(ctx, owner, repoName, issueNumber, &github.IssueListCommentsOptions{
 		Sort:      github.String("created"),
@@ -431,7 +432,7 @@ func (th *TagHandler) processIssueCodeCommand(
 简要说明改动内容
 
 %s
-- 列出修改的文件和具体变动`, 
+- 列出修改的文件和具体变动`,
 			event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
 	}
 
@@ -499,23 +500,21 @@ func (th *TagHandler) processIssueCodeCommand(
 		xl.Errorf("Failed to update task: %v", err)
 	}
 
-	// 组织结构化PR Body（解析三段式输出）
-	xl.Infof("Parsing structured output")
+	// 组织结构化PR Body（使用新的优雅格式化器）
+	xl.Infof("Formatting PR description with elegant style")
 	summary, changes, testPlan := th.parseStructuredOutput(aiStr)
 
-	// 构建PR Body
-	prBody := ""
-	if summary != "" {
-		prBody += models.SectionSummary + "\n\n" + summary + "\n\n"
-	}
-
-	if changes != "" {
-		prBody += models.SectionChanges + "\n\n" + changes + "\n\n"
-	}
-
-	if testPlan != "" {
-		prBody += models.SectionTestPlan + "\n\n" + testPlan + "\n\n"
-	}
+	// 使用新的PR格式化器创建优雅描述
+	prFormatter := ctxsys.NewPRFormatter()
+	prBody := prFormatter.FormatPRDescription(
+		issueTitle,
+		event.Issue.GetBody(),
+		summary,
+		changes,
+		testPlan,
+		string(codeOutput),
+		event.Issue.GetNumber(),
+	)
 
 	// 使用MCP工具更新PR描述
 	xl.Infof("Updating PR description with MCP tools")
@@ -753,20 +752,45 @@ func (th *TagHandler) processPRCommand(
 		xl.Infof("Changes committed and pushed successfully")
 	}
 
-	// 12. 添加完成评论并@原评论者
-	xl.Infof("Adding completion comment to PR")
+	// 12. 更新PR描述并添加完成评论
+	xl.Infof("Updating PR description and adding completion comment")
 
-	// 构建包含@原评论者的评论
+	// 解析结构化输出用于PR描述
+	summary, changes, testPlan := th.parseStructuredOutput(string(output))
+
+	// 使用新的PR格式化器创建优雅描述
+	prFormatter := ctxsys.NewPRFormatter()
+	prBody := prFormatter.FormatPRDescription(
+		pr.GetTitle(),
+		pr.GetBody(),
+		summary,
+		changes,
+		testPlan,
+		string(output),
+		pr.GetNumber(),
+	)
+
+	// 更新PR描述
+	err = th.updatePRWithMCP(ctx, ws, pr, prBody, string(output))
+	if err != nil {
+		xl.Errorf("Failed to update PR description via MCP: %v", err)
+		// 不返回错误，因为这不是致命的
+	} else {
+		xl.Infof("Successfully updated PR description via MCP")
+	}
+
+	// 添加简洁的完成评论
 	var commentBody string
 	if event.Comment != nil && event.Comment.User != nil {
-		commentBody = fmt.Sprintf("@%s \n\n%s", event.Comment.User.GetLogin(), string(output))
+		commentBody = fmt.Sprintf("@%s 已根据指令完成处理 ✅\n\n**查看详情**: %s",
+			event.Comment.User.GetLogin(), pr.GetHTMLURL())
 	} else {
-		commentBody = string(output)
+		commentBody = fmt.Sprintf("✅ 处理完成！\n\n**查看详情**: %s", pr.GetHTMLURL())
 	}
 
 	err = th.addPRCommentWithMCP(ctx, ws, pr, commentBody)
 	if err != nil {
-		xl.Errorf("Failed to add comment via MCP: %v", err)
+		xl.Errorf("Failed to add completion comment via MCP: %v", err)
 		// 不返回错误，因为这不是致命的
 	} else {
 		xl.Infof("Successfully added completion comment to PR via MCP")
@@ -906,31 +930,56 @@ func (th *TagHandler) processPRReviewCommand(
 		return err
 	}
 
-	// 10. 创建评论，包含@用户提及
+	// 10. 更新PR描述并创建完成评论
+	xl.Infof("Processing review batch results")
+
+	// 解析结构化输出用于PR描述
+	summary, changes, testPlan := th.parseStructuredOutput(string(output))
+
+	// 使用新的PR格式化器创建优雅描述
+	prFormatter := ctxsys.NewPRFormatter()
+	prBody := prFormatter.FormatPRDescription(
+		pr.GetTitle(),
+		pr.GetBody(),
+		summary,
+		changes,
+		testPlan,
+		string(output),
+		pr.GetNumber(),
+	)
+
+	// 更新PR描述
+	err = th.updatePRWithMCP(ctx, ws, pr, prBody, string(output))
+	if err != nil {
+		xl.Errorf("Failed to update PR description via MCP: %v", err)
+	} else {
+		xl.Infof("Successfully updated PR description via MCP")
+	}
+
+	// 创建简洁的完成评论
 	var triggerUser string
 	if event.Review != nil && event.Review.User != nil {
 		triggerUser = event.Review.User.GetLogin()
 	}
 
-	var responseBody string
+	var commentBody string
 	if triggerUser != "" {
 		if len(reviewComments) == 0 {
-			responseBody = fmt.Sprintf("@%s 已根据 review 说明处理：\n\n%s", triggerUser, string(output))
+			commentBody = fmt.Sprintf("@%s ✅ 已根据review说明完成批量处理\n\n**查看详情**: %s", triggerUser, pr.GetHTMLURL())
 		} else {
-			responseBody = fmt.Sprintf("@%s 已批量处理此次 review 的 %d 个评论：\n\n%s", triggerUser, len(reviewComments), string(output))
+			commentBody = fmt.Sprintf("@%s ✅ 已批量处理此次review的%d个评论\n\n**查看详情**: %s", triggerUser, len(reviewComments), pr.GetHTMLURL())
 		}
 	} else {
 		if len(reviewComments) == 0 {
-			responseBody = fmt.Sprintf("已根据 review 说明处理：\n\n%s", string(output))
+			commentBody = fmt.Sprintf("✅ 已根据review说明完成批量处理\n\n**查看详情**: %s", pr.GetHTMLURL())
 		} else {
-			responseBody = fmt.Sprintf("已批量处理此次 review 的 %d 个评论：\n\n%s", len(reviewComments), string(output))
+			commentBody = fmt.Sprintf("✅ 已批量处理此次review的%d个评论\n\n**查看详情**: %s", len(reviewComments), pr.GetHTMLURL())
 		}
 	}
 
-	err = th.addPRCommentWithMCP(ctx, ws, pr, responseBody)
+	err = th.addPRCommentWithMCP(ctx, ws, pr, commentBody)
 	if err != nil {
 		xl.Errorf("Failed to create PR comment for batch processing result via MCP: %v", err)
-		// 不返回错误，因为这不是致命的
 	} else {
 		xl.Infof("Successfully created PR comment for batch processing result via MCP")
 	}
@@ -1048,8 +1097,23 @@ func (th *TagHandler) processPRReviewCommentCommand(
 	}
 
 	// 9. 回复原始评论
-	commentBody := string(output)
-	if err = th.github.ReplyToReviewComment(pr, event.Comment.GetID(), commentBody); err != nil {
+	// 解析结构化输出用于更优雅的回复
+	summary, _, _ := th.parseStructuredOutput(string(output))
+
+	// 创建简洁的回复
+	var replyBody string
+	if triggerUser := event.Comment.GetUser(); triggerUser != nil {
+		replyBody = fmt.Sprintf("@%s ✅ 处理完成！\n\n**变更摘要**: %s\n\n[查看完整详情](%s)",
+			triggerUser.GetLogin(),
+			th.truncateText(summary, 100),
+			pr.GetHTMLURL())
+	} else {
+		replyBody = fmt.Sprintf("✅ 处理完成！\n\n**变更摘要**: %s\n\n[查看完整详情](%s)",
+			th.truncateText(summary, 100),
+			pr.GetHTMLURL())
+	}
+
+	if err = th.github.ReplyToReviewComment(pr, event.Comment.GetID(), replyBody); err != nil {
 		xl.Errorf("Failed to reply to review comment: %v", err)
 		// 不返回错误，因为这不是致命的，代码修改已经提交成功
 	} else {
@@ -1271,4 +1335,23 @@ func (th *TagHandler) extractRepoInfo(repoFullName string) (owner, repo string) 
 		return "", ""
 	}
 	return parts[0], parts[1]
+}
+
+// truncateText 截断文本到指定长度
+func (th *TagHandler) truncateText(text string, maxLength int) string {
+	if len(text) <= maxLength {
+		return text
+	}
+
+	// 避免在单词中间截断
+	if maxLength > 3 {
+		truncated := text[:maxLength-3]
+		lastSpace := strings.LastIndex(truncated, " ")
+		if lastSpace > 0 {
+			truncated = truncated[:lastSpace]
+		}
+		return truncated + "..."
+	}
+
+	return text[:maxLength]
 }
