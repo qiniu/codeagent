@@ -316,7 +316,7 @@ Focus only on the specific issue requirements, do not make broad changes to the 
 		Duration:     time.Since(startTime),
 	}
 
-	if err := a.github.CommitAndPush(ws, execResult, nil); err != nil {
+	if _, err := a.github.CommitAndPush(ws, execResult, nil); err != nil {
 		return nil, fmt.Errorf("failed to commit and push: %w", err)
 	}
 

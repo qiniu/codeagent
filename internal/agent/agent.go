@@ -241,7 +241,7 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 		Output: string(codeOutput),
 	}
 	log.Infof("Committing and pushing changes")
-	if err = a.github.CommitAndPush(ws, result, code); err != nil {
+	if _, err = a.github.CommitAndPush(ws, result, code); err != nil {
 		log.Errorf("Failed to commit and push: %v", err)
 		return err
 	}
@@ -456,7 +456,7 @@ func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueC
 	}
 
 	log.Infof("Committing and pushing changes for PR %s", strings.ToLower(mode))
-	if err := a.github.CommitAndPush(ws, result, codeClient); err != nil {
+	if _, err := a.github.CommitAndPush(ws, result, codeClient); err != nil {
 		log.Errorf("Failed to commit and push changes: %v", err)
 		// 根据模式决定是否返回错误
 		if mode == "Fix" {
@@ -698,7 +698,7 @@ func (a *Agent) ContinuePRFromReviewCommentWithAI(ctx context.Context, event *gi
 	result := &models.ExecutionResult{
 		Output: string(output),
 	}
-	if err := a.github.CommitAndPush(ws, result, code); err != nil {
+	if _, err := a.github.CommitAndPush(ws, result, code); err != nil {
 		log.Errorf("Failed to commit and push for PR continue from review comment: %v", err)
 		return err
 	}
@@ -805,7 +805,7 @@ func (a *Agent) FixPRFromReviewCommentWithAI(ctx context.Context, event *github.
 	result := &models.ExecutionResult{
 		Output: string(output),
 	}
-	if err := a.github.CommitAndPush(ws, result, code); err != nil {
+	if _, err := a.github.CommitAndPush(ws, result, code); err != nil {
 		log.Errorf("Failed to commit and push for PR fix from review comment: %v", err)
 		return err
 	}
@@ -942,7 +942,7 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUserAndAI(ctx context.Context, eve
 	result := &models.ExecutionResult{
 		Output: string(output),
 	}
-	if err := a.github.CommitAndPush(ws, result, code); err != nil {
+	if _, err := a.github.CommitAndPush(ws, result, code); err != nil {
 		log.Errorf("Failed to commit and push for PR batch processing from review: %v", err)
 		return err
 	}

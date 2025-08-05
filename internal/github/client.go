@@ -185,26 +185,44 @@ func (c *Client) getDefaultBranch(owner, repo string) (string, error) {
 }
 
 // CommitAndPush 检测文件变更并提交推送
-func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.ExecutionResult, codeClient code.Code) error {
+func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.ExecutionResult, codeClient code.Code) (string, error) {
 	// 检查是否有文件变更
 	cmd := exec.Command("git", "status", "--porcelain")
 	cmd.Dir = workspace.Path
 	output, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("failed to check git status: %w", err)
+		return "", fmt.Errorf("failed to check git status: %w", err)
 	}
 
-	if strings.TrimSpace(string(output)) == "" {
-		log.Infof("No changes detected in workspace")
-		return nil
+	statusOutput := strings.TrimSpace(string(output))
+	log.Infof("Git status output: '%s'", statusOutput)
+
+	if statusOutput == "" {
+		log.Infof("No changes detected in workspace %s", workspace.Path)
+		return "", nil
 	}
+
+	log.Infof("Changes detected in workspace %s: %s", workspace.Path, statusOutput)
 
 	// 添加所有变更
 	cmd = exec.Command("git", "add", ".")
 	cmd.Dir = workspace.Path
 	addOutput, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to add changes: %w\nCommand output: %s", err, string(addOutput))
+		return "", fmt.Errorf("failed to add changes: %w\nCommand output: %s", err, string(addOutput))
+	}
+
+	// 再次检查是否有变更可以提交
+	cmd = exec.Command("git", "diff", "--cached", "--quiet")
+	cmd.Dir = workspace.Path
+	err = cmd.Run()
+	if err != nil {
+		// 有变更可以提交
+		log.Infof("Changes staged and ready for commit")
+	} else {
+		// 没有变更可以提交
+		log.Infof("No changes staged for commit, skipping commit")
+		return "", nil
 	}
 
 	// 使用AI生成标准的英文commit message
@@ -223,8 +241,17 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 	cmd.Dir = workspace.Path
 	commitOutput, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to commit changes: %w\nCommand output: %s", err, string(commitOutput))
+		return "", fmt.Errorf("failed to commit changes: %w\nCommand output: %s", err, string(commitOutput))
 	}
+
+	// 获取commit hash
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = workspace.Path
+	commitHashBytes, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit hash: %w", err)
+	}
+	commitHash := strings.TrimSpace(string(commitHashBytes))
 
 	// 推送到远程（带冲突处理）
 	cmd = exec.Command("git", "push")
@@ -244,18 +271,18 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 			pushOutput2, err2 := cmd.CombinedOutput()
 			if err2 != nil {
 				log.Errorf("Push still failed after pull, attempting force push")
-				return fmt.Errorf("failed to push changes: %w\nCommand output: %s", err2, string(pushOutput2))
+				return "", fmt.Errorf("failed to push changes: %w\nCommand output: %s", err2, string(pushOutput2))
 			}
 
 			log.Infof("Successfully pushed changes after pulling remote updates")
-			return nil
+			return commitHash, nil
 		}
 
-		return fmt.Errorf("failed to push changes: %w\nCommand output: %s", err, string(pushOutput))
+		return "", fmt.Errorf("failed to push changes: %w\nCommand output: %s", err, string(pushOutput))
 	}
 
 	log.Infof("Committed and pushed changes for Issue #%d", workspace.Issue.GetNumber())
-	return nil
+	return commitHash, nil
 }
 
 // PullLatestChanges 拉取远端最新代码（优先使用rebase策略）

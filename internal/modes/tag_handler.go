@@ -481,7 +481,7 @@ func (th *TagHandler) processIssueCodeCommand(
 		Error:  "",
 	}
 
-	err = th.github.CommitAndPush(ws, executionResult, codeClient)
+	_, err = th.github.CommitAndPush(ws, executionResult, codeClient)
 	if err != nil {
 		result = &models.ProgressExecutionResult{
 			Success: false,
@@ -742,7 +742,7 @@ func (th *TagHandler) processPRCommand(
 	}
 
 	xl.Infof("Committing and pushing changes for PR %s", strings.ToLower(mode))
-	if err := th.github.CommitAndPush(ws, executionResult, codeClient); err != nil {
+	if _, err := th.github.CommitAndPush(ws, executionResult, codeClient); err != nil {
 		xl.Errorf("Failed to commit and push changes: %v", err)
 		if mode == "Fix" {
 			return err
@@ -925,7 +925,7 @@ func (th *TagHandler) processPRReviewCommand(
 	executionResult := &models.ExecutionResult{
 		Output: string(output),
 	}
-	if err := th.github.CommitAndPush(ws, executionResult, codeClient); err != nil {
+	if _, err := th.github.CommitAndPush(ws, executionResult, codeClient); err != nil {
 		xl.Errorf("Failed to commit and push for PR batch processing from review: %v", err)
 		return err
 	}
@@ -1091,7 +1091,8 @@ func (th *TagHandler) processPRReviewCommentCommand(
 	executionResult := &models.ExecutionResult{
 		Output: string(output),
 	}
-	if err := th.github.CommitAndPush(ws, executionResult, codeClient); err != nil {
+	commitHash, err := th.github.CommitAndPush(ws, executionResult, codeClient)
+	if err != nil {
 		xl.Errorf("Failed to commit and push for PR %s from review comment: %v", strings.ToLower(mode), err)
 		return err
 	}
@@ -1100,17 +1101,18 @@ func (th *TagHandler) processPRReviewCommentCommand(
 	// 解析结构化输出用于更优雅的回复
 	summary, _, _ := th.parseStructuredOutput(string(output))
 
-	// 创建简洁的回复
+	// 创建简洁的回复，指向具体的commit
 	var replyBody string
+	commitURL := fmt.Sprintf("%s/commits/%s", pr.GetHTMLURL(), commitHash)
 	if triggerUser := event.Comment.GetUser(); triggerUser != nil {
-		replyBody = fmt.Sprintf("@%s ✅ 处理完成！\n\n**变更摘要**: %s\n\n[查看完整详情](%s)",
+		replyBody = fmt.Sprintf("@%s ✅ 处理完成！\n\n**变更摘要**: %s\n\n[查看代码变更](%s)",
 			triggerUser.GetLogin(),
 			th.truncateText(summary, 100),
-			pr.GetHTMLURL())
+			commitURL)
 	} else {
-		replyBody = fmt.Sprintf("✅ 处理完成！\n\n**变更摘要**: %s\n\n[查看完整详情](%s)",
+		replyBody = fmt.Sprintf("✅ 处理完成！\n\n**变更摘要**: %s\n\n[查看代码变更](%s)",
 			th.truncateText(summary, 100),
-			pr.GetHTMLURL())
+			commitURL)
 	}
 
 	if err = th.github.ReplyToReviewComment(pr, event.Comment.GetID(), replyBody); err != nil {

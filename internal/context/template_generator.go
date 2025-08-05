@@ -61,7 +61,7 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 		vars["ISSUE_TITLE"] = ""
 		vars["ISSUE_BODY"] = ""
 		vars["IS_PR"] = "false"
-		
+
 		// 从metadata中提取Issue信息
 		if repo, ok := ctx.Metadata["repository"]; ok {
 			vars["REPOSITORY"] = fmt.Sprintf("%v", repo)
@@ -75,7 +75,7 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 		if issueBody, ok := ctx.Metadata["issue_body"]; ok {
 			vars["ISSUE_BODY"] = fmt.Sprintf("%v", issueBody)
 		}
-		
+
 		// 向后兼容：如果Subject是IssueCommentEvent，也尝试提取
 		if event, ok := ctx.Subject.(*github.IssueCommentEvent); ok {
 			if vars["REPOSITORY"] == "" {
@@ -96,7 +96,7 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 		vars["REPOSITORY"] = ctx.Code.Repository
 		vars["PR_NUMBER"] = ""
 		vars["ISSUE_NUMBER"] = ""
-		
+
 		// 从metadata中提取PR/Issue编号
 		if prNumber, ok := ctx.Metadata["pr_number"]; ok {
 			vars["PR_NUMBER"] = fmt.Sprintf("%v", prNumber)
@@ -112,7 +112,7 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 	if ctx.Code != nil && len(ctx.Code.Files) > 0 {
 		var filesBuilder strings.Builder
 		for _, file := range ctx.Code.Files {
-			filesBuilder.WriteString(fmt.Sprintf("- %s (%s) +%d/-%d\n", 
+			filesBuilder.WriteString(fmt.Sprintf("- %s (%s) +%d/-%d\n",
 				file.Path, file.Status, file.Additions, file.Deletions))
 		}
 		vars["CHANGED_FILES"] = filesBuilder.String()
@@ -124,8 +124,8 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 	if len(ctx.Comments) > 0 {
 		var commentsBuilder strings.Builder
 		for _, comment := range ctx.Comments {
-			commentsBuilder.WriteString(fmt.Sprintf("**@%s** (%s)\n%s\n\n", 
-				comment.Author, 
+			commentsBuilder.WriteString(fmt.Sprintf("**@%s** (%s)\n%s\n\n",
+				comment.Author,
 				comment.CreatedAt.Format("Jan 2, 15:04"),
 				comment.Body))
 		}
@@ -204,7 +204,7 @@ Your response should include:
 
 // getContinueTemplate 继续开发模板
 func (g *TemplatePromptGenerator) getContinueTemplate() string {
-	return `You are Claude, an AI assistant designed to help continue development work in GitHub PRs.
+	return `You are an AI-powered assistant designed to help continue development work in GitHub PRs.
 
 ## Context Information
 
@@ -246,7 +246,7 @@ $ARGS
 
 // getFixTemplate 修复问题模板
 func (g *TemplatePromptGenerator) getFixTemplate() string {
-	return `You are Claude, an AI assistant designed to fix code issues in GitHub PRs and issues.
+	return `You are an AI-powered assistant designed to fix code issues in GitHub PRs and issues.
 
 ## Context Information
 
@@ -283,11 +283,12 @@ Fix the specified issue in the codebase. Analyze the problem, identify the root 
 2. Identify the root cause
 3. Implement the fix
 4. Verify the solution works
-5. Update related documentation`}
+5. Update related documentation`
+}
 
 // getCodeTemplate 代码实现模板
 func (g *TemplatePromptGenerator) getCodeTemplate() string {
-	return `You are Claude, an AI assistant designed to implement code functionality for GitHub issues and PRs.
+	return `You are an AI-powered assistant designed to implement code functionality for GitHub issues and PRs.
 
 ## Context Information
 
@@ -325,11 +326,12 @@ Implement the requested functionality. Create new code, modify existing code as 
 3. Write the code
 4. Test the implementation
 5. Document the changes
-6. Ensure proper integration`}
+6. Ensure proper integration`
+}
 
 // getReviewTemplate 代码审查模板
 func (g *TemplatePromptGenerator) getReviewTemplate() string {
-	return `You are Claude, an AI assistant designed to review code changes in GitHub PRs.
+	return `You are an AI-powered assistant designed to review code changes in GitHub PRs.
 
 ## Context Information
 
@@ -372,25 +374,26 @@ Provide your review as:
 1. Overall assessment
 2. Specific issues found (with file/line references)
 3. Suggestions for improvement
-4. Positive feedback on well-written code`}
+4. Positive feedback on well-written code`
+}
 
 // substituteVariables 执行变量替换
 func (g *TemplatePromptGenerator) substituteVariables(template string, variables map[string]string) string {
 	result := template
-	
+
 	// 按字母顺序排序，确保替换顺序一致
 	keys := make([]string, 0, len(variables))
 	for k := range variables {
 		keys = append(keys, k)
 	}
-	
+
 	// 替换变量
 	for _, key := range keys {
 		value := variables[key]
 		placeholder := fmt.Sprintf("$%s", key)
 		result = strings.ReplaceAll(result, placeholder, value)
 	}
-	
+
 	return result
 }
 
