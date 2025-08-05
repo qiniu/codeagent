@@ -35,11 +35,15 @@ func (c *DefaultContextCollector) CollectBasicContext(eventType string, payload 
 	switch eventType {
 	case "issue_comment":
 		if event, ok := payload.(*github.IssueCommentEvent); ok {
-			ctx.Type = ContextTypePRComment
+			ctx.Type = ContextTypeIssue
 			ctx.Subject = event
 			ctx.Priority = PriorityHigh
 			ctx.Metadata["issue_number"] = event.Issue.GetNumber()
+			ctx.Metadata["issue_title"] = event.Issue.GetTitle()
+			ctx.Metadata["issue_body"] = event.Issue.GetBody()
 			ctx.Metadata["comment_id"] = event.Comment.GetID()
+			ctx.Metadata["repository"] = event.Repo.GetFullName()
+			ctx.Metadata["sender"] = event.GetSender().GetLogin()
 		}
 	case "pull_request_review_comment":
 		if event, ok := payload.(*github.PullRequestReviewCommentEvent); ok {

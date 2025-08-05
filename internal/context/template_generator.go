@@ -3,6 +3,8 @@ package context
 import (
 	"fmt"
 	"strings"
+
+	"github.com/google/go-github/v58/github"
 )
 
 // TemplatePromptGenerator 基于模板的提示词生成器
@@ -52,7 +54,45 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 	vars["ARGS"] = args
 
 	// 从上下文中提取信息
-	if ctx.Code != nil {
+	if ctx.Type == ContextTypeIssue {
+		// Issue上下文 - 优先使用metadata中的信息
+		vars["REPOSITORY"] = ""
+		vars["ISSUE_NUMBER"] = ""
+		vars["ISSUE_TITLE"] = ""
+		vars["ISSUE_BODY"] = ""
+		vars["IS_PR"] = "false"
+		
+		// 从metadata中提取Issue信息
+		if repo, ok := ctx.Metadata["repository"]; ok {
+			vars["REPOSITORY"] = fmt.Sprintf("%v", repo)
+		}
+		if issueNum, ok := ctx.Metadata["issue_number"]; ok {
+			vars["ISSUE_NUMBER"] = fmt.Sprintf("%v", issueNum)
+		}
+		if issueTitle, ok := ctx.Metadata["issue_title"]; ok {
+			vars["ISSUE_TITLE"] = fmt.Sprintf("%v", issueTitle)
+		}
+		if issueBody, ok := ctx.Metadata["issue_body"]; ok {
+			vars["ISSUE_BODY"] = fmt.Sprintf("%v", issueBody)
+		}
+		
+		// 向后兼容：如果Subject是IssueCommentEvent，也尝试提取
+		if event, ok := ctx.Subject.(*github.IssueCommentEvent); ok {
+			if vars["REPOSITORY"] == "" {
+				vars["REPOSITORY"] = event.Repo.GetFullName()
+			}
+			if vars["ISSUE_NUMBER"] == "" {
+				vars["ISSUE_NUMBER"] = fmt.Sprintf("%d", event.Issue.GetNumber())
+			}
+			if vars["ISSUE_TITLE"] == "" {
+				vars["ISSUE_TITLE"] = event.Issue.GetTitle()
+			}
+			if vars["ISSUE_BODY"] == "" {
+				vars["ISSUE_BODY"] = event.Issue.GetBody()
+			}
+		}
+	} else if ctx.Code != nil {
+		// PR上下文
 		vars["REPOSITORY"] = ctx.Code.Repository
 		vars["PR_NUMBER"] = ""
 		vars["ISSUE_NUMBER"] = ""
@@ -122,7 +162,7 @@ func (g *TemplatePromptGenerator) selectTemplate(mode string) string {
 
 // getDefaultTemplate 默认模板
 func (g *TemplatePromptGenerator) getDefaultTemplate() string {
-	return `You are Claude, an AI assistant designed to help with GitHub issues and pull requests.
+	return `You are an AI-powered code development assistant working on GitHub repositories.
 
 ## Context Information
 

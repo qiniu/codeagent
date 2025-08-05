@@ -68,6 +68,17 @@ func (f *DefaultContextFormatter) formatBasicContext(ctx *EnhancedContext) strin
 		if issueNumber, ok := ctx.Metadata["issue_number"]; ok {
 			info = append(info, fmt.Sprintf("- **Issue Number**: #%v", issueNumber))
 		}
+		if issueTitle, ok := ctx.Metadata["issue_title"]; ok {
+			info = append(info, fmt.Sprintf("- **Issue Title**: %v", issueTitle))
+		}
+		if issueBody, ok := ctx.Metadata["issue_body"]; ok {
+			// 截断过长的body
+			body := fmt.Sprintf("%v", issueBody)
+			if len(body) > 500 {
+				body = body[:500] + "..."
+			}
+			info = append(info, fmt.Sprintf("- **Issue Description**: %s", body))
+		}
 	}
 	
 	return strings.Join(info, "\n")

@@ -233,6 +233,8 @@ func (th *TagHandler) buildEnhancedIssuePrompt(ctx context.Context, event *model
 		Subject:   event,
 		Metadata: map[string]interface{}{
 			"issue_number": issue.GetNumber(),
+			"issue_title":  issue.GetTitle(),
+			"issue_body":   issue.GetBody(),
 			"repository":   repoFullName,
 			"sender":       event.Sender.GetLogin(),
 		},

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/qiniu/codeagent/internal/code"
@@ -256,11 +257,53 @@ func (a *EnhancedAgent) executeIssueProcessing(
 	ws.PRNumber = pr.GetNumber()
 	ws.PullRequest = pr
 
-	// 5. 生成代码（使用MCP工具）
-	xl.Infof("Generating code implementation")
+	// 5. 生成代码（使用AI会话）
+	xl.Infof("Generating code implementation for Issue #%d", issueCtx.Issue.GetNumber())
 
-	// 这里可以集成AI代码生成逻辑
-	// TODO: 实现AI代码生成，使用MCP工具进行文件操作
+	// 创建AI会话进行代码生成
+	session, err := a.sessionManager.GetSession(ws)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AI session: %w", err)
+	}
+
+	// 构建简洁的代码生成提示，仅基于Issue内容（不包含额外项目上下文）
+	codePrompt := fmt.Sprintf(`You are an AI coding assistant working on GitHub issue #%d.
+
+Issue Title: %s
+Issue Description: %s
+
+Please implement the requested functionality by creating or modifying the necessary files.
+
+Instructions:
+1. Analyze the issue requirements carefully
+2. Create well-structured, maintainable code
+3. Follow best practices for the project's programming language
+4. Include appropriate error handling
+5. Add comments for complex logic
+6. Ensure code is production-ready
+
+Provide your implementation with clear explanations of the changes made.
+
+Focus only on the specific issue requirements, do not make broad changes to the codebase.`,
+		issueCtx.Issue.GetNumber(),
+		issueCtx.Issue.GetTitle(),
+		issueCtx.Issue.GetBody())
+
+	// 执行AI代码生成
+	resp, err := session.Prompt(codePrompt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate code with AI: %w", err)
+	}
+
+	// 读取AI生成的响应
+	aiOutput, err := io.ReadAll(resp.Out)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read AI response: %w", err)
+	}
+
+	aiOutputStr := string(aiOutput)
+	xl.Infof("AI code generation completed, output length: %d", len(aiOutputStr))
+	xl.Debugf("AI Output: %s", aiOutputStr)
 
 	// 6. 提交变更
 	xl.Infof("Committing changes")
@@ -268,8 +311,8 @@ func (a *EnhancedAgent) executeIssueProcessing(
 	// 使用现有的提交逻辑
 	execResult := &models.ExecutionResult{
 		Success:      true,
-		Output:       "Code generated successfully",
-		FilesChanged: []string{}, // TODO: 从MCP工具调用中获取
+		Output:       aiOutputStr,
+		FilesChanged: []string{}, // TODO: 从AI响应中解析
 		Duration:     time.Since(startTime),
 	}
 
