@@ -3,8 +3,8 @@
 1. handler.go: 读取模型参数和其余args，要是没读到模型参数就使用默认模型
 2. handler.go: 169行，执行ContinuePRWithArgsAndAI()
 3. agent.go: 542, processPRWithArgsAndAI(xxx. "continue")
-4. GetOrCreateWorkspaceForPRWithAI（）*获取或创建 PR 工作空间，包含AI模型信息*
-5. *拉取远端最新代码*
+4. agent: 384, GetOrCreateWorkspaceForPRWithAI（）*获取或创建 PR 工作空间，包含AI模型信息*, 
+5. agent:393, *拉取远端最新代码*
 6. *获取所有PR评论历史用于构建上下文*
 7. *构建包含历史上下文的 prompt*
 
@@ -87,6 +87,8 @@
 > ```
 >
 
-7. 执行AI处理；resp, err := a.promptWithRetry(ctx, codeClient, prompt, 3) agent.go : 435
-8. *提交变更并更新 PR*, *Continue模式不返回错误，继续执行评论*
-9. *评论到 PR*
+8. 执行AI处理；resp, err := a.promptWithRetry(ctx, codeClient, prompt, 3) agent.go : 435
+
+9. *提交变更并更新 PR*, *Continue模式不返回错误，继续执行评论*
+
+10. 评论到 PR*
