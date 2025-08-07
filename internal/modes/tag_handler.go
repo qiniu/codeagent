@@ -20,8 +20,8 @@ import (
 	"github.com/qiniu/x/xlog"
 )
 
-// TagHandler Tag模式处理器
-// 处理包含命令的GitHub事件（/code, /continue, /fix）
+// TagHandler Tag mode handler
+// Handles GitHub events containing commands (/code, /continue, /fix)
 type TagHandler struct {
 	*BaseHandler
 	defaultAIModel string
@@ -32,9 +32,9 @@ type TagHandler struct {
 	contextManager *ctxsys.ContextManager
 }
 
-// NewTagHandler 创建Tag模式处理器
+// NewTagHandler creates a Tag mode handler
 func NewTagHandler(defaultAIModel string, github *ghclient.Client, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager) *TagHandler {
-	// 创建上下文管理器
+	// Create context manager
 	collector := ctxsys.NewDefaultContextCollector(github)
 	formatter := ctxsys.NewDefaultContextFormatter(50000) // 50k tokens limit
 	generator := ctxsys.NewDefaultPromptGenerator(formatter)
@@ -47,7 +47,7 @@ func NewTagHandler(defaultAIModel string, github *ghclient.Client, workspace *wo
 	return &TagHandler{
 		BaseHandler: NewBaseHandler(
 			TagMode,
-			10, // 中等优先级
+			10, // Medium priority
 			"Handle @codeagent mentions and commands (/code, /continue, /fix)",
 		),
 		defaultAIModel: defaultAIModel,
@@ -59,11 +59,11 @@ func NewTagHandler(defaultAIModel string, github *ghclient.Client, workspace *wo
 	}
 }
 
-// CanHandle 检查是否能处理给定的事件
+// CanHandle checks if the given event can be handled
 func (th *TagHandler) CanHandle(ctx context.Context, event models.GitHubContext) bool {
 	xl := xlog.NewWith(ctx)
 
-	// 检查是否包含命令
+	// Check if event contains commands
 	cmdInfo, hasCmd := models.HasCommand(event)
 	if !hasCmd {
 		xl.Debugf("No command found in event type: %s", event.GetEventType())
@@ -72,7 +72,7 @@ func (th *TagHandler) CanHandle(ctx context.Context, event models.GitHubContext)
 
 	xl.Infof("Found command: %s with AI model: %s in event type: %s", cmdInfo.Command, cmdInfo.AIModel, event.GetEventType())
 
-	// Tag模式只处理包含命令的事件
+	// Tag mode only handles events containing commands
 	switch event.GetEventType() {
 	case models.EventIssueComment,
 		models.EventPullRequestReview,
@@ -84,18 +84,18 @@ func (th *TagHandler) CanHandle(ctx context.Context, event models.GitHubContext)
 	}
 }
 
-// Execute 执行Tag模式处理逻辑
+// Execute executes Tag mode processing logic
 func (th *TagHandler) Execute(ctx context.Context, event models.GitHubContext) error {
 	xl := xlog.NewWith(ctx)
 	xl.Infof("TagHandler executing for event type: %s", event.GetEventType())
 
-	// 提取命令信息
+	// Extract command information
 	cmdInfo, hasCmd := models.HasCommand(event)
 	if !hasCmd {
 		return fmt.Errorf("no command found in event")
 	}
 
-	// 如果用户没指定AI模型，使用系统配置的默认值
+	// If user didn't specify AI model, use system default configuration
 	if strings.TrimSpace(cmdInfo.AIModel) == "" {
 		cmdInfo.AIModel = th.defaultAIModel
 	}
@@ -103,7 +103,7 @@ func (th *TagHandler) Execute(ctx context.Context, event models.GitHubContext) e
 	xl.Infof("Executing command: %s with AI model: %s, args: %s",
 		cmdInfo.Command, cmdInfo.AIModel, cmdInfo.Args)
 
-	// 根据事件类型和命令类型分发处理
+	// Dispatch processing based on event type and command type
 	switch event.GetEventType() {
 	case models.EventIssueComment:
 		return th.handleIssueComment(ctx, event.(*models.IssueCommentContext), cmdInfo)
@@ -116,16 +116,16 @@ func (th *TagHandler) Execute(ctx context.Context, event models.GitHubContext) e
 	}
 }
 
-// handleIssueComment 处理Issue评论事件
+// handleIssueComment handles Issue comment events
 func (th *TagHandler) handleIssueComment(
 	ctx context.Context,
 	event *models.IssueCommentContext,
 	cmdInfo *models.CommandInfo,
 ) error {
-	// 将事件转换为原始GitHub事件类型（兼容现有agent接口）
+	// Convert event to original GitHub event type (compatible with existing agent interface)
 	issueCommentEvent := event.RawEvent.(*github.IssueCommentEvent)
 
-	// 处理 created 和 edited 状态的评论，允许用户修改命令
+	// Handle comments in created and edited status, allowing users to modify commands
 	action := issueCommentEvent.GetAction()
 	if action != "created" && action != "edited" {
 		return nil
@@ -150,7 +150,7 @@ func (th *TagHandler) handleIssueComment(
 	}
 }
 
-// handlePRReview 处理PR Review事件
+// handlePRReview handles PR Review events
 func (th *TagHandler) handlePRReview(
 	ctx context.Context,
 	event *models.PullRequestReviewContext,
@@ -159,23 +159,23 @@ func (th *TagHandler) handlePRReview(
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Processing PR review with command: %s", cmdInfo.Command)
 
-	// 将事件转换为原始GitHub事件类型
+	// Convert event to original GitHub event type
 	reviewEvent := event.RawEvent.(*github.PullRequestReviewEvent)
 
-	// 只处理 submitted 状态的review，忽略 edited 等其他状态
+	// Only handle reviews in 'submitted' status, ignore 'edited' and other statuses
 	if reviewEvent.GetAction() != "submitted" {
 		xl.Infof("Skipping PR review event with action: %s (only processing 'submitted')", reviewEvent.GetAction())
 		return nil
 	}
 
-	// PR Review支持批量处理命令
+	// PR Review supports batch command processing
 	switch cmdInfo.Command {
 	case models.CommandContinue:
-		// 实现PR Review继续逻辑，集成原始 Agent功能
+		// Implement PR Review continue logic, integrating original Agent functionality
 		xl.Infof("Processing PR review continue with new architecture")
 		return th.processPRReviewCommand(ctx, event, cmdInfo, "Continue")
 	case models.CommandFix:
-		// 实现PR Review修复逻辑，集成原姻 Agent功能
+		// Implement PR Review fix logic, integrating original Agent functionality
 		xl.Infof("Processing PR review fix with new architecture")
 		return th.processPRReviewCommand(ctx, event, cmdInfo, "Fix")
 	default:
@@ -183,7 +183,7 @@ func (th *TagHandler) handlePRReview(
 	}
 }
 
-// handlePRReviewComment 处理PR Review评论事件
+// handlePRReviewComment handles PR Review comment events
 func (th *TagHandler) handlePRReviewComment(
 	ctx context.Context,
 	event *models.PullRequestReviewCommentContext,
@@ -192,10 +192,10 @@ func (th *TagHandler) handlePRReviewComment(
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Processing PR review comment with command: %s", cmdInfo.Command)
 
-	// 将事件转换为原始GitHub事件类型
+	// Convert event to original GitHub event type
 	reviewCommentEvent := event.RawEvent.(*github.PullRequestReviewCommentEvent)
 
-	// 处理 created 和 edited 状态的review comment，允许用户修改命令
+	// Handle review comments in created and edited status, allowing users to modify commands
 	action := reviewCommentEvent.GetAction()
 	if action != "created" && action != "edited" {
 		xl.Infof("Skipping PR review comment event with action: %s (only processing 'created' and 'edited')", action)

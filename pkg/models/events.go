@@ -7,7 +7,7 @@ import (
 	"github.com/google/go-github/v58/github"
 )
 
-// EventType 定义GitHub事件类型
+// EventType defines GitHub event types
 type EventType string
 
 const (
@@ -21,7 +21,7 @@ const (
 	EventPush                     EventType = "push"
 )
 
-// GitHubContext 是所有GitHub事件上下文的接口
+// GitHubContext is the interface for all GitHub event contexts
 type GitHubContext interface {
 	GetEventType() EventType
 	GetRepository() *github.Repository
@@ -32,7 +32,7 @@ type GitHubContext interface {
 	GetTimestamp() time.Time
 }
 
-// BaseContext 提供所有事件上下文的基础实现
+// BaseContext provides base implementation for all event contexts
 type BaseContext struct {
 	Type       EventType          `json:"type"`
 	Repository *github.Repository `json:"repository"`
