@@ -19,28 +19,28 @@ import (
 type Handler struct {
 	config        *config.Config
 	agent         *agent.Agent
-	enhancedAgent *agent.EnhancedAgent // 新的Enhanced Agent字段
+	enhancedAgent *agent.EnhancedAgent // New Enhanced Agent field
 }
 
 func NewHandler(cfg *config.Config, agent *agent.Agent) *Handler {
 	return &Handler{config: cfg, agent: agent}
 }
 
-// NewEnhancedHandler 创建Enhanced webhook处理器
+// NewEnhancedHandler creates Enhanced webhook handler
 func NewEnhancedHandler(cfg *config.Config, enhancedAgent *agent.EnhancedAgent) *Handler {
 	return &Handler{
 		config:        cfg,
-		agent:         nil, // 兼容性字段，设为nil
+		agent:         nil, // Compatibility field, set to nil
 		enhancedAgent: enhancedAgent,
 	}
 }
 
-// parseCommandArgs 解析命令参数，提取AI模型和其他参数
+// parseCommandArgs parses command arguments, extracts AI model and other parameters
 func parseCommandArgs(comment, command string, defaultAIModel string) (aiModel, args string) {
-	// 提取命令参数
+	// Extract command arguments
 	commandArgs := strings.TrimSpace(strings.TrimPrefix(comment, command))
 
-	// 检查是否包含AI模型参数
+	// Check if AI model parameters are included
 	if strings.HasPrefix(commandArgs, "-claude") {
 		aiModel = "claude"
 		args = strings.TrimSpace(strings.TrimPrefix(commandArgs, "-claude"))
