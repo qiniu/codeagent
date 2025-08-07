@@ -8,7 +8,7 @@ import (
 	"github.com/qiniu/x/log"
 )
 
-// isContainerRunning 检查指定名称的容器是否在运行
+// isContainerRunning checks if container with specified name is running
 func isContainerRunning(containerName string) bool {
 	cmd := exec.Command("docker", "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}")
 	output, err := cmd.Output()
@@ -17,13 +17,13 @@ func isContainerRunning(containerName string) bool {
 		return false
 	}
 
-	// 检查输出是否包含容器名称
+	// Check if output contains container name
 	return strings.TrimSpace(string(output)) == containerName
 }
 
-// extractRepoName 从仓库URL中提取仓库名
+// extractRepoName extracts repository name from repository URL
 func extractRepoName(repoURL string) string {
-	// 处理 GitHub URL: https://github.com/owner/repo.git
+	// Handle GitHub URL: https://github.com/owner/repo.git
 	if strings.Contains(repoURL, "github.com") {
 		parts := strings.Split(repoURL, "/")
 		if len(parts) >= 2 {
@@ -32,6 +32,6 @@ func extractRepoName(repoURL string) string {
 		}
 	}
 
-	// 如果不是标准格式，返回一个安全的名称
+	// If not standard format, return a safe name
 	return "repo"
 }

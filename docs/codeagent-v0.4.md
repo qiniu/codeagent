@@ -1,55 +1,55 @@
-# CodeAgent v0.4 - 基于 Git Worktree 的工作空间管理设计
+# CodeAgent v0.4 - Git Worktree-Based Workspace Management Design
 
-## 概述
+## Overview
 
-CodeAgent v0.4 采用极简的工作空间管理方案，完全基于 Git worktree 机制。所有工作空间仅通过目录名唯一标识，无需任何额外的映射文件或持久化元数据，系统可在重启后自动恢复所有状态。
+CodeAgent v0.4 adopts a minimalist workspace management solution, completely based on Git worktree mechanisms. All workspaces are uniquely identified by directory names only, requiring no additional mapping files or persistent metadata, allowing the system to automatically recover all states after restarts.
 
-## 设计要点
+## Design Principles
 
-1. **目录唯一性**：每个工作空间目录名唯一，包含关键信息（如 repo、issue/pr 编号、时间戳）。
-2. **无映射/无额外元数据**：所有状态仅靠目录名表达，无需任何映射文件或数据库。
-3. **极简恢复**：系统启动时只需扫描目录名即可恢复全部工作空间。
-4. **目录隔离**：所有 worktree 目录与仓库目录同级，仓库内部结构始终整洁。
+1. **Directory Uniqueness**: Each workspace directory name is unique, containing key information (such as repo, issue/pr number, timestamp).
+2. **No Mapping/No Additional Metadata**: All states are expressed solely through directory names, requiring no mapping files or databases.
+3. **Minimal Recovery**: System startup only needs to scan directory names to recover all workspaces.
+4. **Directory Isolation**: All worktree directories are at the same level as repository directories, keeping repository internal structure clean.
 
-## 工作空间生命周期
+## Workspace Lifecycle
 
-### 1. Issue 工作空间
+### 1. Issue Workspace
 
-- 创建时目录名格式：`{repo}-issue-{issue-number}-{timestamp}`
-- 例如：`codeagent-issue-123-1703123456789`
+- Directory name format when created: `{repo}-issue-{issue-number}-{timestamp}`
+- Example: `codeagent-issue-123-1703123456789`
 
-### 2. PR 工作空间
+### 2. PR Workspace
 
-- PR 创建后，目录名格式：`{repo}-pr-{pr-number}-{timestamp}`
-- 例如：`codeagent-pr-91-1703123456789`
+- After PR creation, directory name format: `{repo}-pr-{pr-number}-{timestamp}`
+- Example: `codeagent-pr-91-1703123456789`
 
-Session 目录统一为：`{repo}-session-{pr-number}-{timestamp}`
+Session directory unified as: `{repo}-session-{pr-number}-{timestamp}`
 
-### 3. 目录结构示例
+### 3. Directory Structure Example
 
 ```
 basedir/
 ├── qbox/
-│   ├── codeagent/                  # 仓库目录
-│   │   ├── .git/                   # 共享的 Git 仓库
-│   ├── codeagent-issue-124-1703123456790/   # Issue 工作空间
-│   ├── codeagent-pr-91-1703123456789/       # PR 工作空间
-│   ├── codeagent-session-issue-124-1703123456790/  # Issue session 目录
-│   ├── codeagent-session-pr-91-1703123456789/      # PR session 目录
+│   ├── codeagent/                  # Repository directory
+│   │   ├── .git/                   # Shared Git repository
+│   ├── codeagent-issue-124-1703123456790/   # Issue workspace
+│   ├── codeagent-pr-91-1703123456789/       # PR workspace
+│   ├── codeagent-session-issue-124-1703123456790/  # Issue session directory
+│   ├── codeagent-session-pr-91-1703123456789/      # PR session directory
 ```
 
-## 恢复与清理机制
+## Recovery and Cleanup Mechanisms
 
-- **恢复**：系统启动时递归扫描所有组织/仓库目录下的 worktree 目录（`{repo}-issue-*`、`{repo}-pr-*`）和 session 目录（`{repo}-session-issue-*`、`{repo}-session-pr-*`），通过目录名解析出 issue/pr 编号、时间戳，自动恢复所有工作空间。
-- **清理**：只需根据目录名和业务逻辑判断是否过期，直接删除对应 worktree 目录和 session 目录。
+- **Recovery**: At system startup, recursively scan all organization/repository directories for worktree directories (`{repo}-issue-*`, `{repo}-pr-*`) and session directories (`{repo}-session-issue-*`, `{repo}-session-pr-*`), parse issue/pr numbers and timestamps from directory names, and automatically recover all workspaces.
+- **Cleanup**: Simply judge expiration based on directory names and business logic, then directly delete corresponding worktree directories and session directories.
 
-## 主要优势
+## Main Advantages
 
-- **极简**：无任何多余元数据，目录即状态。
-- **健壮**：即使异常重启，目录结构不变，所有工作空间都能恢复。
-- **高性能**：充分利用 Git worktree 的原生能力，无需重复 clone。
-- **易维护**：目录结构清晰，便于人工排查和自动化脚本处理。
+- **Minimalist**: No redundant metadata, directory is state.
+- **Robust**: Even after abnormal restarts, directory structure remains unchanged, all workspaces can be recovered.
+- **High Performance**: Fully utilize Git worktree's native capabilities, no need for repeated clones.
+- **Easy Maintenance**: Clear directory structure, convenient for manual troubleshooting and automated script processing.
 
-## 总结
+## Summary
 
-CodeAgent v0.4 的工作空间管理方案，彻底抛弃了映射、move、数据库等复杂机制，完全依赖 Git worktree 和目录名唯一性，实现了极致简洁、健壮、可恢复的多工作空间管理。
+CodeAgent v0.4's workspace management solution completely abandons complex mechanisms like mapping, move operations, and databases, relying entirely on Git worktree and directory name uniqueness to achieve extremely simple, robust, and recoverable multi-workspace management.

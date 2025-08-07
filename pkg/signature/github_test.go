@@ -12,7 +12,7 @@ func TestValidateGitHubSignature(t *testing.T) {
 	secret := "my-webhook-secret"
 	payload := []byte(`{"action":"opened","number":1}`)
 
-	// 生成有效的 SHA-256 签名
+	// Generate valid SHA-256 signature
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(payload)
 	validSig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
@@ -84,7 +84,7 @@ func TestValidateGitHubSignatureSHA1(t *testing.T) {
 	secret := "my-webhook-secret"
 	payload := []byte(`{"action":"opened","number":1}`)
 
-	// 生成有效的 SHA-1 签名
+	// Generate valid SHA-1 signature
 	mac := hmac.New(sha1.New, []byte(secret))
 	mac.Write(payload)
 	validSig := "sha1=" + hex.EncodeToString(mac.Sum(nil))

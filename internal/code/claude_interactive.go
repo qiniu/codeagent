@@ -18,7 +18,7 @@ import (
 	"github.com/qiniu/x/log"
 )
 
-// claudeInteractive 交互式Claude Docker实现
+// claudeInteractive Interactive Claude Docker implementation
 type claudeInteractive struct {
 	containerName string
 	cmd           *exec.Cmd
@@ -31,7 +31,7 @@ type claudeInteractive struct {
 	cancel        context.CancelFunc
 }
 
-// InteractiveSession 管理交互式会话
+// InteractiveSession manages interactive sessions
 type InteractiveSession struct {
 	ID            string
 	CreatedAt     time.Time
@@ -41,22 +41,22 @@ type InteractiveSession struct {
 }
 
 func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code, error) {
-	// 解析仓库信息，只获取仓库名，不包含完整URL
+	// Parse repository information, only get repository name, not full URL
 	repoName := extractRepoName(workspace.Repository)
-	// 新的容器命名规则：claude-interactive-组织-仓库-PR号
+	// New container naming rule: claude-interactive-org-repo-PRnumber
 	containerName := fmt.Sprintf("claude-interactive-%s-%s-%d", workspace.Org, repoName, workspace.PRNumber)
 
-	// 检查是否已经有对应的容器在运行
+	// Check if there's already a corresponding container running
 	if isContainerRunning(containerName) {
 		log.Infof("Found existing interactive container: %s, reusing it", containerName)
-		// 连接到现有容器
+		// Connect to existing container
 		return connectToExistingContainer(containerName, workspace)
 	}
 
-	// 确保路径存在
+	// Ensure path exists
 	workspacePath, _ := filepath.Abs(workspace.Path)
 
-	// 确定claude配置路径
+	// Determine claude configuration path
 	var claudeConfigPath string
 	if home := os.Getenv("HOME"); home != "" {
 		claudeConfigPath, _ = filepath.Abs(filepath.Join(home, ".claude"))
@@ -64,32 +64,32 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 		claudeConfigPath = "/home/codeagent/.claude"
 	}
 
-	// 检查是否使用了/tmp目录（在macOS上可能导致挂载问题）
+	// Check if using /tmp directory (may cause mount issues on macOS)
 	if strings.HasPrefix(workspacePath, "/tmp/") {
 		log.Warnf("Warning: Using /tmp directory may cause mount issues on macOS. Consider using other path instead.")
 		log.Warnf("Current workspace path: %s", workspacePath)
 	}
 
-	// 检查路径是否存在
+	// Check if path exists
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
 		log.Errorf("Workspace path does not exist: %s", workspacePath)
 		return nil, fmt.Errorf("workspace path does not exist: %s", workspacePath)
 	}
 
-	// 构建 Docker 命令 - 使用简单的管道模式而不是 PTY
+	// Build Docker command - use simple pipe mode instead of PTY
 	args := []string{
 		"run",
-		"-i",                    // 保持STDIN开放
-		"--rm",                  // 容器停止后自动删除
-		"--name", containerName, // 设置容器名称
-		"--entrypoint", "claude", // 直接使用claude作为entrypoint
-		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // 挂载工作空间
-		"-v", fmt.Sprintf("%s:/home/codeagent/.claude", claudeConfigPath), // 挂载 claude 认证信息
-		"-w", "/workspace", // 设置工作目录
-		"-e", "TERM=xterm-256color", // 设置终端类型
+		"-i",                    // Keep STDIN open
+		"--rm",                  // Automatically delete container after stop
+		"--name", containerName, // Set container name
+		"--entrypoint", "claude", // Directly use claude as entrypoint
+		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // Mount workspace
+		"-v", fmt.Sprintf("%s:/home/codeagent/.claude", claudeConfigPath), // Mount claude authentication info
+		"-w", "/workspace", // Set working directory
+		"-e", "TERM=xterm-256color", // Set terminal type
 	}
 
-	// 添加 Claude API 相关环境变量
+	// Add Claude API related environment variables
 	if cfg.Claude.AuthToken != "" {
 		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=%s", cfg.Claude.AuthToken))
 	} else if cfg.Claude.APIKey != "" {
@@ -99,15 +99,15 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_BASE_URL=%s", cfg.Claude.BaseURL))
 	}
 
-	// 添加容器镜像 - 不需要额外命令，因为使用了--entrypoint
+	// Add container image - no additional commands needed since using --entrypoint
 	args = append(args, cfg.Claude.ContainerImage)
 
-	// 打印调试信息
+	// Print debug information
 	log.Infof("Starting interactive Docker container: docker %s", strings.Join(args, " "))
 
 	cmd := exec.Command("docker", args...)
 
-	// 创建管道
+	// Create pipes
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
@@ -119,12 +119,12 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
-	cmd.Stderr = cmd.Stdout // 将 stderr 重定向到 stdout
+	cmd.Stderr = cmd.Stdout // Redirect stderr to stdout
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true, // 创建新的进程组
+		Setpgid: true, // Create new process group
 	}
 
-	// 启动容器
+	// Start container
 	if err := cmd.Start(); err != nil {
 		stdin.Close()
 		stdout.Close()
@@ -137,10 +137,10 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 	log.Infof("stdin pipe type: %T", stdin)
 	log.Infof("stdout pipe type: %T", stdout)
 
-	// 创建上下文用于取消操作
+	// Create context for cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// 创建会话信息
+	// Create session information
 	session := &InteractiveSession{
 		ID:            fmt.Sprintf("session-%d", time.Now().Unix()),
 		CreatedAt:     time.Now(),
@@ -160,7 +160,7 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 		cancel:        cancel,
 	}
 
-	// 等待Claude CLI初始化完成
+	// Wait for Claude CLI initialization to complete
 	if err := claudeInteractive.waitForReady(); err != nil {
 		return nil, fmt.Errorf("claude CLI initialization failed: %w", err)
 	}
@@ -169,18 +169,18 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 }
 
 func (c *claudeInteractive) waitForReady() error {
-	// 等待Claude CLI启动
+	// Wait for Claude CLI to start
 	log.Infof("Waiting for Claude CLI to initialize...")
 	time.Sleep(5 * time.Second)
 
-	// 简单地认为准备就绪，让第一个Prompt来真正测试
+	// Simply assume ready, let the first Prompt do the actual test
 	log.Infof("Claude CLI initialization completed (will test on first prompt)")
 	return nil
 }
 
-// connectToExistingContainer 连接到现有的交互式容器
+// connectToExistingContainer connects to existing interactive container
 func connectToExistingContainer(containerName string, workspace *models.Workspace) (Code, error) {
-	// 通过docker exec连接到现有容器
+	// Connect to existing container via docker exec
 	args := []string{
 		"exec",
 		"-i",
@@ -190,7 +190,7 @@ func connectToExistingContainer(containerName string, workspace *models.Workspac
 
 	cmd := exec.Command("docker", args...)
 
-	// 创建管道
+	// Create pipes
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdin pipe for existing container: %w", err)
@@ -207,17 +207,17 @@ func connectToExistingContainer(containerName string, workspace *models.Workspac
 		Setpgid: true,
 	}
 
-	// 启动exec命令
+	// Start exec command
 	if err := cmd.Start(); err != nil {
 		stdin.Close()
 		stdout.Close()
 		return nil, fmt.Errorf("failed to connect to existing container: %w", err)
 	}
 
-	// 创建上下文用于取消操作
+	// Create context for cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// 创建会话信息
+	// Create session information
 	session := &InteractiveSession{
 		ID:            fmt.Sprintf("reconnect-session-%d", time.Now().Unix()),
 		CreatedAt:     time.Now(),
@@ -246,13 +246,13 @@ func (c *claudeInteractive) Prompt(message string) (*Response, error) {
 		return nil, fmt.Errorf("interactive session is closed")
 	}
 
-	// 更新会话信息
+	// Update session information
 	c.session.LastActivity = time.Now()
 	c.session.MessageCount++
 
 	log.Infof("Sending interactive message #%d to Claude: %s", c.session.MessageCount, message)
 
-	// 发送消息到Claude CLI通过stdin
+	// Send message to Claude CLI via stdin
 	messageBytes := []byte(message + "\n")
 	log.Debugf("Writing %d bytes to stdin: %s", len(messageBytes), strings.TrimSpace(string(messageBytes)))
 
@@ -262,7 +262,7 @@ func (c *claudeInteractive) Prompt(message string) (*Response, error) {
 
 	log.Debugf("Successfully wrote message to stdin")
 
-	// 确保消息被发送
+	// Ensure message is sent
 	if flusher, ok := c.stdin.(interface{ Flush() error }); ok {
 		if err := flusher.Flush(); err != nil {
 			log.Warnf("Failed to flush stdin: %v", err)
@@ -273,12 +273,12 @@ func (c *claudeInteractive) Prompt(message string) (*Response, error) {
 		log.Debugf("stdin does not support Flush()")
 	}
 
-	// 给Claude一些时间开始处理消息
+	// Give Claude some time to start processing the message
 	time.Sleep(500 * time.Millisecond)
 
 	log.Debugf("Creating InteractiveResponseReader for message #%d", c.session.MessageCount)
 
-	// 创建响应读取器
+	// Create response reader
 	responseReader := &InteractiveResponseReader{
 		stdout:  c.stdout,
 		session: c.session,
@@ -288,7 +288,7 @@ func (c *claudeInteractive) Prompt(message string) (*Response, error) {
 	return &Response{Out: responseReader}, nil
 }
 
-// InteractiveResponseReader 处理交互式响应读取
+// InteractiveResponseReader handles interactive response reading
 type InteractiveResponseReader struct {
 	stdout  io.ReadCloser
 	session *InteractiveSession
@@ -306,7 +306,7 @@ func (r *InteractiveResponseReader) Read(p []byte) (n int, err error) {
 		return 0, io.EOF
 	}
 
-	// 从stdout读取数据
+	// Read data from stdout
 	buffer := make([]byte, 4096)
 	n, err = r.stdout.Read(buffer)
 
@@ -320,17 +320,17 @@ func (r *InteractiveResponseReader) Read(p []byte) (n int, err error) {
 		return 0, err
 	}
 
-	// 如果没有读取到数据，返回0而不是错误
+	// If no data read, return 0 instead of error
 	if n == 0 {
 		log.Debugf("InteractiveResponseReader: No data read, waiting...")
 		return 0, nil
 	}
 
-	// 将数据写入缓冲区和返回给调用者
+	// Write data to buffer and return to caller
 	r.buffer.Write(buffer[:n])
 	copy(p, buffer[:n])
 
-	// 简化响应完成检测 - 只在非常明确的情况下才结束
+	// Simplified response completion detection - only end in very clear cases
 	if r.isResponseComplete(buffer[:n]) {
 		r.done = true
 		log.Infof("InteractiveResponseReader: Response complete detected, total buffer size: %d", r.buffer.Len())
@@ -340,7 +340,7 @@ func (r *InteractiveResponseReader) Read(p []byte) (n int, err error) {
 	return n, nil
 }
 
-// isResponseComplete 检查响应是否完成 - 简化版本
+// isResponseComplete checks if response is complete - simplified version
 func (r *InteractiveResponseReader) isResponseComplete(data []byte) bool {
 	responseText := string(data)
 	bufferText := r.buffer.String()
@@ -348,19 +348,19 @@ func (r *InteractiveResponseReader) isResponseComplete(data []byte) bool {
 	log.Debugf("InteractiveResponseReader: Checking response completion - responseText: %s, bufferText length: %d",
 		strings.TrimSpace(responseText), len(bufferText))
 
-	// 只有在缓冲区足够大时才检查完成标记
+	// Only check completion markers when buffer is large enough
 	if len(bufferText) < 500 {
 		return false
 	}
 
-	// 只检查非常明确的结束标记
-	if strings.Contains(responseText, "claude>") || // Claude CLI提示符
+	// Only check very clear end markers
+	if strings.Contains(responseText, "claude>") || // Claude CLI prompt
 		strings.Contains(bufferText, "Complete") ||
 		strings.Contains(bufferText, "Done") ||
 		strings.Contains(bufferText, "Error:") ||
 		strings.Contains(bufferText, "Finished") ||
-		// 检查是否有明显的任务完成标记
-		(strings.Contains(bufferText, "## 改动摘要") && strings.Contains(bufferText, "## 具体改动")) {
+		// Check for obvious task completion markers
+		(strings.Contains(bufferText, "## Summary") && strings.Contains(bufferText, "## Changes")) {
 		log.Debugf("InteractiveResponseReader: Response complete detected - found completion marker")
 		log.Debugf("InteractiveResponseReader: Buffer content (last 200 chars): %s",
 			bufferText[func() int {
@@ -388,12 +388,12 @@ func (c *claudeInteractive) Close() error {
 
 	log.Infof("Closing interactive Claude session %s (messages: %d)", c.session.ID, c.session.MessageCount)
 
-	// 取消上下文
+	// Cancel context
 	if c.cancel != nil {
 		c.cancel()
 	}
 
-	// 关闭管道
+	// Close pipes
 	if c.stdin != nil {
 		c.stdin.Close()
 	}
@@ -401,16 +401,16 @@ func (c *claudeInteractive) Close() error {
 		c.stdout.Close()
 	}
 
-	// 终止进程
+	// Terminate process
 	if c.cmd != nil && c.cmd.Process != nil {
 		c.cmd.Process.Kill()
 		c.cmd.Wait()
 	}
 
-	// 检查容器状态，但不删除容器（便于调试）
+	// Check container status, but don't delete container (for debugging)
 	log.Infof("Checking container status for debugging: %s", c.containerName)
 
-	// 检查容器是否还在运行
+	// Check if container is still running
 	checkCmd := exec.Command("docker", "ps", "--filter", fmt.Sprintf("name=%s", c.containerName), "--format", "{{.Names}}")
 	output, err := checkCmd.Output()
 	if err != nil {
@@ -426,7 +426,7 @@ func (c *claudeInteractive) Close() error {
 		}
 	}
 
-	// 注意：不删除容器，便于调试问题
+	// Note: Don't delete container, for debugging purposes
 	log.Infof("Container %s left running for debugging purposes", c.containerName)
 
 	return nil

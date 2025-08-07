@@ -16,36 +16,36 @@ var (
 	ErrInvalidFormat    = errors.New("invalid signature format")
 )
 
-// ValidateGitHubSignature 验证GitHub webhook签名
-// signature: 来自请求头 X-Hub-Signature-256 的签名
-// payload: 请求体的原始数据
-// secret: webhook配置的secret
+// ValidateGitHubSignature validates GitHub webhook signature
+// signature: signature from X-Hub-Signature-256 request header
+// payload: raw request body data
+// secret: webhook configured secret
 func ValidateGitHubSignature(signature string, payload []byte, secret string) error {
 	if signature == "" {
 		return ErrMissingSignature
 	}
 
-	// GitHub签名格式: sha256=<signature>
+	// GitHub signature format: sha256=<signature>
 	const prefix = "sha256="
 	if !strings.HasPrefix(signature, prefix) {
 		return ErrInvalidFormat
 	}
 
-	// 提取签名部分
+	// Extract signature part
 	sig := strings.TrimPrefix(signature, prefix)
 
-	// 解码十六进制签名
+	// Decode hexadecimal signature
 	expectedSig, err := hex.DecodeString(sig)
 	if err != nil {
 		return fmt.Errorf("failed to decode signature: %w", err)
 	}
 
-	// 计算HMAC-SHA256
+	// Calculate HMAC-SHA256
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(payload)
 	computedSig := mac.Sum(nil)
 
-	// 使用恒定时间比较防止时间攻击
+	// Use constant-time comparison to prevent timing attacks
 	if !hmac.Equal(expectedSig, computedSig) {
 		return ErrInvalidSignature
 	}
@@ -53,36 +53,36 @@ func ValidateGitHubSignature(signature string, payload []byte, secret string) er
 	return nil
 }
 
-// ValidateGitHubSignatureSHA1 验证GitHub webhook签名 (SHA1, 已弃用但仍支持)
-// signature: 来自请求头 X-Hub-Signature 的签名
-// payload: 请求体的原始数据
-// secret: webhook配置的secret
+// ValidateGitHubSignatureSHA1 validates GitHub webhook signature (SHA1, deprecated but still supported)
+// signature: signature from X-Hub-Signature request header
+// payload: raw request body data
+// secret: webhook configured secret
 func ValidateGitHubSignatureSHA1(signature string, payload []byte, secret string) error {
 	if signature == "" {
 		return ErrMissingSignature
 	}
 
-	// GitHub签名格式: sha1=<signature>
+	// GitHub signature format: sha1=<signature>
 	const prefix = "sha1="
 	if !strings.HasPrefix(signature, prefix) {
 		return ErrInvalidFormat
 	}
 
-	// 提取签名部分
+	// Extract signature part
 	sig := strings.TrimPrefix(signature, prefix)
 
-	// 解码十六进制签名
+	// Decode hexadecimal signature
 	expectedSig, err := hex.DecodeString(sig)
 	if err != nil {
 		return fmt.Errorf("failed to decode signature: %w", err)
 	}
 
-	// 计算HMAC-SHA1 (已弃用但仍支持)
+	// Calculate HMAC-SHA1 (deprecated but still supported)
 	mac := hmac.New(sha1.New, []byte(secret))
 	mac.Write(payload)
 	computedSig := mac.Sum(nil)
 
-	// 使用恒定时间比较防止时间攻击
+	// Use constant-time comparison to prevent timing attacks
 	if !hmac.Equal(expectedSig, computedSig) {
 		return ErrInvalidSignature
 	}

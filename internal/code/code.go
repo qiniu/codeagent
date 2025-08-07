@@ -23,7 +23,7 @@ type Code interface {
 }
 
 func New(workspace *models.Workspace, cfg *config.Config) (Code, error) {
-	// 优先使用workspace中指定的AI模型，如果没有则使用配置中的默认模型
+	// Prioritize using AI model specified in workspace, if not available use default model from configuration
 	var provider string
 	if workspace.AIModel != "" {
 		provider = workspace.AIModel
@@ -31,11 +31,11 @@ func New(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 		provider = cfg.CodeProvider
 	}
 
-	// 根据 code provider 和 use_docker 配置创建相应的代码提供者
+	// Create corresponding code provider based on code provider and use_docker configuration
 	switch provider {
 	case ProviderClaude:
 		if cfg.UseDocker {
-			// 检查是否启用交互式模式
+			// Check if interactive mode is enabled
 			if cfg.Claude.Interactive {
 				return NewClaudeInteractive(workspace, cfg)
 			}

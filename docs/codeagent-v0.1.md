@@ -1,45 +1,45 @@
-# Code Agent 系统设计 v0.1
+# Code Agent System Design v0.1
 
-## 项目概述
+## Project Overview
 
-Code Agent 是一个基于 Go 语言开发的自动化代码生成系统，通过 GitHub Webhook 接收 `/code` 命令，自动为 Issue 生成代码并创建 Pull Request。
+Code Agent is an automated code generation system developed in Go, which receives `/code` commands through GitHub Webhooks and automatically generates code for Issues and creates Pull Requests.
 
-## 系统架构
+## System Architecture
 
 ```
-GitHub Issue (/code) → Webhook → Code Agent → 临时仓库 → Claude Code 容器 → PR
+GitHub Issue (/code) → Webhook → Code Agent → Temporary Repository → Claude Code Container → PR
 ```
 
-## 核心流程
+## Core Process
 
-### 1. Webhook 接收与解析
+### 1. Webhook Reception and Parsing
 
-- 监听 GitHub Issue 评论事件
-- 检测 `/code` 命令触发
-- 解析 Issue 内容和上下文信息
+- Listen for GitHub Issue comment events
+- Detect `/code` command triggers
+- Parse Issue content and context information
 
-### 2. 临时仓库准备
+### 2. Temporary Repository Preparation
 
-- 克隆目标仓库到临时目录
-- 创建新分支（如 `Code-agent/issue-123`）
-- 生成初始提交："Code-agent 已收到信息，准备开始实现目标 issue"
-- 推送分支并创建 PR
+- Clone target repository to temporary directory
+- Create new branch (e.g., `Code-agent/issue-123`)
+- Generate initial commit: "Code-agent has received information, preparing to implement target issue"
+- Push branch and create PR
 
-### 3. Claude Code 执行
+### 3. Claude Code Execution
 
-- 将临时目录挂载到 Claude Code 容器
-- 传递 Issue 信息作为提示词
-- 等待代码生成完成
+- Mount temporary directory to Claude Code container
+- Pass Issue information as prompt
+- Wait for code generation completion
 
-### 4. 结果处理
+### 4. Result Processing
 
-- 检测临时目录的代码变更
-- 生成新的提交记录
-- 推送到已创建的 PR
+- Detect code changes in temporary directory
+- Generate new commit records
+- Push to created PR
 
-## 系统组件
+## System Components
 
-### Webhook 处理器
+### Webhook Handler
 
 ```go
 type WebhookHandler struct {
@@ -49,15 +49,15 @@ type WebhookHandler struct {
 }
 
 func (h *WebhookHandler) HandleIssueComment(w http.ResponseWriter, r *http.Request) {
-    // 1. 验证 Webhook 签名
-    // 2. 解析 Issue 评论事件
-    // 3. 检查是否包含 /code 命令
-    // 4. 创建 Agent 任务
-    // 5. 异步执行代码生成
+    // 1. Validate Webhook signature
+    // 2. Parse Issue comment event
+    // 3. Check if contains /code command
+    // 4. Create Agent task
+    // 5. Execute code generation asynchronously
 }
 ```
 
-### Agent 核心
+### Agent Core
 
 ```go
 type Agent struct {
@@ -68,26 +68,26 @@ type Agent struct {
 }
 
 func (a *Agent) ProcessIssue(issue *github.Issue) error {
-    // 1. 准备临时工作空间
+    // 1. Prepare temporary workspace
     workspace := a.workspace.Prepare(issue)
 
-    // 2. 克隆仓库并创建分支
+    // 2. Clone repository and create branch
     branch := a.github.CreateBranch(workspace, issue)
 
-    // 3. 创建初始 PR
+    // 3. Create initial PR
     pr := a.github.CreatePullRequest(branch, issue)
 
-    // 4. 执行 Claude Code
+    // 4. Execute Claude Code
     result := a.claude.Execute(workspace, issue)
 
-    // 5. 提交变更并更新 PR
+    // 5. Commit changes and update PR
     a.github.CommitAndPush(workspace, result)
 
     return nil
 }
 ```
 
-### 工作空间管理器
+### Workspace Manager
 
 ```go
 type WorkspaceManager struct {
@@ -96,18 +96,18 @@ type WorkspaceManager struct {
 }
 
 func (w *WorkspaceManager) Prepare(issue *github.Issue) *Workspace {
-    // 1. 创建临时目录
-    // 2. 克隆目标仓库
-    // 3. 创建新分支
-    // 4. 返回工作空间信息
+    // 1. Create temporary directory
+    // 2. Clone target repository
+    // 3. Create new branch
+    // 4. Return workspace information
 }
 
 func (w *WorkspaceManager) Cleanup(workspace *Workspace) {
-    // 清理临时文件
+    // Clean up temporary files
 }
 ```
 
-### Claude Code 执行器
+### Claude Code Executor
 
 ```go
 type ClaudeExecutor struct {
@@ -116,15 +116,15 @@ type ClaudeExecutor struct {
 }
 
 func (c *ClaudeExecutor) Execute(workspace *Workspace, issue *github.Issue) *ExecutionResult {
-    // 1. 构建 Claude Code 容器
-    // 2. 挂载工作空间目录
-    // 3. 传递 Issue 信息作为提示词
-    // 4. 等待执行完成
-    // 5. 返回执行结果
+    // 1. Build Claude Code container
+    // 2. Mount workspace directory
+    // 3. Pass Issue information as prompt
+    // 4. Wait for execution completion
+    // 5. Return execution result
 }
 ```
 
-### GitHub 客户端
+### GitHub Client
 
 ```go
 type GitHubClient struct {
@@ -133,26 +133,26 @@ type GitHubClient struct {
 }
 
 func (g *GitHubClient) CreateBranch(workspace *Workspace, issue *github.Issue) *github.Reference {
-    // 1. 克隆仓库
-    // 2. 创建新分支
-    // 3. 生成初始提交
-    // 4. 推送分支
+    // 1. Clone repository
+    // 2. Create new branch
+    // 3. Generate initial commit
+    // 4. Push branch
 }
 
 func (g *GitHubClient) CreatePullRequest(branch *github.Reference, issue *github.Issue) *github.PullRequest {
-    // 创建 PR 并关联 Issue
+    // Create PR and associate with Issue
 }
 
 func (g *GitHubClient) CommitAndPush(workspace *Workspace, result *ExecutionResult) error {
-    // 1. 检测文件变更
-    // 2. 生成提交信息
-    // 3. 提交并推送
+    // 1. Detect file changes
+    // 2. Generate commit message
+    // 3. Commit and push
 }
 ```
 
-## 核心数据结构
+## Core Data Structures
 
-### 工作空间
+### Workspace
 
 ```go
 type Workspace struct {
@@ -165,7 +165,7 @@ type Workspace struct {
 }
 ```
 
-### 执行结果
+### Execution Result
 
 ```go
 type ExecutionResult struct {
@@ -177,7 +177,7 @@ type ExecutionResult struct {
 }
 ```
 
-## 配置结构
+## Configuration Structure
 
 ```yaml
 # config.yaml
@@ -203,43 +203,43 @@ docker:
   network: "bridge"
 ```
 
-## 项目结构
+## Project Structure
 
 ```
 Code-agent/
 ├── cmd/
 │   └── server/
-│       └── main.go              # 主程序入口
+│       └── main.go              # Main program entry point
 ├── internal/
 │   ├── webhook/
-│   │   ├── handler.go           # Webhook 处理器
-│   │   └── validator.go         # 签名验证器
+│   │   ├── handler.go           # Webhook handler
+│   │   └── validator.go         # Signature validator
 │   ├── agent/
-│   │   ├── agent.go             # Agent 核心逻辑
-│   │   └── processor.go         # 任务处理器
+│   │   ├── agent.go             # Agent core logic
+│   │   └── processor.go         # Task processor
 │   ├── workspace/
-│   │   ├── manager.go           # 工作空间管理
-│   │   └── git.go               # Git 操作
+│   │   ├── manager.go           # Workspace management
+│   │   └── git.go               # Git operations
 │   ├── claude/
-│   │   ├── executor.go          # Claude Code 执行器
-│   │   └── docker.go            # Docker 客户端
+│   │   ├── executor.go          # Claude Code executor
+│   │   └── docker.go            # Docker client
 │   ├── github/
-│   │   ├── client.go            # GitHub API 客户端
-│   │   └── pr.go                # PR 管理
+│   │   ├── client.go            # GitHub API client
+│   │   └── pr.go                # PR management
 │   └── config/
-│       └── config.go            # 配置管理
+│       └── config.go            # Configuration management
 ├── pkg/
 │   └── models/
-│       ├── workspace.go         # 工作空间模型
-│       └── result.go            # 执行结果模型
+│       ├── workspace.go         # Workspace model
+│       └── result.go            # Execution result model
 ├── configs/
-│   └── config.yaml              # 配置文件
-├── Dockerfile                   # Agent 容器
-├── docker-compose.yml           # 开发环境
-└── README.md                    # 项目文档
+│   └── config.yaml              # Configuration file
+├── Dockerfile                   # Agent container
+├── docker-compose.yml           # Development environment
+└── README.md                    # Project documentation
 ```
 
-## 部署配置
+## Deployment Configuration
 
 ### Dockerfile
 
@@ -279,41 +279,41 @@ services:
     restart: unless-stopped
 ```
 
-## 使用流程
+## Usage Process
 
-### 1. 配置 GitHub Webhook
+### 1. Configure GitHub Webhook
 
 - URL: `https://your-domain.com/webhook`
-- 事件: `Issue comments`
-- 密钥: 与配置文件一致
+- Event: `Issue comments`
+- Secret: Consistent with configuration file
 
-### 2. 触发代码生成
+### 2. Trigger Code Generation
 
-- 在 GitHub Issue 评论中写: `/code 实现用户登录功能`
-- 系统自动处理并创建 PR
+- Write in GitHub Issue comment: `/code implement user login functionality`
+- System automatically processes and creates PR
 
-### 3. 监控执行状态
+### 3. Monitor Execution Status
 
-- 查看 PR 中的提交记录
-- 检查代码生成结果
-- 根据需要调整和优化
+- View commit records in PR
+- Check code generation results
+- Adjust and optimize as needed
 
-## 关键特性
+## Key Features
 
-- **隔离执行**: 临时工作空间避免污染主仓库
-- **容器化**: Claude Code 在独立容器中执行
-- **异步处理**: Webhook 快速响应，后台处理任务
-- **状态跟踪**: 完整的执行状态和日志记录
-- **自动清理**: 定期清理临时文件和容器
-- **错误处理**: 完善的错误处理和重试机制
+- **Isolated Execution**: Temporary workspaces avoid polluting main repository
+- **Containerization**: Claude Code executes in isolated containers
+- **Asynchronous Processing**: Webhook responds quickly, processes tasks in background
+- **Status Tracking**: Complete execution status and logging
+- **Automatic Cleanup**: Regular cleanup of temporary files and containers
+- **Error Handling**: Comprehensive error handling and retry mechanisms
 
-## 扩展功能
+## Extended Features
 
-- 支持多种触发命令（`/code`, `/fix`, `/refactor`）
-- 自定义代码生成模板
-- 多仓库支持
-- 执行历史记录
-- Web 管理界面
-- 监控和告警
+- Support multiple trigger commands (`/code`, `/fix`, `/refactor`)
+- Custom code generation templates
+- Multi-repository support
+- Execution history
+- Web management interface
+- Monitoring and alerting
 
-这个设计提供了一个完整的自动化代码生成解决方案，能够有效地处理 GitHub Issue 并生成相应的代码实现。
+This design provides a complete automated code generation solution that can effectively handle GitHub Issues and generate corresponding code implementations.

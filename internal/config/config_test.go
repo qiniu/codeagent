@@ -8,14 +8,14 @@ import (
 )
 
 func TestResolvePaths(t *testing.T) {
-	// 创建临时目录
+	// Create temporary directory
 	tempDir, err := os.MkdirTemp("", "config-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
-	// 创建配置文件
+	// Create configuration file
 	configContent := `workspace:
   base_dir: "./relative/path"
 `
@@ -24,13 +24,13 @@ func TestResolvePaths(t *testing.T) {
 		t.Fatalf("Failed to write config file: %v", err)
 	}
 
-	// 加载配置
+	// Load configuration
 	config, err := Load(configPath)
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}
 
-	// 验证路径已解析为绝对路径
+	// Verify path has been resolved to absolute path
 	expectedPath := filepath.Join(tempDir, "relative", "path")
 	if config.Workspace.BaseDir != expectedPath {
 		t.Errorf("Expected base_dir to be %s, got %s", expectedPath, config.Workspace.BaseDir)
@@ -38,14 +38,14 @@ func TestResolvePaths(t *testing.T) {
 }
 
 func TestResolvePathsWithAbsolutePath(t *testing.T) {
-	// 创建临时目录
+	// Create temporary directory
 	tempDir, err := os.MkdirTemp("", "config-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
-	// 创建配置文件，使用绝对路径
+	// Create configuration file using absolute path
 	absolutePath := "/absolute/path"
 	configContent := fmt.Sprintf(`workspace:
   base_dir: "%s"
@@ -55,39 +55,39 @@ func TestResolvePathsWithAbsolutePath(t *testing.T) {
 		t.Fatalf("Failed to write config file: %v", err)
 	}
 
-	// 加载配置
+	// Load configuration
 	config, err := Load(configPath)
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}
 
-	// 验证绝对路径保持不变
+	// Verify absolute path remains unchanged
 	if config.Workspace.BaseDir != absolutePath {
 		t.Errorf("Expected base_dir to remain %s, got %s", absolutePath, config.Workspace.BaseDir)
 	}
 }
 
 func TestResolvePathsFromEnv(t *testing.T) {
-	// 设置环境变量
+	// Set environment variable
 	originalEnv := os.Getenv("WORKSPACE_BASE_DIR")
 	defer os.Setenv("WORKSPACE_BASE_DIR", originalEnv)
 
 	relativePath := "./env/relative/path"
 	os.Setenv("WORKSPACE_BASE_DIR", relativePath)
 
-	// 加载配置（从环境变量）
+	// Load configuration (from environment variables)
 	config, err := Load("nonexistent.yaml")
 	if err != nil {
 		t.Fatalf("Failed to load config from env: %v", err)
 	}
 
-	// 获取当前工作目录
+	// Get current working directory
 	currentDir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Failed to get current directory: %v", err)
 	}
 
-	// 验证路径已解析为绝对路径
+	// Verify path has been resolved to absolute path
 	expectedPath := filepath.Join(currentDir, "env", "relative", "path")
 	if config.Workspace.BaseDir != expectedPath {
 		t.Errorf("Expected base_dir to be %s, got %s", expectedPath, config.Workspace.BaseDir)
@@ -95,7 +95,7 @@ func TestResolvePathsFromEnv(t *testing.T) {
 }
 
 func TestClaudeEnvironmentVariables(t *testing.T) {
-	// 保存原始环境变量
+	// Save original environment variables
 	originalAPIKey := os.Getenv("ANTHROPIC_API_KEY")
 	originalBaseURL := os.Getenv("ANTHROPIC_BASE_URL")
 	defer func() {
@@ -103,19 +103,19 @@ func TestClaudeEnvironmentVariables(t *testing.T) {
 		os.Setenv("ANTHROPIC_BASE_URL", originalBaseURL)
 	}()
 
-	// 设置测试环境变量
+	// Set test environment variables
 	testAPIKey := "test-api-key-123"
 	testBaseURL := "https://test-api.anthropic.com"
 	os.Setenv("ANTHROPIC_API_KEY", testAPIKey)
 	os.Setenv("ANTHROPIC_BASE_URL", testBaseURL)
 
-	// 加载配置（从环境变量）
+	// Load configuration (from environment variables)
 	config, err := Load("nonexistent.yaml")
 	if err != nil {
 		t.Fatalf("Failed to load config from env: %v", err)
 	}
 
-	// 验证环境变量已正确加载
+	// Verify environment variables have been loaded correctly
 	if config.Claude.APIKey != testAPIKey {
 		t.Errorf("Expected Claude API key to be %s, got %s", testAPIKey, config.Claude.APIKey)
 	}
@@ -126,14 +126,14 @@ func TestClaudeEnvironmentVariables(t *testing.T) {
 }
 
 func TestClaudeConfigFileOverride(t *testing.T) {
-	// 创建临时目录
+	// Create temporary directory
 	tempDir, err := os.MkdirTemp("", "config-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
-	// 保存原始环境变量
+	// Save original environment variables
 	originalAPIKey := os.Getenv("ANTHROPIC_API_KEY")
 	originalBaseURL := os.Getenv("ANTHROPIC_BASE_URL")
 	defer func() {
@@ -141,13 +141,13 @@ func TestClaudeConfigFileOverride(t *testing.T) {
 		os.Setenv("ANTHROPIC_BASE_URL", originalBaseURL)
 	}()
 
-	// 设置环境变量
+	// Set environment variable
 	envAPIKey := "env-api-key"
 	envBaseURL := "https://env-api.anthropic.com"
 	os.Setenv("ANTHROPIC_API_KEY", envAPIKey)
 	os.Setenv("ANTHROPIC_BASE_URL", envBaseURL)
 
-	// 创建配置文件，包含不同的值
+	// Create configuration file with different values
 	configContent := `claude:
   api_key: file-api-key
   base_url: https://file-api.anthropic.com
@@ -157,13 +157,13 @@ func TestClaudeConfigFileOverride(t *testing.T) {
 		t.Fatalf("Failed to write config file: %v", err)
 	}
 
-	// 加载配置
+	// Load configuration
 	config, err := Load(configPath)
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)
 	}
 
-	// 验证环境变量覆盖了配置文件的值
+	// Verify environment variables override configuration file values
 	if config.Claude.APIKey != envAPIKey {
 		t.Errorf("Expected Claude API key to be %s (from env), got %s", envAPIKey, config.Claude.APIKey)
 	}

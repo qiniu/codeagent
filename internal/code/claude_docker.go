@@ -13,18 +13,18 @@ import (
 	"github.com/qiniu/x/log"
 )
 
-// claudeCode Docker 实现
+// claudeCode Docker implementation
 type claudeCode struct {
 	containerName string
 }
 
 func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
-	// 解析仓库信息，只获取仓库名，不包含完整URL
+	// Parse repository information, only get repository name, not including full URL
 	repoName := extractRepoName(workspace.Repository)
-	// 新的容器命名规则：claude-组织-仓库-PR号
+	// New container naming rule: claude-organization-repository-PR number
 	containerName := fmt.Sprintf("claude-%s-%s-%d", workspace.Org, repoName, workspace.PRNumber)
 
-	// 检查是否已经有对应的容器在运行
+	// Check if corresponding container is already running
 	if isContainerRunning(containerName) {
 		log.Infof("Found existing container: %s, reusing it", containerName)
 		return &claudeCode{
@@ -32,7 +32,7 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		}, nil
 	}
 
-	// 确保路径存在
+	// Ensure path exists
 	workspacePath, _ := filepath.Abs(workspace.Path)
 
 	claudeConfigPath, err := createIsolatedClaudeConfig(workspace, cfg)
@@ -41,30 +41,30 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		return nil, fmt.Errorf("failed to create isolated Claude config: %w", err)
 	}
 
-	// 检查是否使用了/tmp目录（在macOS上可能导致挂载问题）
+	// Check if /tmp directory is used (may cause mount issues on macOS)
 	if strings.HasPrefix(workspacePath, "/tmp/") {
 		log.Warnf("Warning: Using /tmp directory may cause mount issues on macOS. Consider using other path instead.")
 		log.Warnf("Current workspace path: %s", workspacePath)
 	}
 
-	// 检查路径是否存在
+	// Check if path exists
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
 		log.Errorf("Workspace path does not exist: %s", workspacePath)
 		return nil, fmt.Errorf("workspace path does not exist: %s", workspacePath)
 	}
 
-	// 构建 Docker 命令
+	// Build Docker command
 	args := []string{
 		"run",
-		"--rm",                  // 容器运行完后自动删除
-		"-d",                    // 后台运行
-		"--name", containerName, // 设置容器名称
-		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // 挂载工作空间
-		"-v", fmt.Sprintf("%s:/home/codeagent/.claude", claudeConfigPath), // 挂载 claude 认证信息
-		"-w", "/workspace", // 设置工作目录
+		"--rm",                  // Automatically delete container after running
+		"-d",                    // Run in background
+		"--name", containerName, // Set container name
+		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // Mount workspace
+		"-v", fmt.Sprintf("%s:/home/codeagent/.claude", claudeConfigPath), // Mount claude authentication information
+		"-w", "/workspace", // Set working directory
 	}
 
-	// 添加 Claude API 相关环境变量
+	// Add Claude API related environment variables
 	if cfg.Claude.AuthToken != "" {
 		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=%s", cfg.Claude.AuthToken))
 	} else if cfg.Claude.APIKey != "" {
@@ -74,15 +74,15 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_BASE_URL=%s", cfg.Claude.BaseURL))
 	}
 
-	// 添加容器镜像
+	// Add container image
 	args = append(args, cfg.Claude.ContainerImage)
 
-	// 打印调试信息
+	// Print debug information
 	log.Infof("Docker command: docker %s", strings.Join(args, " "))
 
 	cmd := exec.Command("docker", args...)
 
-	// 捕获命令输出
+	// Capture command output
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -93,7 +93,7 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		return nil, fmt.Errorf("failed to start Docker container: %w", err)
 	}
 
-	// 等待命令完成
+	// Wait for command completion
 	if err := cmd.Wait(); err != nil {
 		log.Errorf("docker container failed: %v", err)
 		log.Errorf("docker stdout: %s", stdout.String())
@@ -119,12 +119,12 @@ func (c *claudeCode) Prompt(message string) (*Response, error) {
 		message,
 	}
 
-	// 打印调试信息
+	// Print debug information
 	log.Infof("Executing claude command: docker %s", strings.Join(args, " "))
 
 	cmd := exec.Command("docker", args...)
 
-	// 捕获stderr用于调试
+	// Capture stderr for debugging
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -135,15 +135,15 @@ func (c *claudeCode) Prompt(message string) (*Response, error) {
 		return nil, err
 	}
 
-	// 启动命令
+	// Start command
 	if err := cmd.Start(); err != nil {
 		log.Errorf("Failed to start claude command: %v", err)
 		log.Errorf("Stderr: %s", stderr.String())
 		return nil, fmt.Errorf("failed to execute claude: %w", err)
 	}
 
-	// 不等待命令完成，让调用方处理输出流
-	// 错误处理将在调用方读取时进行
+	// Don't wait for command completion, let caller handle output stream
+	// Error handling will be done when caller reads
 	return &Response{Out: stdout}, nil
 }
 

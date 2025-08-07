@@ -13,12 +13,12 @@ import (
 	"github.com/qiniu/x/log"
 )
 
-// geminiDocker Docker 实现（交互式模式）
+// geminiDocker Docker implementation (interactive mode)
 type geminiDocker struct {
 	containerName string
 }
 
-// getGoogleCloudProject 获取 Google Cloud 项目ID，优先使用配置文件中的值
+// getGoogleCloudProject gets Google Cloud project ID, prioritize value from config file
 func getGoogleCloudProject(cfg *config.Config, repoName string) string {
 	if cfg.Gemini.GoogleCloudProject != "" {
 		return cfg.Gemini.GoogleCloudProject
@@ -26,14 +26,14 @@ func getGoogleCloudProject(cfg *config.Config, repoName string) string {
 	return repoName
 }
 
-// NewGeminiDocker 创建 Docker Gemini CLI 实现
+// NewGeminiDocker creates Docker Gemini CLI implementation
 func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
-	// 解析仓库信息，只获取仓库名，不包含完整URL
+	// Parse repository information, only get repository name, not full URL
 	repoName := extractRepoName(workspace.Repository)
-	// 新的容器命名规则：gemini-组织-仓库-PR号
+	// New container naming rule: gemini-org-repo-PRnumber
 	containerName := fmt.Sprintf("gemini-%s-%s-%d", workspace.Org, repoName, workspace.PRNumber)
 
-	// 检查是否已经有对应的容器在运行
+	// Check if there's already a corresponding container running
 	if isContainerRunning(containerName) {
 		log.Infof("Found existing container: %s, reusing it", containerName)
 		return &geminiDocker{
@@ -41,11 +41,11 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		}, nil
 	}
 
-	// 确保路径存在
+	// Ensure paths exist
 	workspacePath, _ := filepath.Abs(workspace.Path)
 	sessionPath, _ := filepath.Abs(workspace.SessionPath)
 
-	// 确定gemini配置路径
+	// Determine gemini configuration path
 	var geminiConfigPath string
 	if home := os.Getenv("HOME"); home != "" {
 		geminiConfigPath, _ = filepath.Abs(filepath.Join(home, ".gemini"))
@@ -53,7 +53,7 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		geminiConfigPath = "/home/codeagent/.gemini"
 	}
 
-	// 检查是否使用了/tmp目录（在macOS上可能导致挂载问题）
+	// Check if using /tmp directory (may cause mount issues on macOS)
 	if strings.HasPrefix(workspacePath, "/tmp/") {
 		log.Warnf("Warning: Using /tmp directory may cause mount issues on macOS. Consider using other path instead.")
 		log.Warnf("Current workspace path: %s", workspacePath)
@@ -64,7 +64,7 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		log.Warnf("Current session path: %s", sessionPath)
 	}
 
-	// 检查路径是否存在
+	// Check if paths exist
 	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
 		log.Errorf("Workspace path does not exist: %s", workspacePath)
 		return nil, fmt.Errorf("workspace path does not exist: %s", workspacePath)
@@ -75,27 +75,27 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		return nil, fmt.Errorf("session path does not exist: %s", sessionPath)
 	}
 
-	// 构建 Docker 命令
+	// Build Docker command
 	args := []string{
 		"run",
-		"--rm",                  // 容器运行完后自动删除
-		"-d",                    // 后台运行
-		"--name", containerName, // 设置容器名称
-		"-e", "GOOGLE_CLOUD_PROJECT=" + getGoogleCloudProject(cfg, repoName), // 设置 Google Cloud 项目环境变量
+		"--rm",                  // Automatically delete container after running
+		"-d",                    // Run in background
+		"--name", containerName, // Set container name
+		"-e", "GOOGLE_CLOUD_PROJECT=" + getGoogleCloudProject(cfg, repoName), // Set Google Cloud project environment variable
 		"-e", "GEMINI_API_KEY=" + cfg.Gemini.APIKey,
-		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // 挂载工作空间
-		"-v", fmt.Sprintf("%s:/home/codeagent/.gemini", geminiConfigPath), // 挂载 gemini 认证信息
-		"-v", fmt.Sprintf("%s:/home/codeagent/.gemini/tmp", sessionPath), // 挂载临时目录
-		"-w", "/workspace", // 设置工作目录
-		cfg.Gemini.ContainerImage, // 使用配置的 Gemini 镜像
+		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // Mount workspace
+		"-v", fmt.Sprintf("%s:/home/codeagent/.gemini", geminiConfigPath), // Mount gemini authentication info
+		"-v", fmt.Sprintf("%s:/home/codeagent/.gemini/tmp", sessionPath), // Mount temporary directory
+		"-w", "/workspace", // Set working directory
+		cfg.Gemini.ContainerImage, // Use configured Gemini image
 	}
 
-	// 打印调试信息
+	// Print debug information
 	log.Infof("Docker command: docker %s", strings.Join(args, " "))
 
 	cmd := exec.Command("docker", args...)
 
-	// 捕获命令输出
+	// Capture command output
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -106,7 +106,7 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		return nil, fmt.Errorf("failed to start Docker container: %w", err)
 	}
 
-	// 等待命令完成
+	// Wait for command completion
 	if err := cmd.Wait(); err != nil {
 		log.Errorf("docker container failed: %v", err)
 		log.Errorf("docker stdout: %s", stdout.String())
@@ -121,7 +121,7 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	}, nil
 }
 
-// Prompt 实现 Code 接口
+// Prompt implements Code interface
 func (g *geminiDocker) Prompt(message string) (*Response, error) {
 	args := []string{
 		"exec",
@@ -141,7 +141,7 @@ func (g *geminiDocker) Prompt(message string) (*Response, error) {
 		return nil, err
 	}
 
-	// 启动命令
+	// Start command
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to execute gemini: %w", err)
 	}
@@ -149,7 +149,7 @@ func (g *geminiDocker) Prompt(message string) (*Response, error) {
 	return &Response{Out: stdout}, nil
 }
 
-// Close 实现 Code 接口
+// Close implements Code interface
 func (g *geminiDocker) Close() error {
 	stopCmd := exec.Command("docker", "rm", "-f", g.containerName)
 	return stopCmd.Run()

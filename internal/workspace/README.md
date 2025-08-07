@@ -1,125 +1,125 @@
-# Workspace 管理
+# Workspace Management
 
-本模块负责管理代码代理的工作空间，包括 Issue、PR 和 Session 目录的创建、移动和清理。
+This module is responsible for managing code agent workspaces, including the creation, movement, and cleanup of Issue, PR, and Session directories.
 
-## 目录格式规范
+## Directory Format Specifications
 
-所有目录都遵循统一的命名格式，包含 AI 模型信息以便区分不同的 AI 处理会话。
+All directories follow a unified naming format that contains AI model information to distinguish different AI processing sessions.
 
-### Issue 目录格式
+### Issue Directory Format
 
-- **格式**: `{aiModel}-{repo}-issue-{issueNumber}-{timestamp}`
-- **示例**: `gemini-codeagent-issue-123-1752829201`
+- **Format**: `{aiModel}-{repo}-issue-{issueNumber}-{timestamp}`
+- **Example**: `gemini-codeagent-issue-123-1752829201`
 
-### PR 目录格式
+### PR Directory Format
 
-- **格式**: `{aiModel}-{repo}-pr-{prNumber}-{timestamp}`
-- **示例**: `gemini-codeagent-pr-161-1752829201`
+- **Format**: `{aiModel}-{repo}-pr-{prNumber}-{timestamp}`
+- **Example**: `gemini-codeagent-pr-161-1752829201`
 
-### Session 目录格式
+### Session Directory Format
 
-- **格式**: `{aiModel}-{repo}-session-{prNumber}-{timestamp}`
-- **示例**: `gemini-codeagent-session-161-1752829201`
+- **Format**: `{aiModel}-{repo}-session-{prNumber}-{timestamp}`
+- **Example**: `gemini-codeagent-session-161-1752829201`
 
-## 核心功能
+## Core Features
 
-### 1. 目录格式管理 (`format.go`)
+### 1. Directory Format Management (`format.go`)
 
-提供统一的目录格式生成和解析功能，作为 `Manager` 的内部组件：
+Provides unified directory format generation and parsing functionality as an internal component of `Manager`:
 
-- `generateIssueDirName()` - 生成 Issue 目录名
-- `generatePRDirName()` - 生成 PR 目录名
-- `generateSessionDirName()` - 生成 Session 目录名
-- `parsePRDirName()` - 解析 PR 目录名
-- `extractSuffixFromPRDir()` - 从 PR 目录名提取后缀
+- `generateIssueDirName()` - Generate Issue directory name
+- `generatePRDirName()` - Generate PR directory name
+- `generateSessionDirName()` - Generate Session directory name
+- `parsePRDirName()` - Parse PR directory name
+- `extractSuffixFromPRDir()` - Extract suffix from PR directory name
 
-### 2. 工作空间管理 (`manager.go`)
+### 2. Workspace Management (`manager.go`)
 
-负责工作空间的完整生命周期管理，并提供目录格式的公共接口：
+Responsible for complete workspace lifecycle management and provides public interfaces for directory formatting:
 
-#### 目录格式公共方法
+#### Directory Format Public Methods
 
-- `GenerateIssueDirName()` - 生成 Issue 目录名
-- `GeneratePRDirName()` - 生成 PR 目录名
-- `GenerateSessionDirName()` - 生成 Session 目录名
-- `ParsePRDirName()` - 解析 PR 目录名
-- `ExtractSuffixFromPRDir()` - 从 PR 目录名提取后缀
-- `ExtractSuffixFromIssueDir()` - 从 Issue 目录名提取后缀
+- `GenerateIssueDirName()` - Generate Issue directory name
+- `GeneratePRDirName()` - Generate PR directory name
+- `GenerateSessionDirName()` - Generate Session directory name
+- `ParsePRDirName()` - Parse PR directory name
+- `ExtractSuffixFromPRDir()` - Extract suffix from PR directory name
+- `ExtractSuffixFromIssueDir()` - Extract suffix from Issue directory name
 
-#### 工作空间生命周期管理
+#### Workspace Lifecycle Management
 
-- **创建**: 从 Issue 或 PR 创建工作空间
-- **移动**: 将 Issue 工作空间移动到 PR 工作空间
-- **清理**: 清理过期的工作空间和资源
-- **Session 管理**: 创建和管理 AI 会话目录
+- **Creation**: Create workspace from Issue or PR
+- **Movement**: Move Issue workspace to PR workspace
+- **Cleanup**: Clean up expired workspaces and resources
+- **Session Management**: Create and manage AI session directories
 
-#### 主要方法
+#### Main Methods
 
-##### 工作空间创建
+##### Workspace Creation
 
-- `CreateWorkspaceFromIssueWithAI()` - 从 Issue 创建工作空间
-- `GetOrCreateWorkspaceForPRWithAI()` - 获取或创建 PR 工作空间
+- `CreateWorkspaceFromIssueWithAI()` - Create workspace from Issue
+- `GetOrCreateWorkspaceForPRWithAI()` - Get or create PR workspace
 
-##### 工作空间操作
+##### Workspace Operations
 
-- `MoveIssueToPR()` - 将 Issue 工作空间移动到 PR
-- `CreateSessionPath()` - 创建 Session 目录
-- `CleanupWorkspace()` - 清理工作空间
+- `MoveIssueToPR()` - Move Issue workspace to PR
+- `CreateSessionPath()` - Create Session directory
+- `CleanupWorkspace()` - Cleanup workspace
 
-##### 工作空间查询
+##### Workspace Queries
 
-- `GetAllWorkspacesByPR()` - 获取 PR 的所有工作空间
-- `GetExpiredWorkspaces()` - 获取过期的工作空间
+- `GetAllWorkspacesByPR()` - Get all workspaces for PR
+- `GetExpiredWorkspaces()` - Get expired workspaces
 
-## 使用示例
+## Usage Examples
 
 ```go
-// 创建工作空间管理器
+// Create workspace manager
 manager := NewManager(config)
 
-// 通过 Manager 调用目录格式功能
+// Call directory format functionality through Manager
 prDirName := manager.GeneratePRDirName("gemini", "codeagent", 161, 1752829201)
-// 结果: "gemini-codeagent-pr-161-1752829201"
+// Result: "gemini-codeagent-pr-161-1752829201"
 
-// 解析 PR 目录名
+// Parse PR directory name
 prInfo, err := manager.ParsePRDirName("gemini-codeagent-pr-161-1752829201")
 if err == nil {
     fmt.Printf("AI Model: %s, Repo: %s, PR: %d\n",
         prInfo.AIModel, prInfo.Repo, prInfo.PRNumber)
 }
 
-// 从 Issue 创建工作空间
+// Create workspace from Issue
 ws := manager.CreateWorkspaceFromIssueWithAI(issue, "gemini")
 
-// 移动到 PR
+// Move to PR
 err = manager.MoveIssueToPR(ws, prNumber)
 
-// 创建 Session 目录
+// Create Session directory
 sessionPath, err := manager.CreateSessionPath(ws.Path, "gemini", "codeagent", prNumber, "1752829201")
 ```
 
-## 设计原则
+## Design Principles
 
-1. **封装性**: `dirFormatter` 作为 `Manager` 的内部组件，不直接暴露给外部
-2. **统一接口**: 所有目录格式功能通过 `Manager` 的公共方法调用
-3. **统一格式**: 所有目录都遵循相同的命名规范
-4. **AI 模型区分**: 通过 AI 模型信息区分不同的处理会话
-5. **时间戳标识**: 使用时间戳确保目录名唯一性
-6. **生命周期管理**: 完整的工作空间创建、移动、清理流程
-7. **错误处理**: 完善的错误处理和日志记录
+1. **Encapsulation**: `dirFormatter` serves as an internal component of `Manager`, not directly exposed to external code
+2. **Unified Interface**: All directory format functionality is accessed through `Manager`'s public methods
+3. **Unified Format**: All directories follow the same naming conventions
+4. **AI Model Distinction**: Use AI model information to distinguish different processing sessions
+5. **Timestamp Identification**: Use timestamps to ensure directory name uniqueness
+6. **Lifecycle Management**: Complete workspace creation, movement, and cleanup process
+7. **Error Handling**: Comprehensive error handling and logging
 
-## 测试
+## Testing
 
-运行测试确保功能正确：
+Run tests to ensure functionality is correct:
 
 ```bash
 go test ./internal/workspace -v
 ```
 
-测试覆盖了以下功能：
+Tests cover the following functionality:
 
-- 目录名生成
-- 目录名解析（包括错误处理）
-- 后缀提取
-- 工作空间创建和移动
-- Session 目录管理
+- Directory name generation
+- Directory name parsing (including error handling)
+- Suffix extraction
+- Workspace creation and movement
+- Session directory management

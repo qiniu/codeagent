@@ -9,7 +9,7 @@ import (
 )
 
 func TestSimplePipeCommunication(t *testing.T) {
-	// 测试简单的管道通信
+	// Test simple pipe communication
 	cmd := exec.Command("echo", "Hello World")
 
 	stdout, err := cmd.StdoutPipe()
@@ -38,7 +38,7 @@ func TestSimplePipeCommunication(t *testing.T) {
 }
 
 func TestStdinPipeCommunication(t *testing.T) {
-	// 测试 stdin 管道通信
+	// Test stdin pipe communication
 	cmd := exec.Command("cat")
 
 	stdin, err := cmd.StdinPipe()
@@ -58,16 +58,16 @@ func TestStdinPipeCommunication(t *testing.T) {
 		t.Fatalf("Failed to start command: %v", err)
 	}
 
-	// 写入数据到 stdin
+	// Write data to stdin
 	testData := "Test input data\n"
 	if _, err := stdin.Write([]byte(testData)); err != nil {
 		t.Fatalf("Failed to write to stdin: %v", err)
 	}
 
-	// 关闭 stdin 以结束 cat 命令
+	// Close stdin to end cat command
 	stdin.Close()
 
-	// 读取输出
+	// Read output
 	buffer := make([]byte, 1024)
 	n, err := stdout.Read(buffer)
 	if err != nil {
@@ -85,20 +85,20 @@ func TestStdinPipeCommunication(t *testing.T) {
 }
 
 func TestFileReadDeadline(t *testing.T) {
-	// 测试文件读取超时设置
+	// Test file read deadline setting
 	file, err := os.Open("/dev/null")
 	if err != nil {
 		t.Skipf("Cannot open /dev/null: %v", err)
 	}
 	defer file.Close()
 
-	// 设置读取超时
+	// Set read timeout
 	file.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 
 	buffer := make([]byte, 1024)
 	_, err = file.Read(buffer)
 
-	// 在 /dev/null 上读取应该立即返回 EOF，而不是超时
+	// Reading from /dev/null should immediately return EOF, not timeout
 	if err != nil && !strings.Contains(err.Error(), "EOF") {
 		t.Errorf("Expected EOF or timeout, got: %v", err)
 	}

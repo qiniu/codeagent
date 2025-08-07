@@ -36,7 +36,7 @@ type ExecutionResult struct {
 	Duration     time.Duration `json:"duration"`
 }
 
-// PRAllComments 包含 PR 的所有评论信息
+// PRAllComments contains all comment information for the PR
 type PRAllComments struct {
 	PRBody         string                       `json:"pr_body"`
 	IssueComments  []*github.IssueComment       `json:"issue_comments"`

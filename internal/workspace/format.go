@@ -6,59 +6,59 @@ import (
 	"strings"
 )
 
-// dirFormatter 目录格式管理器
+// dirFormatter Directory format manager
 type dirFormatter struct{}
 
-// newDirFormatter 创建目录格式管理器
+// newDirFormatter creates directory format manager
 func newDirFormatter() *dirFormatter {
 	return &dirFormatter{}
 }
 
-// generateIssueDirName 生成Issue目录名
+// generateIssueDirName generates Issue directory name
 func (f *dirFormatter) generateIssueDirName(aiModel, repo string, issueNumber int, timestamp int64) string {
 	return fmt.Sprintf("%s-%s-issue-%d-%d", aiModel, repo, issueNumber, timestamp)
 }
 
-// generatePRDirName 生成PR目录名
+// generatePRDirName generates PR directory name
 func (f *dirFormatter) generatePRDirName(aiModel, repo string, prNumber int, timestamp int64) string {
 	return fmt.Sprintf("%s-%s-pr-%d-%d", aiModel, repo, prNumber, timestamp)
 }
 
-// generateSessionDirName 生成Session目录名
+// generateSessionDirName generates Session directory name
 func (f *dirFormatter) generateSessionDirName(aiModel, repo string, prNumber int, timestamp int64) string {
 	return fmt.Sprintf("%s-%s-session-%d-%d", aiModel, repo, prNumber, timestamp)
 }
 
-// generateSessionDirNameWithSuffix 生成Session目录名（使用suffix）
+// generateSessionDirNameWithSuffix generates Session directory name (using suffix)
 func (f *dirFormatter) generateSessionDirNameWithSuffix(aiModel, repo string, prNumber int, suffix string) string {
 	return fmt.Sprintf("%s-%s-session-%d-%s", aiModel, repo, prNumber, suffix)
 }
 
-// extractSuffixFromPRDir 从PR目录名中提取suffix（时间戳）
+// extractSuffixFromPRDir extracts suffix (timestamp) from PR directory name
 func (f *dirFormatter) extractSuffixFromPRDir(aiModel, repo string, prNumber int, dirName string) string {
 	expectedPrefix := fmt.Sprintf("%s-%s-pr-%d-", aiModel, repo, prNumber)
 	return strings.TrimPrefix(dirName, expectedPrefix)
 }
 
-// extractSuffixFromIssueDir 从Issue目录名中提取suffix（时间戳）
+// extractSuffixFromIssueDir extracts suffix (timestamp) from Issue directory name
 func (f *dirFormatter) extractSuffixFromIssueDir(aiModel, repo string, issueNumber int, dirName string) string {
 	expectedPrefix := fmt.Sprintf("%s-%s-issue-%d-", aiModel, repo, issueNumber)
 	return strings.TrimPrefix(dirName, expectedPrefix)
 }
 
-// createSessionPath 创建Session目录路径
+// createSessionPath creates Session directory path
 func (f *dirFormatter) createSessionPath(underPath, aiModel, repo string, prNumber int, suffix string) string {
 	dirName := f.generateSessionDirNameWithSuffix(aiModel, repo, prNumber, suffix)
 	return fmt.Sprintf("%s/%s", underPath, dirName)
 }
 
-// createSessionPathWithTimestamp 创建Session目录路径（使用时间戳）
+// createSessionPathWithTimestamp creates Session directory path (using timestamp)
 func (f *dirFormatter) createSessionPathWithTimestamp(underPath, aiModel, repo string, prNumber int, timestamp int64) string {
 	dirName := f.generateSessionDirName(aiModel, repo, prNumber, timestamp)
 	return fmt.Sprintf("%s/%s", underPath, dirName)
 }
 
-// IssueDirFormat Issue目录格式
+// IssueDirFormat Issue directory format
 type IssueDirFormat struct {
 	AIModel     string
 	Repo        string
@@ -66,7 +66,7 @@ type IssueDirFormat struct {
 	Timestamp   int64
 }
 
-// PRDirFormat PR目录格式
+// PRDirFormat PR directory format
 type PRDirFormat struct {
 	AIModel   string
 	Repo      string
@@ -74,7 +74,7 @@ type PRDirFormat struct {
 	Timestamp int64
 }
 
-// SessionDirFormat Session目录格式
+// SessionDirFormat Session directory format
 type SessionDirFormat struct {
 	AIModel   string
 	Repo      string
@@ -82,15 +82,15 @@ type SessionDirFormat struct {
 	Timestamp int64
 }
 
-// parsePRDirName 解析PR目录名
+// parsePRDirName parses PR directory name
 func (f *dirFormatter) parsePRDirName(dirName string) (*PRDirFormat, error) {
 	parts := strings.Split(dirName, "-")
 	if len(parts) < 5 {
 		return nil, fmt.Errorf("invalid PR directory format: %s", dirName)
 	}
 
-	// 格式: {aiModel}-{repo}-pr-{prNumber}-{timestamp}
-	// 找到 "pr" 的位置
+	// Format: {aiModel}-{repo}-pr-{prNumber}-{timestamp}
+	// Find position of "pr"
 	prIndex := -1
 	for i, part := range parts {
 		if part == "pr" {
@@ -103,17 +103,17 @@ func (f *dirFormatter) parsePRDirName(dirName string) (*PRDirFormat, error) {
 		return nil, fmt.Errorf("invalid PR directory format: %s", dirName)
 	}
 
-	// 提取AI模型和仓库名
+	// Extract AI model and repository name
 	aiModel := strings.Join(parts[:prIndex-1], "-")
 	repo := parts[prIndex-1]
 
-	// 提取PR编号
+	// Extract PR number
 	prNumber, err := strconv.Atoi(parts[prIndex+1])
 	if err != nil {
 		return nil, fmt.Errorf("invalid PR number: %s", parts[prIndex+1])
 	}
 
-	// 提取时间戳
+	// Extract timestamp
 	timestamp, err := strconv.ParseInt(parts[prIndex+2], 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid timestamp: %s", parts[prIndex+2])

@@ -25,12 +25,12 @@ func NewHandler(cfg *config.Config, agent *agent.Agent) *Handler {
 	return &Handler{config: cfg, agent: agent}
 }
 
-// parseCommandArgs 解析命令参数，提取AI模型和其他参数
+// parseCommandArgs parses command arguments, extracts AI model and other parameters
 func parseCommandArgs(comment, command string, defaultAIModel string) (aiModel, args string) {
-	// 提取命令参数
+	// Extract command arguments
 	commandArgs := strings.TrimSpace(strings.TrimPrefix(comment, command))
 
-	// 检查是否包含AI模型参数
+	// Check if contains AI model parameters
 	if strings.HasPrefix(commandArgs, "-claude") {
 		aiModel = "claude"
 		args = strings.TrimSpace(strings.TrimPrefix(commandArgs, "-claude"))
@@ -38,7 +38,7 @@ func parseCommandArgs(comment, command string, defaultAIModel string) (aiModel, 
 		aiModel = "gemini"
 		args = strings.TrimSpace(strings.TrimPrefix(commandArgs, "-gemini"))
 	} else {
-		// 没有指定AI模型，使用默认配置
+		// No AI model specified, use default configuration
 		aiModel = defaultAIModel
 		args = commandArgs
 	}
@@ -46,18 +46,18 @@ func parseCommandArgs(comment, command string, defaultAIModel string) (aiModel, 
 	return aiModel, args
 }
 
-// HandleWebhook 通用 Webhook 处理器
+// HandleWebhook generic Webhook handler
 func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
-	// 1. 读取请求体 (需要在签名验证前读取)
+	// 1. Read request body (need to read before signature verification)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "failed to read request body", http.StatusBadRequest)
 		return
 	}
 
-	// 2. 验证 Webhook 签名
+	// 2. Verify Webhook signature
 	if h.config.Server.WebhookSecret != "" {
-		// 优先使用 SHA-256 签名
+		// Prioritize SHA-256 signature
 		sig256 := r.Header.Get("X-Hub-Signature-256")
 		if sig256 != "" {
 			if err := signature.ValidateGitHubSignature(sig256, body, h.config.Server.WebhookSecret); err != nil {
@@ -65,7 +65,7 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		} else {
-			// 如果没有 SHA-256 签名，尝试 SHA-1 签名 (已弃用但仍支持)
+			// If no SHA-256 signature, try SHA-1 signature (deprecated but still supported)
 			sig1 := r.Header.Get("X-Hub-Signature")
 			if sig1 != "" {
 				if err := signature.ValidateGitHubSignatureSHA1(sig1, body, h.config.Server.WebhookSecret); err != nil {
@@ -79,7 +79,7 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 3. 获取事件类型
+	// 3. Get event type
 	eventType := r.Header.Get("X-GitHub-Event")
 	if eventType == "" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -87,8 +87,8 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. 创建追踪 ID 和上下文
-	// 使用 X-GitHub-Delivery header 作为 trace ID，截短到前8位
+	// 4. Create trace ID and context
+	// Use X-GitHub-Delivery header as trace ID, truncate to first 8 characters
 	deliveryID := r.Header.Get("X-GitHub-Delivery")
 	var traceID string
 	if deliveryID != "" && len(deliveryID) > 8 {
@@ -99,13 +99,13 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		traceID = "unknown"
 	}
 
-	// 使用 reqid.NewContext 将 traceID 存储到 context 中
+	// Use reqid.NewContext to store traceID in context
 	ctx := reqid.NewContext(context.Background(), traceID)
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Received webhook event: %s", eventType)
 	xl.Debugf("Request body size: %d bytes", len(body))
 
-	// 5. 根据事件类型分发处理
+	// 5. Dispatch handling based on event type
 	switch eventType {
 	case "issue_comment":
 		h.handleIssueComment(ctx, w, body)
@@ -124,7 +124,7 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleIssueComment 处理 Issue 评论事件
+// handleIssueComment handles Issue comment events
 func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter, body []byte) {
 	log := xlog.NewWith(ctx)
 
@@ -136,7 +136,7 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 		return
 	}
 
-	// 检查是否包含命令
+	// Check if contains commands
 	if event.Comment == nil || event.Issue == nil {
 		log.Debugf("Issue comment event missing comment or issue data")
 		w.WriteHeader(http.StatusOK)
@@ -150,19 +150,19 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 	log.Infof("Processing issue comment: issue=#%d, title=%s, comment_length=%d",
 		issueNumber, issueTitle, len(comment))
 
-	// 检查是否是 PR 评论（Issue 的 PullRequest 字段不为空）
+	// Check if this is a PR comment (Issue's PullRequest field is not empty)
 	if event.Issue.PullRequestLinks != nil {
 		log.Infof("Detected PR comment for PR #%d", issueNumber)
 
-		// 这是 PR 评论，处理 /continue 和 /fix 命令
+		// This is a PR comment, handle /continue and /fix commands
 		if strings.HasPrefix(comment, "/continue") {
 			log.Infof("Received /continue command for PR #%d: %s", issueNumber, issueTitle)
 
-			// 解析AI模型参数
+			// Parse AI model parameters
 			aiModel, args := parseCommandArgs(comment, "/continue", h.config.CodeProvider)
 			log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
-			// 异步执行继续任务
+			// Execute continue task asynchronously
 			go func(event *github.IssueCommentEvent, aiModel, args string, traceCtx context.Context) {
 				traceLog := xlog.NewWith(traceCtx)
 				traceLog.Infof("Starting PR continue task with AI model: %s", aiModel)
@@ -179,11 +179,11 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 		} else if strings.HasPrefix(comment, "/fix") {
 			log.Infof("Received /fix command for PR #%d: %s", issueNumber, issueTitle)
 
-			// 解析AI模型参数
+			// Parse AI model parameters
 			aiModel, args := parseCommandArgs(comment, "/fix", h.config.CodeProvider)
 			log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
-			// 异步执行修复任务
+			// Execute fix task asynchronously
 			go func(event *github.IssueCommentEvent, aiModel, args string, traceCtx context.Context) {
 				traceLog := xlog.NewWith(traceCtx)
 				traceLog.Infof("Starting PR fix task with AI model: %s", aiModel)
@@ -200,16 +200,16 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 		}
 	}
 
-	// 处理 Issue 的 /code 命令
+	// Handle Issue's /code command
 	if strings.HasPrefix(comment, "/code") {
 		log.Infof("Received /code command for Issue: %s, title: %s",
 			event.Issue.GetHTMLURL(), issueTitle)
 
-		// 解析AI模型参数
+		// Parse AI model parameters
 		aiModel, args := parseCommandArgs(comment, "/code", h.config.CodeProvider)
 		log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
-		// 异步执行 Agent 任务
+		// Execute Agent task asynchronously
 		go func(event *github.IssueCommentEvent, aiModel, args string, traceCtx context.Context) {
 			traceLog := xlog.NewWith(traceCtx)
 			traceLog.Infof("Starting issue processing task with AI model: %s", aiModel)
@@ -229,7 +229,7 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 	w.WriteHeader(http.StatusOK)
 }
 
-// handlePRReviewComment 处理 PR 代码行评论事件
+// handlePRReviewComment handles PR code line comment events
 func (h *Handler) handlePRReviewComment(ctx context.Context, w http.ResponseWriter, body []byte) {
 	log := xlog.NewWith(ctx)
 
@@ -245,7 +245,7 @@ func (h *Handler) handlePRReviewComment(ctx context.Context, w http.ResponseWrit
 	prTitle := event.PullRequest.GetTitle()
 	log.Infof("Received PR review comment for PR #%d: %s", prNumber, prTitle)
 
-	// 检查是否包含交互命令
+	// Check if contains interactive commands
 	if event.Comment == nil || event.PullRequest == nil {
 		log.Debugf("PR review comment event missing comment or pull request data")
 		w.WriteHeader(http.StatusOK)
@@ -261,11 +261,11 @@ func (h *Handler) handlePRReviewComment(ctx context.Context, w http.ResponseWrit
 	if strings.HasPrefix(comment, "/continue") {
 		log.Infof("Received /continue command in PR review comment for PR #%d: %s", prNumber, prTitle)
 
-		// 解析AI模型参数
+		// Parse AI model parameters
 		aiModel, args := parseCommandArgs(comment, "/continue", h.config.CodeProvider)
 		log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
-		// 异步执行继续任务
+		// Execute continue task asynchronously
 		go func(event *github.PullRequestReviewCommentEvent, aiModel, args string, traceCtx context.Context) {
 			traceLog := xlog.NewWith(traceCtx)
 			traceLog.Infof("Starting PR continue from review comment task with AI model: %s", aiModel)
@@ -282,11 +282,11 @@ func (h *Handler) handlePRReviewComment(ctx context.Context, w http.ResponseWrit
 	} else if strings.HasPrefix(comment, "/fix") {
 		log.Infof("Received /fix command in PR review comment for PR #%d: %s", prNumber, prTitle)
 
-		// 解析AI模型参数
+		// Parse AI model parameters
 		aiModel, args := parseCommandArgs(comment, "/fix", h.config.CodeProvider)
 		log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
-		// 异步执行修复任务
+		// Execute fix task asynchronously
 		go func(event *github.PullRequestReviewCommentEvent, aiModel, args string, traceCtx context.Context) {
 			traceLog := xlog.NewWith(traceCtx)
 			traceLog.Infof("Starting PR fix from review comment task with AI model: %s", aiModel)
@@ -305,7 +305,7 @@ func (h *Handler) handlePRReviewComment(ctx context.Context, w http.ResponseWrit
 	w.WriteHeader(http.StatusOK)
 }
 
-// handlePRReview 处理 PR review 事件
+// handlePRReview handles PR review events
 func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, body []byte) {
 	log := xlog.NewWith(ctx)
 
@@ -325,14 +325,14 @@ func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, bod
 	action := event.GetAction()
 	log.Infof("Received PR review for PR #%d: %s, review ID: %d, action: %s", prNumber, prTitle, reviewID, action)
 
-	// 检查是否包含批量处理命令
+	// Check if contains batch processing commands
 	if event.Review == nil || event.PullRequest == nil {
 		log.Debugf("PR review event missing review or pull request data")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	// 只处理 "submitted" 事件，避免在编辑或其他操作时重复触发
+	// Only process "submitted" events, avoid duplicate triggering during editing or other operations
 	if action != "submitted" {
 		log.Debugf("Ignoring PR review event with action: %s (only process 'submitted' events)", action)
 		w.WriteHeader(http.StatusOK)
@@ -341,7 +341,7 @@ func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, bod
 
 	log.Infof("Processing PR review: review_body_length=%d", len(reviewBody))
 
-	// 检查 review body 是否包含 /continue 或 /fix 命令
+	// Check if review body contains /continue or /fix commands
 	if strings.HasPrefix(reviewBody, "/continue") || strings.HasPrefix(reviewBody, "/fix") {
 		var command string
 		var aiModel string
@@ -358,13 +358,13 @@ func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, bod
 		log.Infof("Received %s command in PR review for PR #%d: %s", command, prNumber, prTitle)
 		log.Infof("Parsed AI model: %s, args: %s", aiModel, args)
 
-		// 获取触发用户信息，用于在AI反馈中@用户
+		// Get trigger user information for @mentioning user in AI feedback
 		triggerUser := ""
 		if event.Review != nil && event.Review.User != nil {
 			triggerUser = event.Review.User.GetLogin()
 		}
 
-		// 异步执行批量处理任务
+		// Execute batch processing task asynchronously
 		go func(event *github.PullRequestReviewEvent, cmd string, aiModel, args string, triggerUser string, traceCtx context.Context) {
 			traceLog := xlog.NewWith(traceCtx)
 			traceLog.Infof("Starting PR batch processing from review task with AI model: %s", aiModel)
@@ -384,7 +384,7 @@ func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, bod
 	w.WriteHeader(http.StatusOK)
 }
 
-// handlePullRequest 处理 PR 事件
+// handlePullRequest handles PR events
 func (h *Handler) handlePullRequest(ctx context.Context, w http.ResponseWriter, body []byte) {
 	log := xlog.NewWith(ctx)
 
@@ -401,10 +401,10 @@ func (h *Handler) handlePullRequest(ctx context.Context, w http.ResponseWriter, 
 	prTitle := event.PullRequest.GetTitle()
 	log.Infof("Pull request event: action=%s, number=%d, title=%s", action, prNumber, prTitle)
 
-	// 根据 PR 动作类型处理
+	// Handle based on PR action type
 	switch action {
 	case "opened":
-		// PR 被创建，可以自动审查
+		// PR created, can automatically review
 		log.Infof("PR opened, starting review process")
 		go func(pr *github.PullRequest, traceCtx context.Context) {
 			traceLog := xlog.NewWith(traceCtx)
@@ -416,7 +416,7 @@ func (h *Handler) handlePullRequest(ctx context.Context, w http.ResponseWriter, 
 			}
 		}(event.PullRequest, ctx)
 	case "synchronize":
-		// PR 有新的提交，可以重新审查
+		// PR has new commits, can re-review
 		log.Infof("PR synchronized, starting re-review process")
 		go func(pr *github.PullRequest, traceCtx context.Context) {
 			traceLog := xlog.NewWith(traceCtx)
@@ -428,7 +428,7 @@ func (h *Handler) handlePullRequest(ctx context.Context, w http.ResponseWriter, 
 			}
 		}(event.PullRequest, ctx)
 	case "closed":
-		// PR 被关闭，执行清理（无论是否合并）
+		// PR closed, perform cleanup (regardless of whether merged)
 		log.Infof("PR closed, starting cleanup process (merged: %v)", event.PullRequest.GetMerged())
 		go func(pr *github.PullRequest, traceCtx context.Context) {
 			traceLog := xlog.NewWith(traceCtx)
@@ -449,7 +449,7 @@ func (h *Handler) handlePullRequest(ctx context.Context, w http.ResponseWriter, 
 	w.Write([]byte("pr review started"))
 }
 
-// handlePush 处理 Push 事件
+// handlePush handles Push events
 func (h *Handler) handlePush(ctx context.Context, w http.ResponseWriter, body []byte) {
 	log := xlog.NewWith(ctx)
 
@@ -465,8 +465,8 @@ func (h *Handler) handlePush(ctx context.Context, w http.ResponseWriter, body []
 	commitsCount := len(event.Commits)
 	log.Infof("Push event received: ref=%s, commits_count=%d", ref, commitsCount)
 
-	// 可以在这里处理代码推送事件
-	// 比如自动运行测试、代码质量检查等
+	// Can handle code push events here
+	// Such as automatically running tests, code quality checks, etc.
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("push event received"))

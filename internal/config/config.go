@@ -58,7 +58,7 @@ type DockerConfig struct {
 }
 
 func Load(configPath string) (*Config, error) {
-	// 首先尝试从文件加载
+	// First try to load from file
 	if _, err := os.Stat(configPath); err == nil {
 		data, err := os.ReadFile(configPath)
 		if err != nil {
@@ -70,18 +70,18 @@ func Load(configPath string) (*Config, error) {
 			return nil, fmt.Errorf("failed to parse config file: %w", err)
 		}
 
-		// 从环境变量覆盖敏感配置
+		// Override sensitive configurations from environment variables
 		config.loadFromEnv()
 
-		// 将相对路径转换为绝对路径
+		// Convert relative paths to absolute paths
 		config.resolvePaths(filepath.Dir(configPath))
 
 		return &config, nil
 	}
 
-	// 如果文件不存在，从环境变量创建配置
+	// If file doesn't exist, create configuration from environment variables
 	config := loadFromEnv()
-	// 将相对路径转换为绝对路径（相对于当前工作目录）
+	// Convert relative paths to absolute paths (relative to current working directory)
 	config.resolvePaths(".")
 	return config, nil
 }
@@ -111,7 +111,7 @@ func (c *Config) loadFromEnv() {
 	if provider := os.Getenv("CODE_PROVIDER"); provider != "" {
 		c.CodeProvider = provider
 	} else {
-		// 必须要存在一个 provider，这里默认使用 gemini
+		// Must have a provider, default to gemini here
 		c.CodeProvider = "gemini"
 	}
 	if secret := os.Getenv("WEBHOOK_SECRET"); secret != "" {
@@ -173,11 +173,11 @@ func loadFromEnv() *Config {
 	}
 }
 
-// resolvePaths 将配置中的相对路径转换为绝对路径
+// resolvePaths converts relative paths in configuration to absolute paths
 func (c *Config) resolvePaths(configDir string) {
-	// 处理工作空间基础目录
+	// Handle workspace base directory
 	if c.Workspace.BaseDir != "" {
-		// 如果路径不是绝对路径，则相对于配置文件目录解析
+		// If path is not absolute, resolve it relative to config file directory
 		if !filepath.IsAbs(c.Workspace.BaseDir) {
 			absPath, err := filepath.Abs(filepath.Join(configDir, c.Workspace.BaseDir))
 			if err == nil {

@@ -14,15 +14,15 @@ import (
 	"github.com/qiniu/x/log"
 )
 
-// claudeLocal 本地 CLI 实现
+// claudeLocal Local CLI implementation
 type claudeLocal struct {
 	workspace *models.Workspace
 	config    *config.Config
 }
 
-// NewClaudeLocal 创建本地 Claude CLI 实现
+// NewClaudeLocal creates local Claude CLI implementation
 func NewClaudeLocal(workspace *models.Workspace, cfg *config.Config) (Code, error) {
-	// 检查 claude CLI 是否可用
+	// Check if claude CLI is available
 	if err := checkClaudeCLI(); err != nil {
 		return nil, fmt.Errorf("claude CLI not available: %w", err)
 	}
@@ -33,7 +33,7 @@ func NewClaudeLocal(workspace *models.Workspace, cfg *config.Config) (Code, erro
 	}, nil
 }
 
-// checkClaudeCLI 检查 claude CLI 是否可用
+// checkClaudeCLI checks if claude CLI is available
 func checkClaudeCLI() error {
 	cmd := exec.Command("claude", "--version")
 	if err := cmd.Run(); err != nil {
@@ -42,29 +42,29 @@ func checkClaudeCLI() error {
 	return nil
 }
 
-// Prompt 实现 Code 接口 - 本地 CLI 版本
+// Prompt implements Code interface - local CLI version
 func (c *claudeLocal) Prompt(message string) (*Response, error) {
-	// 执行本地 claude CLI 调用
+	// Execute local claude CLI call
 	output, err := c.executeClaudeLocal(message)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute claude prompt: %w", err)
 	}
 
-	// 返回结果
+	// Return result
 	return &Response{
 		Out: bytes.NewReader(output),
 	}, nil
 }
 
-// executeClaudeLocal 执行本地 claude CLI 调用
+// executeClaudeLocal executes local claude CLI call
 func (c *claudeLocal) executeClaudeLocal(prompt string) ([]byte, error) {
-	// 构建 claude CLI 命令
+	// Build claude CLI command
 	args := []string{
 		"-p",
 		prompt,
 	}
 
-	// 设置超时 - 使用配置中的超时时间，默认为 5 分钟
+	// Set timeout - use timeout from config, default 5 minutes
 	timeout := c.config.Claude.Timeout
 	if timeout == 0 {
 		timeout = 5 * time.Minute
@@ -73,14 +73,14 @@ func (c *claudeLocal) executeClaudeLocal(prompt string) ([]byte, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "claude", args...)
-	cmd.Dir = c.workspace.Path // 设置工作目录，Claude CLI 会自动读取该目录的文件作为上下文
+	cmd.Dir = c.workspace.Path // Set working directory, Claude CLI will automatically read files in this directory as context
 
-	// 设置环境变量
+	// Set environment variables
 	cmd.Env = os.Environ()
 
 	log.Infof("Executing local claude CLI in directory %s: claude %s", c.workspace.Path, strings.Join(args, " "))
 
-	// 执行命令并获取输出
+	// Execute command and get output
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -88,13 +88,13 @@ func (c *claudeLocal) executeClaudeLocal(prompt string) ([]byte, error) {
 			return nil, fmt.Errorf("claude CLI execution timed out: %w", err)
 		}
 
-		// 检查是否是 API 密钥相关错误
+		// Check if it's API key related error
 		outputStr := string(output)
 		if strings.Contains(outputStr, "API Error") || strings.Contains(outputStr, "fetch failed") || strings.Contains(outputStr, "authentication") {
 			return nil, fmt.Errorf("claude API error - please check CLAUDE_API_KEY: %w, output: %s", err, outputStr)
 		}
 
-		// 检查是否是网络相关错误
+		// Check if it's network related error
 		if strings.Contains(outputStr, "timeout") || strings.Contains(outputStr, "connection") {
 			log.Warnf("Network-related error detected: %s", outputStr)
 		}
@@ -106,9 +106,9 @@ func (c *claudeLocal) executeClaudeLocal(prompt string) ([]byte, error) {
 	return output, nil
 }
 
-// Close 实现 Code 接口
+// Close implements Code interface
 func (c *claudeLocal) Close() error {
-	// 单次 prompt 模式不需要特殊的清理
-	// 每次调用都是独立的进程
+	// Single prompt mode doesn't need special cleanup
+	// Each call is an independent process
 	return nil
 }

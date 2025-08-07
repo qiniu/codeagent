@@ -1,49 +1,49 @@
-# CodeAgent v0.3 - 本地 CLI 模式与架构优化
+# CodeAgent v0.3 - Local CLI Mode and Architecture Optimization
 
-## 概述
+## Overview
 
-CodeAgent v0.3 是一个重要的架构优化版本，主要改进包括：
+CodeAgent v0.3 is a significant architecture optimization release with key improvements including:
 
-1. **本地 CLI 模式支持**：支持直接使用本地安装的 Claude CLI 或 Gemini CLI
-2. **Gemini 实现重构**：简化了 Gemini 实现，移除了复杂的 prompt 构建逻辑
-3. **Prompt 优化**：修复了 Gemini CLI 主动访问 GitHub API 的问题
-4. **GitHub API 兼容性**：修复了 PR 评论创建的 API 兼容性问题
-5. **错误处理改进**：添加了重试机制和更好的错误处理
+1. **Local CLI Mode Support**: Support for directly using locally installed Claude CLI or Gemini CLI
+2. **Gemini Implementation Refactoring**: Simplified Gemini implementation, removed complex prompt construction logic
+3. **Prompt Optimization**: Fixed the issue of Gemini CLI proactively accessing GitHub API
+4. **GitHub API Compatibility**: Fixed PR comment creation API compatibility issues
+5. **Error Handling Improvements**: Added retry mechanisms and better error handling
 
-## 主要特性
+## Main Features
 
-### 1. 双模式支持
+### 1. Dual Mode Support
 
-CodeAgent 现在支持两种运行模式：
+CodeAgent now supports two execution modes:
 
-- **Docker 模式**（默认）：使用 Docker 容器运行 Claude Code 或 Gemini CLI
-- **本地 CLI 模式**：直接使用本地安装的 Claude CLI 或 Gemini CLI
+- **Docker Mode** (default): Uses Docker containers to run Claude Code or Gemini CLI
+- **Local CLI Mode**: Directly uses locally installed Claude CLI or Gemini CLI
 
-### 2. Gemini 实现支持双模式
+### 2. Gemini Implementation Supports Dual Modes
 
-#### 架构改进
+#### Architecture Improvements
 
-- **Docker 模式保持交互式**：使用 stdin/stdout 管道与持续运行的容器交互
-- **本地 CLI 模式使用单次调用**：使用 `gemini --prompt` 命令，每次启动新进程
-- **依赖原生文件上下文**：Gemini CLI 自动读取工作目录中的文件作为上下文
-- **避免 broken pipe 问题**：本地单次调用模式避免了持续交互导致的连接断开
-- **Claude 保持简单**：只支持 Docker 模式，避免未测试的功能
+- **Docker Mode Maintains Interactive**: Uses stdin/stdout pipes to interact with continuously running containers
+- **Local CLI Mode Uses Single Calls**: Uses `gemini --prompt` command, starting new process each time
+- **Relies on Native File Context**: Gemini CLI automatically reads files in working directory as context
+- **Avoids Broken Pipe Issues**: Local single-call mode avoids connection breaks caused by continuous interaction
+- **Keep Claude Simple**: Only supports Docker mode, avoiding untested features
 
-#### 代码结构
+#### Code Structure
 
 ```
 internal/code/
-├── code.go           # 工厂函数，根据配置选择实现
-├── claude_docker.go  # Claude Docker 实现
-├── claude_local.go   # Claude 本地 CLI 实现
-├── gemini_docker.go  # Gemini Docker 实现
-├── gemini_local.go   # Gemini 本地 CLI 实现
-└── session.go        # 会话管理
+├── code.go           # Factory function, select implementation based on configuration
+├── claude_docker.go  # Claude Docker implementation
+├── claude_local.go   # Claude local CLI implementation
+├── gemini_docker.go  # Gemini Docker implementation
+├── gemini_local.go   # Gemini local CLI implementation
+└── session.go        # Session management
 ```
 
-#### 实现方式对比
+#### Implementation Comparison
 
-**Claude 实现（交互式模式）：**
+**Claude Implementation (Interactive Mode):**
 
 ```go
 type claudeCode struct {
@@ -60,7 +60,7 @@ func (c *claudeCode) Prompt(message string) (*Response, error) {
 }
 ```
 
-**Gemini 本地实现（单次调用模式）：**
+**Gemini Local Implementation (Single Call Mode):**
 
 ```go
 type geminiLocal struct {
@@ -77,51 +77,51 @@ func (g *geminiLocal) Prompt(message string) (*Response, error) {
 }
 ```
 
-### 3. Prompt 优化
+### 3. Prompt Optimization
 
-#### 问题修复
+#### Problem Fixes
 
-- **避免网络请求**：不再在 prompt 中包含 GitHub API URL
-- **直接传递内容**：将 Issue 标题和描述直接传递给 AI
-- **提高可靠性**：不依赖外部网络连接和 API 权限
+- **Avoid Network Requests**: No longer include GitHub API URLs in prompts
+- **Direct Content Passing**: Pass Issue title and description directly to AI
+- **Improve Reliability**: Don't rely on external network connections and API permissions
 
-#### 改进前后对比
+#### Before and After Comparison
 
 ```go
-// 之前 - 包含 URL，导致 Gemini CLI 主动访问
-prompt := fmt.Sprintf("这是 Issue 内容 %s ，根据 Issue 内容，整理出修改计划", issue.GetURL())
+// Before - included URL, causing Gemini CLI to proactively access
+prompt := fmt.Sprintf("This is Issue content %s, organize a modification plan based on the Issue content", issue.GetURL())
 
-// 现在 - 直接传递内容
-prompt := fmt.Sprintf(`这是 Issue 内容：
+// Now - directly pass content
+prompt := fmt.Sprintf(`This is Issue content:
 
-标题：%s
-描述：%s
+Title: %s
+Description: %s
 
-请根据以上 Issue 内容，整理出修改计划。`, issue.GetTitle(), issue.GetBody())
+Please organize a modification plan based on the above Issue content.`, issue.GetTitle(), issue.GetBody())
 ```
 
-### 4. GitHub API 兼容性修复
+### 4. GitHub API Compatibility Fix
 
-#### PR 评论 API 修复
+#### PR Comment API Fix
 
-- **问题**：GitHub API 的 PR 评论接口发生变化，`PullRequests.CreateComment` 需要额外的定位参数
-- **解决方案**：使用 `Issues.CreateComment` API，因为 PR 实际上也是一种 Issue
+- **Problem**: GitHub API's PR comment interface changed, `PullRequests.CreateComment` requires additional positioning parameters
+- **Solution**: Use `Issues.CreateComment` API, as PR is actually also a type of Issue
 
 ```go
-// 之前
+// Before
 comment := &github.PullRequestComment{Body: &commentBody}
 _, _, err := c.client.PullRequests.CreateComment(ctx, repoOwner, repoName, pr.GetNumber(), comment)
 
-// 现在
+// Now
 comment := &github.IssueComment{Body: &commentBody}
 _, _, err := c.client.Issues.CreateComment(ctx, repoOwner, repoName, pr.GetNumber(), comment)
 ```
 
-### 5. 错误处理改进
+### 5. Error Handling Improvements
 
-#### 重试机制
+#### Retry Mechanism
 
-添加了 `promptWithRetry` 方法，支持自动重试：
+Added `promptWithRetry` method with automatic retry support:
 
 ```go
 func (a *Agent) promptWithRetry(code code.Code, prompt string, maxRetries int) (*code.Response, error) {
@@ -131,7 +131,7 @@ func (a *Agent) promptWithRetry(code code.Code, prompt string, maxRetries int) (
             return resp, nil
         }
 
-        // 特殊处理 broken pipe 错误
+        // Special handling for broken pipe errors
         if strings.Contains(err.Error(), "broken pipe") {
             log.Infof("Detected broken pipe, will retry...")
         }
@@ -144,49 +144,49 @@ func (a *Agent) promptWithRetry(code code.Code, prompt string, maxRetries int) (
 }
 ```
 
-## 配置选项
+## Configuration Options
 
-### 新增配置
+### New Configuration
 
 ```yaml
 # config.yaml
-code_provider: gemini # claude 或 gemini
-use_docker: false # true: Docker 模式, false: 本地 CLI 模式
+code_provider: gemini # claude or gemini
+use_docker: false # true: Docker mode, false: Local CLI mode
 ```
 
 ```bash
-# 环境变量
-export USE_DOCKER=false      # 启用本地 CLI 模式
-export CODE_PROVIDER=gemini  # 或 claude
+# Environment variables
+export USE_DOCKER=false      # Enable local CLI mode
+export CODE_PROVIDER=gemini  # or claude
 ```
 
-### 配置加载逻辑
+### Configuration Loading Logic
 
 ```go
 type Config struct {
-    // ... 其他配置
+    // ... other configuration
     CodeProvider string `yaml:"code_provider"`
     UseDocker    bool   `yaml:"use_docker"`
 }
 
 func (c *Config) loadFromEnv() {
-    // 从环境变量加载配置
+    // Load configuration from environment variables
     if useDockerStr := os.Getenv("USE_DOCKER"); useDockerStr != "" {
         if useDocker, err := strconv.ParseBool(useDockerStr); err == nil {
             c.UseDocker = useDocker
         }
     }
-    // 默认值：UseDocker = true
+    // Default value: UseDocker = true
 }
 ```
 
-## 代码架构
+## Code Architecture
 
-### 工厂模式重构
+### Factory Pattern Refactoring
 
 ```go
 func New(workspace *models.Workspace, cfg *config.Config) (Code, error) {
-    // 根据 code provider 和 use_docker 配置创建相应的代码提供者
+    // Create corresponding code provider based on code provider and use_docker configuration
     switch cfg.CodeProvider {
     case ProviderClaude:
         if cfg.UseDocker {
@@ -204,16 +204,16 @@ func New(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 }
 ```
 
-### 执行模式说明
+### Execution Mode Description
 
-| 提供者 | Docker 模式 | 本地 CLI 模式 | 执行方式                                                  |
-| ------ | ----------- | ------------- | --------------------------------------------------------- |
-| Claude | 交互式      | 不支持        | stdin/stdout 管道                                         |
-| Gemini | 交互式      | 单次调用      | Docker: stdin/stdout 管道<br>本地: `gemini --prompt` 命令 |
+| Provider | Docker Mode | Local CLI Mode | Execution Method                                         |
+| -------- | ----------- | -------------- | -------------------------------------------------------- |
+| Claude   | Interactive | Not Supported  | stdin/stdout pipes                                       |
+| Gemini   | Interactive | Single Call    | Docker: stdin/stdout pipes<br>Local: `gemini --prompt` command |
 
-### Gemini 实现简化
+### Gemini Implementation Simplification
 
-#### 本地 CLI 实现
+#### Local CLI Implementation
 
 ```go
 type geminiLocal struct {
@@ -222,7 +222,7 @@ type geminiLocal struct {
 }
 
 func (g *geminiLocal) Prompt(message string) (*Response, error) {
-    // 直接执行本地 gemini CLI 调用
+    // Execute local gemini CLI call directly
     output, err := g.executeGeminiLocal(message)
     if err != nil {
         return nil, fmt.Errorf("failed to execute gemini prompt: %w", err)
@@ -234,16 +234,16 @@ func (g *geminiLocal) Prompt(message string) (*Response, error) {
 func (g *geminiLocal) executeGeminiLocal(prompt string) ([]byte, error) {
     args := []string{"--prompt", prompt}
     cmd := exec.CommandContext(ctx, "gemini", args...)
-    cmd.Dir = g.workspace.Path // 设置工作目录，Gemini CLI 会自动读取该目录的文件作为上下文
+    cmd.Dir = g.workspace.Path // Set working directory, Gemini CLI will automatically read files in this directory as context
 
-    // 执行命令并获取输出
+    // Execute command and get output
     output, err := cmd.CombinedOutput()
-    // ... 错误处理
+    // ... error handling
     return output, nil
 }
 ```
 
-#### Docker 实现
+#### Docker Implementation
 
 ```go
 type geminiDocker struct {
@@ -255,97 +255,97 @@ func (g *geminiDocker) executeGeminiDocker(prompt string) ([]byte, error) {
     args := []string{
         "run", "--rm",
         "-v", fmt.Sprintf("%s:/workspace", g.workspace.Path),
-        "-w", "/workspace", // 设置工作目录，Gemini CLI 会自动读取该目录的文件作为上下文
+        "-w", "/workspace", // Set working directory, Gemini CLI will automatically read files in this directory as context
         g.config.Gemini.ContainerImage,
         "gemini", "--prompt", prompt,
     }
 
     cmd := exec.CommandContext(ctx, "docker", args...)
-    // ... 执行命令
+    // ... execute command
 }
 ```
 
-## 使用方法
+## Usage
 
-### 1. 安装本地 CLI 工具
+### 1. Install Local CLI Tools
 
 #### Gemini CLI
 
 ```bash
-# 安装 Gemini CLI
-# 参考: https://github.com/google-gemini/gemini-cli
+# Install Gemini CLI
+# Reference: https://github.com/google-gemini/gemini-cli
 ```
 
 #### Claude CLI
 
 ```bash
-# 安装 Claude CLI
-# 参考: https://github.com/anthropics/anthropic-claude-code
+# Install Claude CLI
+# Reference: https://github.com/anthropics/anthropic-claude-code
 ```
 
-### 2. 配置环境变量
+### 2. Configure Environment Variables
 
 ```bash
-# 设置本地模式
+# Set local mode
 export USE_DOCKER=false
-export CODE_PROVIDER=gemini  # 或 claude
+export CODE_PROVIDER=gemini  # or claude
 
-# 设置必要的认证信息
+# Set necessary authentication information
 export GITHUB_TOKEN="your-github-token"
-export GEMINI_API_KEY="your-gemini-api-key"  # 或 CLAUDE_API_KEY
+export GEMINI_API_KEY="your-gemini-api-key"  # or CLAUDE_API_KEY
 export WEBHOOK_SECRET="your-webhook-secret"
 ```
 
-### 3. 启动服务
+### 3. Start Service
 
 ```bash
-# 使用环境变量
+# Using environment variables
 go run ./cmd/server
 
-# 或使用配置文件
-# 在 config.yaml 中设置 use_docker: false
+# Or using configuration file
+# Set use_docker: false in config.yaml
 go run ./cmd/server --config config.yaml
 ```
 
-### 4. 测试本地模式
+### 4. Test Local Mode
 
-使用提供的测试脚本：
+Use the provided test script:
 
 ```bash
 ./scripts/test-local-mode.sh
 ```
 
-## 优势
+## Advantages
 
-### 本地 CLI 模式的优势
+### Advantages of Local CLI Mode
 
-1. **更快的启动速度**：无需启动 Docker 容器
-2. **更少的资源消耗**：不需要 Docker 运行时
-3. **更好的调试体验**：可以直接调试本地 CLI 工具
-4. **更简单的部署**：不需要 Docker 环境
-5. **避免 broken pipe**：单次 prompt 模式避免了持续交互的问题
+1. **Faster Startup Speed**: No need to start Docker containers
+2. **Less Resource Consumption**: No Docker runtime required
+3. **Better Debugging Experience**: Can debug local CLI tools directly
+4. **Simpler Deployment**: No Docker environment required
+5. **Avoid Broken Pipe**: Single prompt mode avoids continuous interaction issues
 
-### 架构优化的优势
+### Advantages of Architecture Optimization
 
-1. **多种执行模式**：支持交互式模式（Claude、Gemini Docker）和单次调用模式（Gemini 本地）
-2. **避免 broken pipe 问题**：Gemini 本地单次调用模式避免了持续交互导致的连接断开
-3. **更可靠**：Gemini 本地每次都是全新的进程，避免了状态累积导致的问题
-4. **更高效**：Gemini CLI 原生支持文件上下文，性能更好
-5. **更好的错误处理**：添加了重试机制和特殊错误处理
-6. **保持简单**：Claude 只支持 Docker 模式，避免未测试的功能
+1. **Multiple Execution Modes**: Support interactive mode (Claude, Gemini Docker) and single call mode (Gemini local)
+2. **Avoid Broken Pipe Issues**: Gemini local single call mode avoids connection breaks caused by continuous interaction
+3. **More Reliable**: Gemini local creates fresh process each time, avoiding issues caused by state accumulation
+4. **More Efficient**: Gemini CLI natively supports file context, better performance
+5. **Better Error Handling**: Added retry mechanisms and special error handling
+6. **Keep Simple**: Claude only supports Docker mode, avoiding untested features
 
-### Docker 模式的优势
+### Advantages of Docker Mode
 
-1. **环境隔离**：完全隔离的执行环境
-2. **一致性**：确保在不同机器上运行相同的环境
-3. **易于管理**：统一的容器管理
+1. **Environment Isolation**: Completely isolated execution environment
+2. **Consistency**: Ensures running the same environment on different machines
+3. **Easy to Manage**: Unified container management
 
-## 配置示例
+## Configuration Examples
 
-### 环境变量配置
+### Environment Variable Configuration
 
 ```bash
-# .env 文件
+# .env file
 USE_DOCKER=false
 CODE_PROVIDER=gemini
 GITHUB_TOKEN=your-github-token
@@ -354,7 +354,7 @@ WEBHOOK_SECRET=your-webhook-secret
 PORT=8888
 ```
 
-### 配置文件
+### Configuration File
 
 ```yaml
 # config.yaml
@@ -381,65 +381,65 @@ docker:
   network: "bridge"
 
 code_provider: gemini
-use_docker: false # 本地 CLI 模式
+use_docker: false # Local CLI mode
 ```
 
-## 故障排除
+## Troubleshooting
 
-### 常见问题
+### Common Issues
 
-1. **CLI 工具未找到**
+1. **CLI Tools Not Found**
 
    ```bash
-   # 检查是否安装
+   # Check if installed
    which gemini
    which claude
    ```
 
-2. **权限问题**
+2. **Permission Issues**
 
    ```bash
-   # 确保 CLI 工具有执行权限
+   # Ensure CLI tools have execute permissions
    chmod +x $(which gemini)
    chmod +x $(which claude)
    ```
 
-3. **工作空间访问问题**
+3. **Workspace Access Issues**
 
    ```bash
-   # 确保工作空间目录存在且有写权限
+   # Ensure workspace directory exists and has write permissions
    mkdir -p /tmp/codeagent
    chmod 755 /tmp/codeagent
    ```
 
-4. **API 密钥问题**
+4. **API Key Issues**
    ```bash
-   # 确保设置了正确的 API 密钥
+   # Ensure correct API keys are set
    export GEMINI_API_KEY="your-api-key"
-   export GOOGLE_API_KEY="your-api-key"  # 某些情况下需要
+   export GOOGLE_API_KEY="your-api-key"  # Required in some cases
    ```
 
-### 调试模式
+### Debug Mode
 
 ```bash
-# 启用详细日志
+# Enable verbose logging
 export LOG_LEVEL=debug
 go run ./cmd/server --config config.yaml
 ```
 
-## 版本历史
+## Version History
 
-### v0.3 主要改进
+### v0.3 Major Improvements
 
-1. **Gemini 支持双模式**：Docker 模式保持交互式，本地 CLI 模式使用单次调用
-2. **本地 CLI 支持**：添加了本地 CLI 模式，支持直接使用本地工具
-3. **Prompt 优化**：修复了 Gemini CLI 主动访问 GitHub API 的问题
-4. **API 兼容性**：修复了 PR 评论创建的 GitHub API 兼容性问题
-5. **错误处理**：添加了重试机制和更好的错误处理
-6. **配置优化**：添加了 `use_docker` 配置选项
+1. **Gemini Dual Mode Support**: Docker mode maintains interactive, local CLI mode uses single calls
+2. **Local CLI Support**: Added local CLI mode, supports direct use of local tools
+3. **Prompt Optimization**: Fixed issue of Gemini CLI proactively accessing GitHub API
+4. **API Compatibility**: Fixed GitHub API compatibility issues for PR comment creation
+5. **Error Handling**: Added retry mechanisms and better error handling
+6. **Configuration Optimization**: Added `use_docker` configuration option
 
-### 向后兼容性
+### Backward Compatibility
 
-- 保持了与现有配置的兼容性
-- Docker 模式仍然是默认模式
-- 现有的 API 接口保持不变
+- Maintains compatibility with existing configurations
+- Docker mode is still the default mode
+- Existing API interfaces remain unchanged

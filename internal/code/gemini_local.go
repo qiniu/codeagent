@@ -14,15 +14,15 @@ import (
 	"github.com/qiniu/x/log"
 )
 
-// geminiLocal 本地 CLI 实现
+// geminiLocal Local CLI implementation
 type geminiLocal struct {
 	workspace *models.Workspace
 	config    *config.Config
 }
 
-// NewGeminiLocal 创建本地 Gemini CLI 实现
+// NewGeminiLocal creates local Gemini CLI implementation
 func NewGeminiLocal(workspace *models.Workspace, cfg *config.Config) (Code, error) {
-	// 检查 gemini CLI 是否可用
+	// Check if gemini CLI is available
 	if err := checkGeminiCLI(); err != nil {
 		return nil, fmt.Errorf("gemini CLI not available: %w", err)
 	}
@@ -33,7 +33,7 @@ func NewGeminiLocal(workspace *models.Workspace, cfg *config.Config) (Code, erro
 	}, nil
 }
 
-// checkGeminiCLI 检查 gemini CLI 是否可用
+// checkGeminiCLI checks if gemini CLI is available
 func checkGeminiCLI() error {
 	cmd := exec.Command("gemini", "--version")
 	if err := cmd.Run(); err != nil {
@@ -42,29 +42,29 @@ func checkGeminiCLI() error {
 	return nil
 }
 
-// Prompt 实现 Code 接口 - 本地 CLI 版本
+// Prompt implements Code interface - local CLI version
 func (g *geminiLocal) Prompt(message string) (*Response, error) {
-	// 执行本地 gemini CLI 调用
+	// Execute local gemini CLI call
 	output, err := g.executeGeminiLocal(message)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute gemini prompt: %w", err)
 	}
 
-	// 返回结果
+	// Return result
 	return &Response{
 		Out: bytes.NewReader(output),
 	}, nil
 }
 
-// executeGeminiLocal 执行本地 gemini CLI 调用
+// executeGeminiLocal executes local gemini CLI call
 func (g *geminiLocal) executeGeminiLocal(prompt string) ([]byte, error) {
-	// 构建 gemini CLI 命令
+	// Build gemini CLI command
 	args := []string{
 		"-y",
 		"--prompt", prompt,
 	}
 
-	// 设置超时 - 使用配置中的超时时间，默认为 5 分钟
+	// Set timeout - use timeout from config, default 5 minutes
 	timeout := g.config.Gemini.Timeout
 	if timeout == 0 {
 		timeout = 5 * time.Minute
@@ -73,14 +73,14 @@ func (g *geminiLocal) executeGeminiLocal(prompt string) ([]byte, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "gemini", args...)
-	cmd.Dir = g.workspace.Path // 设置工作目录，Gemini CLI 会自动读取该目录的文件作为上下文
+	cmd.Dir = g.workspace.Path // Set working directory, Gemini CLI will automatically read files in this directory as context
 
-	// 设置环境变量
+	// Set environment variables
 	cmd.Env = os.Environ()
 
 	log.Infof("Executing local gemini CLI in directory %s: gemini %s", g.workspace.Path, strings.Join(args, " "))
 
-	// 执行命令并获取输出
+	// Execute command and get output
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -88,13 +88,13 @@ func (g *geminiLocal) executeGeminiLocal(prompt string) ([]byte, error) {
 			return nil, fmt.Errorf("gemini CLI execution timed out: %w", err)
 		}
 
-		// 检查是否是 API 密钥相关错误
+		// Check if it's API key related error
 		outputStr := string(output)
 		if strings.Contains(outputStr, "API Error") || strings.Contains(outputStr, "fetch failed") {
 			return nil, fmt.Errorf("gemini API error - please check GOOGLE_API_KEY: %w, output: %s", err, outputStr)
 		}
 
-		// 检查是否是网络相关错误
+		// Check if it's network related error
 		if strings.Contains(outputStr, "timeout") || strings.Contains(outputStr, "connection") {
 			log.Warnf("Network-related error detected: %s", outputStr)
 		}
@@ -106,15 +106,15 @@ func (g *geminiLocal) executeGeminiLocal(prompt string) ([]byte, error) {
 	return output, nil
 }
 
-// Close 实现 Code 接口
+// Close implements Code interface
 func (g *geminiLocal) Close() error {
-	// 单次 prompt 模式不需要特殊的清理
-	// 每次调用都是独立的进程
+	// Single prompt mode doesn't need special cleanup
+	// Each call is an independent process
 	return nil
 }
 
 func parseRepoURL(repoURL string) (owner, repo string) {
-	// 处理 HTTPS URL: https://github.com/owner/repo.git
+	// Handle HTTPS URL: https://github.com/owner/repo.git
 	if strings.Contains(repoURL, "github.com") {
 		parts := strings.Split(repoURL, "/")
 		if len(parts) >= 2 {
