@@ -130,12 +130,12 @@ use_docker: false      # true = Docker, false = CLI
 
 # Claude configuration
 claude:
-  container_image: "anthropic/claude-code:latest"
+  container_image: "goplusorg/codeagent:v0.4"
   timeout: "30m"
 
 # Gemini configuration  
 gemini:
-  container_image: "google-gemini/gemini-cli:latest"
+  container_image: "goplusorg/codeagent:v0.4"
   timeout: "30m"
 
 ```
