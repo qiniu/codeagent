@@ -43,8 +43,8 @@ type InteractiveSession struct {
 func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	// 解析仓库信息，只获取仓库名，不包含完整URL
 	repoName := extractRepoName(workspace.Repository)
-	// 新的容器命名规则：claude-interactive-组织-仓库-PR号
-	containerName := fmt.Sprintf("claude-interactive-%s-%s-%d", workspace.Org, repoName, workspace.PRNumber)
+	// 新的容器命名规则：claude__interactive__组织__仓库__PR号（使用双下划线分隔符）
+	containerName := fmt.Sprintf("claude__interactive__%s__%s__%d", workspace.Org, repoName, workspace.PRNumber)
 
 	// 检查是否已经有对应的容器在运行
 	if isContainerRunning(containerName) {
@@ -54,12 +54,19 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 	}
 
 	// 确保路径存在
-	workspacePath, _ := filepath.Abs(workspace.Path)
+	workspacePath, err := filepath.Abs(workspace.Path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute workspace path: %w", err)
+	}
 
 	// 确定claude配置路径
 	var claudeConfigPath string
 	if home := os.Getenv("HOME"); home != "" {
-		claudeConfigPath, _ = filepath.Abs(filepath.Join(home, ".claude"))
+		var err error
+		claudeConfigPath, err = filepath.Abs(filepath.Join(home, ".claude"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get absolute claude config path: %w", err)
+		}
 	} else {
 		claudeConfigPath = "/home/codeagent/.claude"
 	}

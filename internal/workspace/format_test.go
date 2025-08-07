@@ -21,7 +21,7 @@ func TestDirectoryFormat_GenerateIssueDirName(t *testing.T) {
 			repo:        "codeagent",
 			issueNumber: 123,
 			timestamp:   1752829201,
-			expected:    "gemini-codeagent-issue-123-1752829201",
+			expected:    "gemini__codeagent__issue__123__1752829201",
 		},
 	}
 
@@ -52,7 +52,7 @@ func TestDirectoryFormat_GeneratePRDirName(t *testing.T) {
 			repo:      "codeagent",
 			prNumber:  161,
 			timestamp: 1752829201,
-			expected:  "gemini-codeagent-pr-161-1752829201",
+			expected:  "gemini__codeagent__pr__161__1752829201",
 		},
 	}
 
@@ -83,7 +83,7 @@ func TestDirectoryFormat_GenerateSessionDirName(t *testing.T) {
 			repo:      "codeagent",
 			prNumber:  161,
 			timestamp: 1752829201,
-			expected:  "gemini-codeagent-session-161-1752829201",
+			expected:  "gemini__codeagent__session__161__1752829201",
 		},
 	}
 
@@ -108,7 +108,7 @@ func TestDirectoryFormat_ParsePRDirName(t *testing.T) {
 	}{
 		{
 			name:    "with AI model",
-			dirName: "gemini-codeagent-pr-161-1752829201",
+			dirName: "gemini__codeagent__pr__161__1752829201",
 			expected: &PRDirFormat{
 				AIModel:   "gemini",
 				Repo:      "codeagent",
@@ -168,7 +168,7 @@ func TestDirectoryFormat_ExtractSuffixFromPRDir(t *testing.T) {
 			aiModel:  "gemini",
 			repo:     "codeagent",
 			prNumber: 161,
-			dirName:  "gemini-codeagent-pr-161-1752829201",
+			dirName:  "gemini__codeagent__pr__161__1752829201",
 			expected: "1752829201",
 		},
 	}

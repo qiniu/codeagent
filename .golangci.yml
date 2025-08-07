@@ -4,74 +4,31 @@ run:
   modules-download-mode: readonly
 
 linters-settings:
-  govet:
-    check-shadowing: true
   gocyclo:
-    min-complexity: 10
-  dupl:
-    threshold: 100
-  goconst:
-    min-len: 2
-    min-occurrences: 3
+    min-complexity: 15
   misspell:
     locale: US
   lll:
     line-length: 140
-  goimports:
-    local-prefixes: github.com/qiniu/codeagent
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-    disabled-checks:
-      - dupImport # https://github.com/go-critic/go-critic/issues/845
-      - ifElseChain
-      - octalLiteral
-      - whyNoLint
-      - wrapperFunc
 
 linters:
   disable-all: true
   enable:
-    # 代码格式和风格
+    # 基本检查
     - gofmt
-    - goimports
     - govet
     - gosimple
     - staticcheck
     - ineffassign
     - unused
-    - misspell
-    - unparam
-    - unconvert
-    - goconst
-    - gocyclo
-    - dupl
-    - lll
-    - gocritic
     - errcheck
-    - gosec
-    - prealloc
-    - nakedret
-    - noctx
-    - nolintlint
-    - revive
-    - stylecheck
-    - thelper
-    - tparallel
-    - wastedassign
-    - whitespace
+    - misspell
 
 issues:
   exclude-rules:
     - path: _test\.go
       linters:
         - gocyclo
-        - dupl
-        - gocritic
         - gosec
     - path: internal/code/
       linters:

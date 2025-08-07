@@ -112,15 +112,3 @@ func (g *geminiLocal) Close() error {
 	// 每次调用都是独立的进程
 	return nil
 }
-
-func parseRepoURL(repoURL string) (owner, repo string) {
-	// 处理 HTTPS URL: https://github.com/owner/repo.git
-	if strings.Contains(repoURL, "github.com") {
-		parts := strings.Split(repoURL, "/")
-		if len(parts) >= 2 {
-			repo = strings.TrimSuffix(parts[len(parts)-1], ".git")
-			owner = parts[len(parts)-2]
-		}
-	}
-	return owner, repo
-}

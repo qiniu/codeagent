@@ -30,8 +30,8 @@ func getGoogleCloudProject(cfg *config.Config, repoName string) string {
 func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	// 解析仓库信息，只获取仓库名，不包含完整URL
 	repoName := extractRepoName(workspace.Repository)
-	// 新的容器命名规则：gemini-组织-仓库-PR号
-	containerName := fmt.Sprintf("gemini-%s-%s-%d", workspace.Org, repoName, workspace.PRNumber)
+	// 新的容器命名规则：gemini__组织__仓库__PR号（使用双下划线分隔符）
+	containerName := fmt.Sprintf("gemini__%s__%s__%d", workspace.Org, repoName, workspace.PRNumber)
 
 	// 检查是否已经有对应的容器在运行
 	if isContainerRunning(containerName) {
@@ -42,13 +42,24 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	}
 
 	// 确保路径存在
-	workspacePath, _ := filepath.Abs(workspace.Path)
-	sessionPath, _ := filepath.Abs(workspace.SessionPath)
+	workspacePath, err := filepath.Abs(workspace.Path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute workspace path: %w", err)
+	}
+
+	sessionPath, err := filepath.Abs(workspace.SessionPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute session path: %w", err)
+	}
 
 	// 确定gemini配置路径
 	var geminiConfigPath string
 	if home := os.Getenv("HOME"); home != "" {
-		geminiConfigPath, _ = filepath.Abs(filepath.Join(home, ".gemini"))
+		var err error
+		geminiConfigPath, err = filepath.Abs(filepath.Join(home, ".gemini"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get absolute gemini config path: %w", err)
+		}
 	} else {
 		geminiConfigPath = "/home/codeagent/.gemini"
 	}
