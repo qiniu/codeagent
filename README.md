@@ -89,25 +89,6 @@ go mod download
 
 ### Quick Setup
 
-**Using the Start Script (Recommended)**
-
-```bash
-# Set your credentials
-export GITHUB_TOKEN="your-github-token"
-export GOOGLE_API_KEY="your-google-api-key"  # or CLAUDE_API_KEY
-export WEBHOOK_SECRET="your-webhook-secret"
-
-# Start with default settings (Gemini + CLI mode)
-./scripts/start.sh
-
-# Or choose your preferred configuration
-./scripts/start.sh -p claude -d    # Claude + Docker mode
-./scripts/start.sh -p gemini -d    # Gemini + Docker mode
-./scripts/start.sh -p claude       # Claude + CLI mode
-```
-
-**Manual Setup**
-
 ```bash
 # Set environment variables
 export GITHUB_TOKEN="your-github-token"
