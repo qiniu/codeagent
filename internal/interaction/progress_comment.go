@@ -246,7 +246,7 @@ func (pcm *ProgressCommentManager) renderProgressUpdate() string {
 		description := task.Description
 
 		// 为当前任务添加额外信息
-		if task.ID == pcm.tracker.CurrentTaskID && task.IsActive() {
+		if task.Name == pcm.tracker.CurrentTaskName && task.IsActive() {
 			if pcm.tracker.Spinner.Active {
 				icon = pcm.tracker.Spinner.GetCurrentFrame()
 				if pcm.tracker.Spinner.Message != "" {

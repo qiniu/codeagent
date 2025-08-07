@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -72,8 +73,14 @@ func TestEnhancedAgentIssueCommentFlow(t *testing.T) {
 	// 创建模拟Issue评论事件
 	event := createMockIssueCommentEvent()
 
-	// 使用新的事件处理入口
-	err = enhancedAgent.ProcessGitHubEvent(context.Background(), "issue_comment", event)
+	// 使用Webhook事件处理入口
+	// 需要将event序列化为JSON字节数组
+	eventBytes, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("Failed to marshal event: %v", err)
+	}
+
+	err = enhancedAgent.ProcessGitHubWebhookEvent(context.Background(), "issue_comment", "test-delivery-id", eventBytes)
 
 	// 由于我们使用TODO占位符实现，目前会成功返回
 	// 在实际实现后，fake token会导致GitHub API调用失败

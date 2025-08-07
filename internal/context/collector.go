@@ -11,8 +11,6 @@ import (
 )
 
 // DefaultContextCollector 默认上下文收集器实现
-// 专注于GitHub交互，移除本地项目智能分析
-
 type DefaultContextCollector struct {
 	githubClient *ghclient.Client
 }

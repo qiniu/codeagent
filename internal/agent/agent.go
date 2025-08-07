@@ -159,7 +159,7 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 
 	// 7. 初始化 code client
 	log.Infof("Initializing code client")
-	code, err := a.sessionManager.GetSession(ws)
+	codeClient, err := a.sessionManager.GetSession(ws)
 	if err != nil {
 		log.Errorf("Failed to get code client: %v", err)
 		return err
@@ -180,7 +180,7 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 - 列出修改的文件和具体变动`, event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
 
 	log.Infof("Executing code modification with AI")
-	codeResp, err := a.promptWithRetry(ctx, code, codePrompt, 3)
+	codeResp, err := code.PromptWithRetry(ctx, codeClient, codePrompt, 3)
 	if err != nil {
 		log.Errorf("Failed to prompt for code modification: %v", err)
 		return err
@@ -241,7 +241,7 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 		Output: string(codeOutput),
 	}
 	log.Infof("Committing and pushing changes")
-	if _, err = a.github.CommitAndPush(ws, result, code); err != nil {
+	if _, err = a.github.CommitAndPush(ws, result, codeClient); err != nil {
 		log.Errorf("Failed to commit and push: %v", err)
 		return err
 	}
@@ -480,11 +480,6 @@ func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueC
 	return nil
 }
 
-// buildPrompt 构建不同模式的 prompt（兼容性函数）
-func (a *Agent) buildPrompt(mode string, args string, historicalContext string) string {
-	return a.buildPromptWithCurrentComment(mode, args, historicalContext, "")
-}
-
 // buildPromptWithCurrentComment 构建不同模式的 prompt，包含当前评论信息
 func (a *Agent) buildPromptWithCurrentComment(mode string, args string, historicalContext string, currentComment string) string {
 	var prompt string
@@ -646,7 +641,7 @@ func (a *Agent) ContinuePRFromReviewCommentWithAI(ctx context.Context, event *gi
 	}
 
 	// 4. 初始化 code client
-	code, err := a.sessionManager.GetSession(ws)
+	codeClient, err := a.sessionManager.GetSession(ws)
 	if err != nil {
 		log.Errorf("failed to get code client for PR continue from review comment: %v", err)
 		return err
@@ -679,7 +674,7 @@ func (a *Agent) ContinuePRFromReviewCommentWithAI(ctx context.Context, event *gi
 		prompt = fmt.Sprintf("根据代码行评论处理：\n\n%s", commentContext)
 	}
 
-	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
+	resp, err := code.PromptWithRetry(ctx, codeClient, prompt, 3)
 	if err != nil {
 		log.Errorf("Failed to prompt for PR continue from review comment: %v", err)
 		return err
@@ -698,7 +693,7 @@ func (a *Agent) ContinuePRFromReviewCommentWithAI(ctx context.Context, event *gi
 	result := &models.ExecutionResult{
 		Output: string(output),
 	}
-	if _, err := a.github.CommitAndPush(ws, result, code); err != nil {
+	if _, err := a.github.CommitAndPush(ws, result, codeClient); err != nil {
 		log.Errorf("Failed to commit and push for PR continue from review comment: %v", err)
 		return err
 	}
@@ -753,7 +748,7 @@ func (a *Agent) FixPRFromReviewCommentWithAI(ctx context.Context, event *github.
 	}
 
 	// 4. 初始化 code client
-	code, err := a.sessionManager.GetSession(ws)
+	codeClient, err := a.sessionManager.GetSession(ws)
 	if err != nil {
 		log.Errorf("failed to get code client for PR fix from review comment: %v", err)
 		return err
@@ -786,7 +781,7 @@ func (a *Agent) FixPRFromReviewCommentWithAI(ctx context.Context, event *github.
 		prompt = fmt.Sprintf("根据代码行评论修复：\n\n%s", commentContext)
 	}
 
-	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
+	resp, err := code.PromptWithRetry(ctx, codeClient, prompt, 3)
 	if err != nil {
 		log.Errorf("Failed to prompt for PR fix from review comment: %v", err)
 		return err
@@ -805,7 +800,7 @@ func (a *Agent) FixPRFromReviewCommentWithAI(ctx context.Context, event *github.
 	result := &models.ExecutionResult{
 		Output: string(output),
 	}
-	if _, err := a.github.CommitAndPush(ws, result, code); err != nil {
+	if _, err := a.github.CommitAndPush(ws, result, codeClient); err != nil {
 		log.Errorf("Failed to commit and push for PR fix from review comment: %v", err)
 		return err
 	}
@@ -870,7 +865,7 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUserAndAI(ctx context.Context, eve
 	}
 
 	// 5. 初始化 code client
-	code, err := a.sessionManager.GetSession(ws)
+	codeClient, err := a.sessionManager.GetSession(ws)
 	if err != nil {
 		log.Errorf("failed to get code client for PR batch processing from review: %v", err)
 		return err
@@ -923,7 +918,7 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUserAndAI(ctx context.Context, eve
 		}
 	}
 
-	resp, err := a.promptWithRetry(ctx, code, prompt, 3)
+	resp, err := code.PromptWithRetry(ctx, codeClient, prompt, 3)
 	if err != nil {
 		log.Errorf("Failed to prompt for PR batch processing from review: %v", err)
 		return err
@@ -942,7 +937,7 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUserAndAI(ctx context.Context, eve
 	result := &models.ExecutionResult{
 		Output: string(output),
 	}
-	if _, err := a.github.CommitAndPush(ws, result, code); err != nil {
+	if _, err := a.github.CommitAndPush(ws, result, codeClient); err != nil {
 		log.Errorf("Failed to commit and push for PR batch processing from review: %v", err)
 		return err
 	}
@@ -1042,40 +1037,6 @@ func (a *Agent) CleanupAfterPRClosed(ctx context.Context, pr *github.PullRequest
 
 	log.Infof("Cleanup after PR closed completed: PR #%d, cleaned %d workspaces", prNumber, len(workspaces))
 	return nil
-}
-
-// promptWithRetry 带重试机制的 prompt 调用
-func (a *Agent) promptWithRetry(ctx context.Context, code code.Code, prompt string, maxRetries int) (*code.Response, error) {
-	log := xlog.NewWith(ctx)
-	var lastErr error
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		log.Debugf("Prompt attempt %d/%d", attempt, maxRetries)
-		resp, err := code.Prompt(prompt)
-		if err == nil {
-			log.Infof("Prompt succeeded on attempt %d", attempt)
-			return resp, nil
-		}
-
-		lastErr = err
-		log.Warnf("Prompt attempt %d failed: %v", attempt, err)
-
-		// 如果是 broken pipe 错误，尝试重新创建 session
-		if strings.Contains(err.Error(), "broken pipe") ||
-			strings.Contains(err.Error(), "process has already exited") {
-			log.Infof("Detected broken pipe or process exit, will retry...")
-		}
-
-		if attempt < maxRetries {
-			// 等待一段时间后重试
-			sleepDuration := time.Duration(attempt) * 500 * time.Millisecond
-			log.Infof("Waiting %v before retry", sleepDuration)
-			time.Sleep(sleepDuration)
-		}
-	}
-
-	log.Errorf("All prompt attempts failed after %d attempts", maxRetries)
-	return nil, fmt.Errorf("failed after %d attempts, last error: %w", maxRetries, lastErr)
 }
 
 // formatHistoricalComments 格式化历史评论，用于构建上下文

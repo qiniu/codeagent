@@ -69,7 +69,6 @@ type CommentContext struct {
 }
 
 // GitHubContext GitHub原生上下文
-
 type GitHubContext struct {
 	Repository  string              `json:"repository"`
 	PRNumber    int                 `json:"pr_number,omitempty"`

@@ -17,11 +17,11 @@ func NewTaskFactory() *TaskFactory {
 // 对应 /code 命令的处理流程
 func (tf *TaskFactory) CreateIssueProcessingTasks() []*models.Task {
 	return []*models.Task{
-		models.NewTask("gather-context", "gather-context", "Gathering context and analyzing issue"),
-		models.NewTask("setup-workspace", "setup-workspace", "Setting up workspace and creating branch"),
-		models.NewTask("generate-code", "generate-code", "Generating code implementation"),
-		models.NewTask("commit-changes", "commit-changes", "Committing changes to repository"),
-		models.NewTask("create-pr", "create-pr", "Creating pull request"),
+		models.NewTask(models.TaskNameGatherContext, "Gathering context and analyzing issue"),
+		models.NewTask(models.TaskNameSetupWorkspace, "Setting up workspace and creating branch"),
+		models.NewTask(models.TaskNameGenerateCode, "Generating code implementation"),
+		models.NewTask(models.TaskNameCommitChanges, "Committing changes to repository"),
+		models.NewTask(models.TaskNameCreatePR, "Creating pull request"),
 	}
 }
 
@@ -29,11 +29,11 @@ func (tf *TaskFactory) CreateIssueProcessingTasks() []*models.Task {
 // 对应 /continue 命令的处理流程
 func (tf *TaskFactory) CreatePRContinueTasks() []*models.Task {
 	return []*models.Task{
-		models.NewTask("gather-context", "gather-context", "Gathering PR context and comments"),
-		models.NewTask("analyze-changes", "analyze-changes", "Analyzing existing changes and requirements"),
-		models.NewTask("prepare-workspace", "prepare-workspace", "Preparing workspace for modifications"),
-		models.NewTask("implement-changes", "implement-changes", "Implementing requested changes"),
-		models.NewTask("commit-updates", "commit-updates", "Committing updates to PR branch"),
+		models.NewTask(models.TaskNameGatherContext, "Gathering PR context and comments"),
+		models.NewTask(models.TaskNameAnalyzeChanges, "Analyzing existing changes and requirements"),
+		models.NewTask(models.TaskNamePrepareWorkspace, "Preparing workspace for modifications"),
+		models.NewTask(models.TaskNameImplementChanges, "Implementing requested changes"),
+		models.NewTask(models.TaskNameCommitUpdates, "Committing updates to PR branch"),
 	}
 }
 
@@ -41,11 +41,11 @@ func (tf *TaskFactory) CreatePRContinueTasks() []*models.Task {
 // 对应 /fix 命令的处理流程
 func (tf *TaskFactory) CreatePRFixTasks() []*models.Task {
 	return []*models.Task{
-		models.NewTask("gather-context", "gather-context", "Gathering PR context and issue details"),
-		models.NewTask("identify-problems", "identify-problems", "Identifying problems and errors"),
-		models.NewTask("prepare-workspace", "prepare-workspace", "Preparing workspace for fixes"),
-		models.NewTask("apply-fixes", "apply-fixes", "Applying fixes to resolve issues"),
-		models.NewTask("commit-fixes", "commit-fixes", "Committing fixes to PR branch"),
+		models.NewTask(models.TaskNameGatherContext, "Gathering PR context and issue details"),
+		models.NewTask(models.TaskNameIdentifyProblems, "Identifying problems and errors"),
+		models.NewTask(models.TaskNamePrepareWorkspace, "Preparing workspace for fixes"),
+		models.NewTask(models.TaskNameApplyFixes, "Applying fixes to resolve issues"),
+		models.NewTask(models.TaskNameCommitFixes, "Committing fixes to PR branch"),
 	}
 }
 
@@ -53,11 +53,11 @@ func (tf *TaskFactory) CreatePRFixTasks() []*models.Task {
 // 对应自动PR审查流程
 func (tf *TaskFactory) CreatePRReviewTasks() []*models.Task {
 	return []*models.Task{
-		models.NewTask("gather-context", "gather-context", "Gathering PR details and changed files"),
-		models.NewTask("analyze-code", "analyze-code", "Analyzing code quality and changes"),
-		models.NewTask("run-checks", "run-checks", "Running automated checks and tests"),
-		models.NewTask("generate-review", "generate-review", "Generating review comments"),
-		models.NewTask("submit-review", "submit-review", "Submitting review to GitHub"),
+		models.NewTask(models.TaskNameGatherContext, "Gathering PR details and changed files"),
+		models.NewTask(models.TaskNameAnalyzeCode, "Analyzing code quality and changes"),
+		models.NewTask(models.TaskNameRunChecks, "Running automated checks and tests"),
+		models.NewTask(models.TaskNameGenerateReview, "Generating review comments"),
+		models.NewTask(models.TaskNameSubmitReview, "Submitting review to GitHub"),
 	}
 }
 
@@ -65,11 +65,11 @@ func (tf *TaskFactory) CreatePRReviewTasks() []*models.Task {
 // 对应PR Review中的批量命令处理
 func (tf *TaskFactory) CreateBatchReviewTasks() []*models.Task {
 	return []*models.Task{
-		models.NewTask("gather-context", "gather-context", "Gathering PR and review context"),
-		models.NewTask("process-comments", "process-comments", "Processing review comments"),
-		models.NewTask("prepare-workspace", "prepare-workspace", "Preparing workspace for changes"),
-		models.NewTask("implement-feedback", "implement-feedback", "Implementing review feedback"),
-		models.NewTask("commit-changes", "commit-changes", "Committing feedback implementations"),
+		models.NewTask(models.TaskNameGatherContext, "Gathering PR and review context"),
+		models.NewTask(models.TaskNameProcessComments, "Processing review comments"),
+		models.NewTask(models.TaskNamePrepareWorkspace, "Preparing workspace for changes"),
+		models.NewTask(models.TaskNameImplementFeedback, "Implementing review feedback"),
+		models.NewTask(models.TaskNameCommitChanges, "Committing feedback implementations"),
 	}
 }
 
@@ -78,7 +78,7 @@ func (tf *TaskFactory) CreateCustomTasks(taskDefinitions []TaskDefinition) []*mo
 	tasks := make([]*models.Task, 0, len(taskDefinitions))
 
 	for _, def := range taskDefinitions {
-		task := models.NewTask(def.ID, def.Name, def.Description)
+		task := models.NewTask(def.Name, def.Description)
 		if def.Metadata != nil {
 			task.Metadata = def.Metadata
 		}
@@ -90,7 +90,6 @@ func (tf *TaskFactory) CreateCustomTasks(taskDefinitions []TaskDefinition) []*mo
 
 // TaskDefinition 任务定义
 type TaskDefinition struct {
-	ID          string            `json:"id"`
 	Name        string            `json:"name"`
 	Description string            `json:"description"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
@@ -115,10 +114,10 @@ func (tf *TaskFactory) GetTasksForCommand(command string, isPR bool) []*models.T
 	default:
 		// 默认的通用任务列表
 		return []*models.Task{
-			models.NewTask("gather-context", "gather-context", "Gathering context"),
-			models.NewTask("process-request", "process-request", "Processing request"),
-			models.NewTask("generate-response", "generate-response", "Generating response"),
-			models.NewTask("finalize", "finalize", "Finalizing results"),
+			models.NewTask(models.TaskNameGatherContext, "Gathering context"),
+			models.NewTask("process-request", "Processing request"),
+			models.NewTask("generate-response", "Generating response"),
+			models.NewTask("finalize", "Finalizing results"),
 		}
 	}
 }

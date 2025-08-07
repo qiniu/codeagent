@@ -74,7 +74,7 @@ func TestProgressCommentManager_BasicFlow(t *testing.T) {
 	assert.Contains(t, initialContent, "Gathering context and analyzing issue")
 
 	// 2. 开始第一个任务
-	err = pcm.UpdateTask(ctx, "gather-context", models.TaskStatusInProgress, "Analyzing issue details")
+	err = pcm.UpdateTask(ctx, models.TaskNameGatherContext, models.TaskStatusInProgress, "Analyzing issue details")
 	require.NoError(t, err)
 
 	// 验证内容已更新
@@ -83,16 +83,16 @@ func TestProgressCommentManager_BasicFlow(t *testing.T) {
 	assert.Contains(t, updatedContent, "Analyzing issue details")
 
 	// 3. 完成第一个任务
-	err = pcm.UpdateTask(ctx, "gather-context", models.TaskStatusCompleted)
+	err = pcm.UpdateTask(ctx, models.TaskNameGatherContext, models.TaskStatusCompleted)
 	require.NoError(t, err)
 
 	// 4. 开始第二个任务
-	err = pcm.UpdateTask(ctx, "setup-workspace", models.TaskStatusInProgress, "Creating new branch")
+	err = pcm.UpdateTask(ctx, models.TaskNameSetupWorkspace, models.TaskStatusInProgress, "Creating new branch")
 	require.NoError(t, err)
 
 	// 5. 完成所有任务并最终化
 	for _, task := range tasks[1:] {
-		err = pcm.UpdateTask(ctx, task.ID, models.TaskStatusCompleted)
+		err = pcm.UpdateTask(ctx, task.Name, models.TaskStatusCompleted)
 		require.NoError(t, err)
 	}
 
@@ -132,8 +132,8 @@ func TestProgressCommentManager_TaskFailure(t *testing.T) {
 
 	// 创建任务
 	tasks := []*models.Task{
-		models.NewTask("task1", "task1", "First task"),
-		models.NewTask("task2", "task2", "Second task"),
+		models.NewTask("task1", "First task"),
+		models.NewTask("task2", "Second task"),
 	}
 
 	// 初始化
@@ -194,14 +194,14 @@ func TestTaskFactory(t *testing.T) {
 	// 测试Issue处理任务
 	issueTasks := factory.CreateIssueProcessingTasks()
 	assert.Len(t, issueTasks, 5)
-	assert.Equal(t, "gather-context", issueTasks[0].ID)
-	assert.Equal(t, "create-pr", issueTasks[4].ID)
+	assert.Equal(t, models.TaskNameGatherContext, issueTasks[0].Name)
+	assert.Equal(t, models.TaskNameCreatePR, issueTasks[4].Name)
 
 	// 测试PR继续任务
 	prTasks := factory.CreatePRContinueTasks()
 	assert.Len(t, prTasks, 5)
-	assert.Equal(t, "gather-context", prTasks[0].ID)
-	assert.Equal(t, "commit-updates", prTasks[4].ID)
+	assert.Equal(t, models.TaskNameGatherContext, prTasks[0].Name)
+	assert.Equal(t, models.TaskNameCommitUpdates, prTasks[4].Name)
 
 	// 测试根据命令获取任务
 	codeTasks := factory.GetTasksForCommand(models.CommandCode, false)

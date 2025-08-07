@@ -96,7 +96,7 @@ func (m *Manager) ExtractAIModelFromBranch(branchName string) string {
 		}
 	}
 
-	return ""
+	return m.config.CodeProvider
 }
 
 type Manager struct {
@@ -495,11 +495,6 @@ func (m *Manager) CreateSessionPath(underPath, aiModel, repo string, prNumber in
 		return "", err
 	}
 	return sessionPath, nil
-}
-
-// CreateWorkspaceFromIssue 从 Issue 创建工作空间
-func (m *Manager) CreateWorkspaceFromIssue(issue *github.Issue) *models.Workspace {
-	return m.CreateWorkspaceFromIssueWithAI(issue, "")
 }
 
 // CreateWorkspaceFromIssueWithAI 从 Issue 创建工作空间，支持指定AI模型

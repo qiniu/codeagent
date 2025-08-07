@@ -204,8 +204,7 @@ func parseCommand(content string) (*CommandInfo, bool) {
 		aiModel = AIModelGemini
 		args = strings.TrimSpace(strings.TrimPrefix(remaining, "-gemini"))
 	} else {
-		// 没有指定AI模型，使用默认
-		aiModel = "" // 将在后续处理中设置默认值
+		aiModel = ""
 		args = remaining
 	}
 

@@ -17,9 +17,31 @@ const (
 	TaskStatusSkipped    TaskStatus = "skipped"     // ⏭️ 已跳过
 )
 
+// TaskName 任务名称常量
+const (
+	TaskNameGatherContext     = "gather-context"     // 收集上下文
+	TaskNameSetupWorkspace    = "setup-workspace"    // 设置工作空间
+	TaskNameGenerateCode      = "generate-code"      // 生成代码
+	TaskNameCommitChanges     = "commit-changes"     // 提交更改
+	TaskNameCreatePR          = "create-pr"          // 创建PR
+	TaskNameUpdatePR          = "update-pr"          // 更新PR
+	TaskNameAnalyzeChanges    = "analyze-changes"    // 分析更改
+	TaskNamePrepareWorkspace  = "prepare-workspace"  // 准备工作空间
+	TaskNameImplementChanges  = "implement-changes"  // 实现更改
+	TaskNameCommitUpdates     = "commit-updates"     // 提交更新
+	TaskNameIdentifyProblems  = "identify-problems"  // 识别问题
+	TaskNameApplyFixes        = "apply-fixes"        // 应用修复
+	TaskNameCommitFixes       = "commit-fixes"       // 提交修复
+	TaskNameAnalyzeCode       = "analyze-code"       // 分析代码
+	TaskNameRunChecks         = "run-checks"         // 运行检查
+	TaskNameGenerateReview    = "generate-review"    // 生成审查
+	TaskNameSubmitReview      = "submit-review"      // 提交审查
+	TaskNameProcessComments   = "process-comments"   // 处理评论
+	TaskNameImplementFeedback = "implement-feedback" // 实现反馈
+)
+
 // Task 代表一个可跟踪的任务
 type Task struct {
-	ID          string            `json:"id"`
 	Name        string            `json:"name"`
 	Description string            `json:"description"`
 	Status      TaskStatus        `json:"status"`
@@ -33,9 +55,8 @@ type Task struct {
 }
 
 // NewTask 创建新任务
-func NewTask(id, name, description string) *Task {
+func NewTask(name, description string) *Task {
 	return &Task{
-		ID:          id,
 		Name:        name,
 		Description: description,
 		Status:      TaskStatusPending,
@@ -166,13 +187,13 @@ func (s *SpinnerState) Stop() {
 
 // ProgressTracker 进度跟踪器
 type ProgressTracker struct {
-	Tasks         []*Task       `json:"tasks"`
-	CurrentTaskID string        `json:"current_task_id"`
-	StartTime     time.Time     `json:"start_time"`
-	EndTime       *time.Time    `json:"end_time,omitempty"`
-	Status        TaskStatus    `json:"status"`
-	Spinner       *SpinnerState `json:"spinner"`
-	TotalDuration time.Duration `json:"total_duration"`
+	Tasks           []*Task       `json:"tasks"`
+	CurrentTaskName string        `json:"current_task_name"`
+	StartTime       time.Time     `json:"start_time"`
+	EndTime         *time.Time    `json:"end_time,omitempty"`
+	Status          TaskStatus    `json:"status"`
+	Spinner         *SpinnerState `json:"spinner"`
+	TotalDuration   time.Duration `json:"total_duration"`
 }
 
 // NewProgressTracker 创建新的进度跟踪器
@@ -190,10 +211,10 @@ func (pt *ProgressTracker) AddTask(task *Task) {
 	pt.Tasks = append(pt.Tasks, task)
 }
 
-// GetTask 根据ID获取任务
-func (pt *ProgressTracker) GetTask(id string) *Task {
+// GetTask 根据Name获取任务
+func (pt *ProgressTracker) GetTask(name string) *Task {
 	for _, task := range pt.Tasks {
-		if task.ID == id {
+		if task.Name == name {
 			return task
 		}
 	}
@@ -201,9 +222,9 @@ func (pt *ProgressTracker) GetTask(id string) *Task {
 }
 
 // SetCurrentTask 设置当前任务
-func (pt *ProgressTracker) SetCurrentTask(id string) {
-	pt.CurrentTaskID = id
-	if task := pt.GetTask(id); task != nil {
+func (pt *ProgressTracker) SetCurrentTask(name string) {
+	pt.CurrentTaskName = name
+	if task := pt.GetTask(name); task != nil {
 		task.Start()
 		pt.Status = TaskStatusInProgress
 	}
@@ -211,10 +232,10 @@ func (pt *ProgressTracker) SetCurrentTask(id string) {
 
 // GetCurrentTask 获取当前任务
 func (pt *ProgressTracker) GetCurrentTask() *Task {
-	if pt.CurrentTaskID == "" {
+	if pt.CurrentTaskName == "" {
 		return nil
 	}
-	return pt.GetTask(pt.CurrentTaskID)
+	return pt.GetTask(pt.CurrentTaskName)
 }
 
 // CompleteCurrentTask 完成当前任务
@@ -222,7 +243,7 @@ func (pt *ProgressTracker) CompleteCurrentTask() {
 	if task := pt.GetCurrentTask(); task != nil {
 		task.Complete()
 	}
-	pt.CurrentTaskID = ""
+	pt.CurrentTaskName = ""
 }
 
 // FailCurrentTask 当前任务失败
@@ -231,7 +252,7 @@ func (pt *ProgressTracker) FailCurrentTask(err error) {
 		task.Fail(err)
 	}
 	pt.Status = TaskStatusFailed
-	pt.CurrentTaskID = ""
+	pt.CurrentTaskName = ""
 }
 
 // StartSpinner 开始Spinner动画
