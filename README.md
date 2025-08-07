@@ -34,7 +34,6 @@
   - [Project Structure](#project-structure)
   - [Building](#building)
   - [Testing](#testing)
-  - [Debugging](#debugging)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
@@ -201,14 +200,23 @@ codeagent/
 │   └── server/                 # Application entry point
 ├── internal/
 │   ├── agent/                  # Core orchestration logic
-│   ├── webhook/                # GitHub webhook handling
-│   ├── workspace/              # Git workspace management
 │   ├── code/                   # AI provider implementations
+│   ├── config/                 # Configuration management
+│   ├── context/                # Context collection and formatting
+│   ├── events/                 # Event parsing
 │   ├── github/                 # GitHub API client
-│   └── config/                 # Configuration management
+│   ├── interaction/            # User interaction handling
+│   ├── mcp/                    # MCP (Model Context Protocol) support
+│   ├── modes/                  # Processing mode handlers
+│   ├── webhook/                # GitHub webhook handling
+│   └── workspace/              # Git workspace management
 ├── pkg/
-│   └── models/                 # Shared data structures
-├── config.yaml                 # Configuration file
+│   ├── models/                 # Shared data structures
+│   └── signature/              # Webhook signature verification
+├── test/
+│   └── integration/            # Integration tests
+├── docs/                       # Documentation
+├── config.example.yaml         # Example configuration
 └── README.md                   # This file
 ```
 
@@ -239,17 +247,6 @@ curl -X POST http://localhost:8888/hook \
   -H "Content-Type: application/json" \
   -H "X-GitHub-Event: issue_comment" \
   -d @test-data/issue-comment.json
-```
-
-### Debugging
-
-```bash
-# Enable debug logging
-export LOG_LEVEL=debug
-go run ./cmd/server --config config.yaml
-
-# Monitor workspace activity
-ls -la /tmp/codeagent/  # Default workspace directory
 ```
 
 
