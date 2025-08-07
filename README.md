@@ -26,7 +26,6 @@
 - [Configuration](#configuration)
   - [Environment Variables](#environment-variables)
   - [Configuration File](#configuration-file)
-  - [AI Provider Setup](#ai-provider-setup)
 - [Usage](#usage)
   - [GitHub Integration](#github-integration)
   - [Command Reference](#command-reference)
@@ -36,8 +35,6 @@
   - [Building](#building)
   - [Testing](#testing)
   - [Debugging](#debugging)
-- [Deployment](#deployment)
-- [Security](#security)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
@@ -67,14 +64,6 @@ GitHub Events → Webhook → CodeAgent → Workspace Creation → AI Processing
 - Git
 - GitHub Personal Access Token
 - AI Provider API Key (Claude or Gemini)
-
-**Optional (for Docker mode):**
-- Docker Engine
-- Docker CLI tools
-
-**Optional (for CLI mode):**
-- Claude CLI (`claude`)
-- Gemini CLI (`gemini`)
 
 ### Installation
 
@@ -154,31 +143,8 @@ gemini:
   container_image: "google-gemini/gemini-cli:latest"
   timeout: "30m"
 
-# Docker settings
-docker:
-  socket: "unix:///var/run/docker.sock"
-  network: "bridge"
 ```
 
-### AI Provider Setup
-
-**Claude Setup**
-```bash
-# For CLI mode: Install Claude CLI
-npm install -g @anthropic/claude
-
-# Set API key
-export CLAUDE_API_KEY="sk-your-claude-api-key"
-```
-
-**Gemini Setup**  
-```bash
-# For CLI mode: Install Gemini CLI
-npm install -g @google/gemini-cli
-
-# Set API key
-export GOOGLE_API_KEY="AIza-your-gemini-api-key"
-```
 
 ## 📖 Usage
 
@@ -207,9 +173,8 @@ Use these commands in GitHub Issue comments or PR discussions:
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `/code <description>` | Generate code for an Issue | `/code Implement user authentication with JWT` |
+| `/code [description]` | Generate code for an Issue | `/code Implement user authentication with JWT` or `/code` |
 | `/continue <instruction>` | Continue development in PR | `/continue Add unit tests for the login function` |
-| `/fix <description>` | Fix code issues in PR | `/fix Handle edge case for empty username` |
 
 ### Examples
 
@@ -225,11 +190,6 @@ Use these commands in GitHub Issue comments or PR discussions:
 /continue Add comprehensive error handling and input validation
 ```
 
-**3. Bug Fixes**
-```
-# In a PR comment:
-/fix Fix the null pointer exception in user authentication
-```
 
 ## 🛠️ Development
 
@@ -248,9 +208,6 @@ codeagent/
 │   └── config/                 # Configuration management
 ├── pkg/
 │   └── models/                 # Shared data structures
-├── scripts/
-│   └── start.sh                # Development startup script
-├── docs/                       # Documentation
 ├── config.yaml                 # Configuration file
 └── README.md                   # This file
 ```
@@ -295,49 +252,7 @@ go run ./cmd/server --config config.yaml
 ls -la /tmp/codeagent/  # Default workspace directory
 ```
 
-## 🚀 Deployment
 
-**Production Environment Variables**
-```bash
-export GITHUB_TOKEN="your-production-token"
-export CLAUDE_API_KEY="your-production-key"
-export WEBHOOK_SECRET="your-strong-production-secret"
-export CODE_PROVIDER="claude"
-export USE_DOCKER="true"
-export PORT="8888"
-```
-
-**Docker Deployment**
-```bash
-# Build Docker image
-docker build -t codeagent .
-
-# Run container
-docker run -d \
-  -p 8888:8888 \
-  -e GITHUB_TOKEN="$GITHUB_TOKEN" \
-  -e CLAUDE_API_KEY="$CLAUDE_API_KEY" \
-  -e WEBHOOK_SECRET="$WEBHOOK_SECRET" \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  codeagent
-```
-
-## 🔐 Security
-
-**Security Best Practices**
-- Use strong webhook secrets (32+ characters)
-- Always configure webhook secrets in production
-- Use HTTPS endpoints for webhooks
-- Regularly rotate API keys and secrets
-- Limit GitHub token permissions to minimum required scope
-
-**Token Permissions**
-
-Your GitHub token needs these permissions:
-- `repo` (for private repositories)
-- `public_repo` (for public repositories)
-- `pull_requests:write`
-- `issues:write`
 
 ## 🔧 Troubleshooting
 
