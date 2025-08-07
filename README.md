@@ -101,14 +101,10 @@ curl http://localhost:8888/health
 |----------|-------------|----------|---------|
 | `GITHUB_TOKEN` | GitHub Personal Access Token | Yes | `ghp_xxxxxxxxxxxx` |
 | `WEBHOOK_SECRET` | GitHub Webhook Secret | Yes | `your-strong-secret` |
-| `CLAUDE_API_KEY` | Anthropic Claude API Key | Yes* | `sk-xxxxxxxxxxxx` |
-| `GOOGLE_API_KEY` | Google Gemini API Key | Yes* | `AIzaxxxxxxxxxxxx` |
 | `CODE_PROVIDER` | AI provider (claude/gemini) | No | `claude` |
 | `USE_DOCKER` | Use Docker containers | No | `true` |
 | `PORT` | Server port | No | `8888` |
 | `LOG_LEVEL` | Logging level | No | `debug` |
-
-*Either Claude or Gemini API key is required
 
 ### Configuration File
 
