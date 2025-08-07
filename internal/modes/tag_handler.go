@@ -1258,7 +1258,7 @@ func (th *TagHandler) processPRReviewCommentCommand(
 
 	// 创建简洁的回复，指向具体的commit
 	var replyBody string
-	commitURL := fmt.Sprintf("%s/commit/%s", pr.GetHTMLURL(), commitHash)
+	commitURL := fmt.Sprintf("%s/commits/%s", pr.GetHTMLURL(), commitHash)
 	if triggerUser := event.Comment.GetUser(); triggerUser != nil {
 		replyBody = fmt.Sprintf("@%s ✅ 处理完成！\n\n**变更摘要**: %s\n\n[查看代码变更](%s)",
 			triggerUser.GetLogin(),
