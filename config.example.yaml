@@ -26,6 +26,7 @@ gemini:
   api_key: your-gemini-api-key-here
   container_image: google-gemini/gemini-cli:latest
   timeout: 30m
+  interactive: false # 是否启用交互式模式
 
 docker:
   socket: unix:///var/run/docker.sock
