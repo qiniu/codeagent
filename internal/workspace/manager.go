@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	// BranchPrefix 分支名前缀，用于标识由 codeagent 创建的分支
+	// BranchPrefix branch name prefix, used to identify branches created by codeagent
 	BranchPrefix = "codeagent"
 )
 
@@ -33,64 +33,64 @@ func keyWithAI(orgRepo string, prNumber int, aiModel string) string {
 	return fmt.Sprintf("%s/%s/%d", aiModel, orgRepo, prNumber)
 }
 
-// 目录格式相关的公共方法
+// Directory format related common methods
 
-// GenerateIssueDirName 生成Issue目录名
+// GenerateIssueDirName generates Issue directory name
 func (m *Manager) GenerateIssueDirName(aiModel, repo string, issueNumber int, timestamp int64) string {
 	return m.dirFormatter.generateIssueDirName(aiModel, repo, issueNumber, timestamp)
 }
 
-// GeneratePRDirName 生成PR目录名
+// GeneratePRDirName generates PR directory name
 func (m *Manager) GeneratePRDirName(aiModel, repo string, prNumber int, timestamp int64) string {
 	return m.dirFormatter.generatePRDirName(aiModel, repo, prNumber, timestamp)
 }
 
-// GenerateSessionDirName 生成Session目录名
+// GenerateSessionDirName generates Session directory name
 func (m *Manager) GenerateSessionDirName(aiModel, repo string, prNumber int, timestamp int64) string {
 	return m.dirFormatter.generateSessionDirName(aiModel, repo, prNumber, timestamp)
 }
 
-// ParsePRDirName 解析PR目录名
+// ParsePRDirName parses PR directory name
 func (m *Manager) ParsePRDirName(dirName string) (*PRDirFormat, error) {
 	return m.dirFormatter.parsePRDirName(dirName)
 }
 
-// ExtractSuffixFromPRDir 从PR目录名中提取suffix
+// ExtractSuffixFromPRDir extracts suffix from PR directory name
 func (m *Manager) ExtractSuffixFromPRDir(aiModel, repo string, prNumber int, dirName string) string {
 	return m.dirFormatter.extractSuffixFromPRDir(aiModel, repo, prNumber, dirName)
 }
 
-// ExtractSuffixFromIssueDir 从Issue目录名中提取suffix
+// ExtractSuffixFromIssueDir extracts suffix from Issue directory name
 func (m *Manager) ExtractSuffixFromIssueDir(aiModel, repo string, issueNumber int, dirName string) string {
 	return m.dirFormatter.extractSuffixFromIssueDir(aiModel, repo, issueNumber, dirName)
 }
 
-// createSessionPath 创建Session目录路径
+// createSessionPath creates Session directory path
 func (m *Manager) createSessionPath(underPath, aiModel, repo string, prNumber int, suffix string) string {
 	return m.dirFormatter.createSessionPath(underPath, aiModel, repo, prNumber, suffix)
 }
 
-// createSessionPathWithTimestamp 创建Session目录路径（使用时间戳）
+// createSessionPathWithTimestamp creates Session directory path (using timestamp)
 func (m *Manager) createSessionPathWithTimestamp(underPath, aiModel, repo string, prNumber int, timestamp int64) string {
 	return m.dirFormatter.createSessionPathWithTimestamp(underPath, aiModel, repo, prNumber, timestamp)
 }
 
-// ExtractAIModelFromBranch 从分支名称中提取AI模型信息
-// 分支格式: codeagent/{aimodel}/{type}-{number}-{timestamp}
+// ExtractAIModelFromBranch extracts AI model information from branch name
+// Branch format: codeagent/{aimodel}/{type}-{number}-{timestamp}
 func (m *Manager) ExtractAIModelFromBranch(branchName string) string {
-	// 检查是否是 codeagent 分支
+	// Check if it's a codeagent branch
 	if !strings.HasPrefix(branchName, BranchPrefix+"/") {
 		return ""
 	}
 
-	// 移除 codeagent/ 前缀
+	// Remove codeagent/ prefix
 	branchWithoutPrefix := strings.TrimPrefix(branchName, BranchPrefix+"/")
 
-	// 分割获取 aimodel 部分
+	// Split to get aimodel part
 	parts := strings.Split(branchWithoutPrefix, "/")
 	if len(parts) >= 2 {
 		aiModel := parts[0]
-		// 验证是否是有效的AI模型
+		// Validate if it's a valid AI model
 		if aiModel == "claude" || aiModel == "gemini" {
 			return aiModel
 		}

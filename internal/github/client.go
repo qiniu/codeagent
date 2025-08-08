@@ -38,15 +38,15 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	}, nil
 }
 
-// CreateBranch 在本地创建分支并推送到远程
+// CreateBranch creates branch locally and pushes to remote
 func (c *Client) CreateBranch(workspace *models.Workspace) error {
 	log.Infof("Creating branch for workspace: %s, path: %s", workspace.Branch, workspace.Path)
 
-	// 检查 Git 配置
+	// Check Git configuration
 	c.checkGitConfig(workspace.Path)
 
-	// 创建一个空的 "Initial plan" commit，模仿 Copilot 的行为
-	// 这样可以立即建立分支和 PR，提供更好的用户体验
+	// Create an empty "Initial plan" commit, mimicking Copilot's behavior
+	// This allows immediate establishment of branch and PR, providing better user experience
 	initialCommitMsg := fmt.Sprintf("Initial plan for Issue #%d: %s",
 		workspace.Issue.GetNumber(),
 		workspace.Issue.GetTitle())

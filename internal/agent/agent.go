@@ -27,7 +27,7 @@ type Agent struct {
 }
 
 func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
-	// 初始化 GitHub 客户端
+	// Initialize GitHub client
 	githubClient, err := ghclient.NewClient(cfg)
 	if err != nil {
 		log.Errorf("Failed to create GitHub client: %v", err)
@@ -46,9 +46,9 @@ func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
 	return a
 }
 
-// startCleanupRoutine 启动定期清理协程
+// StartCleanupRoutine starts the periodic cleanup routine
 func (a *Agent) StartCleanupRoutine() {
-	ticker := time.NewTicker(1 * time.Hour) // 每小时检查一次
+	ticker := time.NewTicker(1 * time.Hour) // Check every hour
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -56,25 +56,25 @@ func (a *Agent) StartCleanupRoutine() {
 	}
 }
 
-// cleanupExpiredResources 清理过期的工作空间
+// cleanupExpiredResources cleans up expired workspaces
 func (a *Agent) cleanupExpiredResources() {
 	m := a.workspace
 
-	// 先收集过期的工作空间，避免在持有锁时调用可能获取锁的方法
+	// First collect expired workspaces to avoid calling methods that may acquire locks while holding a lock
 	expiredWorkspaces := a.workspace.GetExpiredWorkspaces()
 
-	// 如果没有过期的工作空间，直接返回
+	// Return directly if no expired workspaces
 	if len(expiredWorkspaces) == 0 {
 		return
 	}
 
 	log.Infof("Found %d expired workspaces to clean up", len(expiredWorkspaces))
 
-	// 清理过期的工作空间 和 code session
+	// Clean up expired workspaces and code sessions
 	for _, ws := range expiredWorkspaces {
 		log.Infof("Cleaning up expired workspace: %s (AI model: %s, PR: %d)", ws.Path, ws.AIModel, ws.PRNumber)
 
-		// 关闭 code session
+		// Close code session
 		err := a.sessionManager.CloseSession(ws)
 		if err != nil {
 			log.Errorf("Failed to close session for workspace: %s (AI model: %s)", ws.Path, ws.AIModel)
@@ -82,7 +82,7 @@ func (a *Agent) cleanupExpiredResources() {
 			log.Infof("Closed session for workspace: %s (AI model: %s)", ws.Path, ws.AIModel)
 		}
 
-		// 清理工作空间
+		// Clean up workspace
 		b := m.CleanupWorkspace(ws)
 		if !b {
 			log.Errorf("Failed to clean up expired workspace: %s (AI model: %s)", ws.Path, ws.AIModel)
@@ -93,12 +93,12 @@ func (a *Agent) cleanupExpiredResources() {
 
 }
 
-// ProcessIssueComment 处理 Issue 评论事件，包含完整的仓库信息
+// ProcessIssueComment processes Issue comment events, including complete repository information
 func (a *Agent) ProcessIssueComment(ctx context.Context, event *github.IssueCommentEvent) error {
 	return a.ProcessIssueCommentWithAI(ctx, event, "", "")
 }
 
-// ProcessIssueCommentWithAI 处理 Issue 评论事件，支持指定AI模型
+// ProcessIssueCommentWithAI processes Issue comment events with support for specifying AI models
 func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.IssueCommentEvent, aiModel, args string) error {
 	log := xlog.NewWith(ctx)
 
@@ -107,7 +107,7 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 
 	log.Infof("Starting issue comment processing: issue=#%d, title=%s, AI model=%s", issueNumber, issueTitle, aiModel)
 
-	// 1. 创建 Issue 工作空间，包含AI模型信息
+	// 1. Create Issue workspace, including AI model information
 	ws := a.workspace.CreateWorkspaceFromIssueWithAI(event.Issue, aiModel)
 	if ws == nil {
 		log.Errorf("Failed to create workspace from issue")
@@ -115,7 +115,7 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	}
 	log.Infof("Created workspace: %s", ws.Path)
 
-	// 2. 创建分支并推送
+	// 2. Create branch and push
 	log.Infof("Creating branch: %s", ws.Branch)
 	if err := a.github.CreateBranch(ws); err != nil {
 		log.Errorf("Failed to create branch: %v", err)
@@ -123,7 +123,7 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	}
 	log.Infof("Branch created successfully")
 
-	// 3. 创建初始 PR（在代码生成之前）
+	// 3. Create initial PR (before code generation)
 	log.Infof("Creating initial PR")
 	pr, err := a.github.CreatePullRequest(ws)
 	if err != nil {
@@ -132,14 +132,14 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	}
 	log.Infof("PR created successfully: #%d", pr.GetNumber())
 
-	// 4. 移动工作空间从 Issue 到 PR
+	// 4. Move workspace from Issue to PR
 	if err := a.workspace.MoveIssueToPR(ws, pr.GetNumber()); err != nil {
 		log.Errorf("Failed to move workspace: %v", err)
 	}
 	ws.PRNumber = pr.GetNumber()
 
-	// 5. 创建 session 目录
-	// 从PR目录名中提取suffix
+	// 5. Create session directory
+	// Extract suffix from PR directory name
 	prDirName := filepath.Base(ws.Path)
 	suffix := a.workspace.ExtractSuffixFromPRDir(ws.AIModel, ws.Repo, pr.GetNumber(), prDirName)
 
@@ -151,13 +151,13 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	ws.SessionPath = sessionPath
 	log.Infof("Session directory created: %s", sessionPath)
 
-	// 6. 注册工作空间到 PR 映射
+	// 6. Register workspace to PR mapping
 	ws.PullRequest = pr
 	a.workspace.RegisterWorkspace(ws, pr)
 
 	log.Infof("Workspace registered: issue=#%d, workspace=%s, session=%s", issueNumber, ws.Path, ws.SessionPath)
 
-	// 7. 初始化 code client
+	// 7. Initialize code client
 	log.Infof("Initializing code client")
 	codeClient, err := a.sessionManager.GetSession(ws)
 	if err != nil {
@@ -166,18 +166,18 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	}
 	log.Infof("Code client initialized successfully")
 
-	// 8. 执行代码修改
-	codePrompt := fmt.Sprintf(`根据Issue修改代码：
+	// 8. Execute code modification
+	codePrompt := fmt.Sprintf(`Modify code according to Issue:
 
-标题：%s
-描述：%s
+Title: %s
+Description: %s
 
-输出格式：
+Output format:
 %s
-简要说明改动内容
+Brief description of changes
 
 %s
-- 列出修改的文件和具体变动`, event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
+- List modified files and specific changes`, event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
 
 	log.Infof("Executing code modification with AI")
 	codeResp, err := code.PromptWithRetry(ctx, codeClient, codePrompt, 3)
@@ -195,14 +195,14 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	log.Infof("Code modification completed, output length: %d", len(codeOutput))
 	log.Debugf("LLM Output: %s", string(codeOutput))
 
-	// 9. 组织结构化 PR Body（解析三段式输出）
+	// 9. Organize structured PR Body (parse three-section output)
 	aiStr := string(codeOutput)
 
 	log.Infof("Parsing structured output")
-	// 解析三段式输出
+	// Parse three-section output
 	summary, changes, testPlan := parseStructuredOutput(aiStr)
 
-	// 构建PR Body
+	// Build PR Body
 	prBody := ""
 	if summary != "" {
 		prBody += models.SectionSummary + "\n\n" + summary + "\n\n"
@@ -216,18 +216,18 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 		prBody += models.SectionTestPlan + "\n\n" + testPlan + "\n\n"
 	}
 
-	// 添加原始输出和错误信息
+	// Add original output and error information
 	prBody += "---\n\n"
-	prBody += "<details><summary>AI 完整输出</summary>\n\n" + aiStr + "\n\n</details>\n\n"
+	prBody += "<details><summary>AI Complete Output</summary>\n\n" + aiStr + "\n\n</details>\n\n"
 
-	// 错误信息判断
+	// Error information detection
 	errorInfo := extractErrorInfo(aiStr)
 	if errorInfo != "" {
-		prBody += "## 错误信息\n\n```text\n" + errorInfo + "\n```\n\n"
+		prBody += "## Error Information\n\n```text\n" + errorInfo + "\n```\n\n"
 		log.Warnf("Error detected in AI output: %s", errorInfo)
 	}
 
-	prBody += "<details><summary>原始 Prompt</summary>\n\n" + codePrompt + "\n\n</details>"
+	prBody += "<details><summary>Original Prompt</summary>\n\n" + codePrompt + "\n\n</details>"
 
 	log.Infof("Updating PR body")
 	if err = a.github.UpdatePullRequest(pr, prBody); err != nil {
@@ -236,7 +236,7 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	}
 	log.Infof("PR body updated successfully")
 
-	// 10. 提交变更并推送到远程
+	// 10. Commit changes and push to remote
 	result := &models.ExecutionResult{
 		Output: string(codeOutput),
 	}
@@ -480,7 +480,7 @@ func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueC
 	return nil
 }
 
-// buildPromptWithCurrentComment 构建不同模式的 prompt，包含当前评论信息
+// buildPromptWithCurrentComment builds prompts for different modes, including current comment information
 func (a *Agent) buildPromptWithCurrentComment(mode string, args string, historicalContext string, currentComment string) string {
 	var prompt string
 	var taskDescription string
@@ -488,20 +488,20 @@ func (a *Agent) buildPromptWithCurrentComment(mode string, args string, historic
 
 	switch mode {
 	case "Continue":
-		taskDescription = "请根据上述PR描述、历史讨论和当前指令，进行相应的代码修改。"
-		defaultTask = "继续处理PR，分析代码变更并改进"
+		taskDescription = "Please make corresponding code modifications based on the above PR description, historical discussions, and current instructions."
+		defaultTask = "Continue processing PR, analyze code changes and improve"
 	case "Fix":
-		taskDescription = "请根据上述PR描述、历史讨论和当前指令，进行相应的代码修复。"
-		defaultTask = "分析并修复代码问题"
+		taskDescription = "Please make corresponding code fixes based on the above PR description, historical discussions, and current instructions."
+		defaultTask = "Analyze and fix code issues"
 	default:
-		taskDescription = "请根据上述PR描述、历史讨论和当前指令，进行相应的代码处理。"
-		defaultTask = "处理代码任务"
+		taskDescription = "Please handle the code accordingly based on the above PR description, historical discussions, and current instructions."
+		defaultTask = "Handle code tasks"
 	}
 
-	// 构建当前评论的上下文信息
+	// Build context information for current comment
 	var currentCommentContext string
 	if currentComment != "" {
-		// 从当前评论中提取command和args
+		// Extract command and args from current comment
 		var commentCommand, commentArgs string
 		if strings.HasPrefix(currentComment, "/continue") {
 			commentCommand = "/continue"
@@ -512,9 +512,9 @@ func (a *Agent) buildPromptWithCurrentComment(mode string, args string, historic
 		}
 
 		if commentArgs != "" {
-			currentCommentContext = fmt.Sprintf("## 当前评论\n用户刚刚发出指令：%s %s", commentCommand, commentArgs)
+			currentCommentContext = fmt.Sprintf("## Current Comment\nUser just issued command: %s %s", commentCommand, commentArgs)
 		} else {
-			currentCommentContext = fmt.Sprintf("## 当前评论\n用户刚刚发出指令：%s", commentCommand)
+			currentCommentContext = fmt.Sprintf("## Current Comment\nUser just issued command: %s", commentCommand)
 		}
 	}
 
@@ -529,20 +529,20 @@ func (a *Agent) buildPromptWithCurrentComment(mode string, args string, historic
 			}
 			fullContext := strings.Join(contextParts, "\n\n")
 
-			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
+			prompt = fmt.Sprintf(`As a PR code review assistant, please %s based on the following complete context:
 
 %s
 
-## 执行指令
+## Execution Instructions
 %s
 
-%s注意：
-1. 当前指令是主要任务，历史信息仅作为上下文参考
-2. 请确保修改符合PR的整体目标和已有的讨论共识
-3. 如果发现与历史讨论有冲突，请优先执行当前指令并在回复中说明`,
+%sNote:
+1. The current instruction is the main task, historical information is only for context reference
+2. Please ensure modifications align with the PR's overall goals and existing discussion consensus
+3. If conflicts with historical discussions are found, prioritize executing the current instruction and explain in the response`,
 				strings.ToLower(mode), fullContext, args, taskDescription)
 		} else {
-			prompt = fmt.Sprintf("根据指令%s：\n\n%s", strings.ToLower(mode), args)
+			prompt = fmt.Sprintf("According to instruction %s:\n\n%s", strings.ToLower(mode), args)
 		}
 	} else {
 		if historicalContext != "" || currentCommentContext != "" {
@@ -555,14 +555,14 @@ func (a *Agent) buildPromptWithCurrentComment(mode string, args string, historic
 			}
 			fullContext := strings.Join(contextParts, "\n\n")
 
-			prompt = fmt.Sprintf(`作为PR代码审查助手，请基于以下完整上下文来%s：
+			prompt = fmt.Sprintf(`As a PR code review assistant, please %s based on the following complete context:
 
 %s
 
-## 任务
+## Task
 %s
 
-请根据上述PR描述和历史讨论，进行相应的代码修改和改进。`,
+Please make corresponding code modifications and improvements based on the above PR description and historical discussions.`,
 				strings.ToLower(mode), fullContext, defaultTask)
 		} else {
 			prompt = defaultTask
@@ -572,17 +572,17 @@ func (a *Agent) buildPromptWithCurrentComment(mode string, args string, historic
 	return prompt
 }
 
-// ContinuePRWithArgs 继续处理 PR 中的任务，支持命令参数
+// ContinuePRWithArgs continues processing tasks in PR, supporting command parameters
 func (a *Agent) ContinuePRWithArgs(ctx context.Context, event *github.IssueCommentEvent, args string) error {
 	return a.processPRWithArgs(ctx, event, args, "Continue")
 }
 
-// ContinuePRWithArgsAndAI 继续处理 PR 中的任务，支持命令参数和AI模型
+// ContinuePRWithArgsAndAI continues processing tasks in PR, supporting command parameters and AI models
 func (a *Agent) ContinuePRWithArgsAndAI(ctx context.Context, event *github.IssueCommentEvent, aiModel, args string) error {
 	return a.processPRWithArgsAndAI(ctx, event, aiModel, args, "Continue")
 }
 
-// FixPR 修复 PR 中的问题
+// FixPR fixes issues in PR
 func (a *Agent) FixPR(ctx context.Context, pr *github.PullRequest) error {
 	return a.FixPRWithArgs(ctx, &github.IssueCommentEvent{
 		Issue: &github.Issue{
@@ -592,22 +592,22 @@ func (a *Agent) FixPR(ctx context.Context, pr *github.PullRequest) error {
 	}, "")
 }
 
-// FixPRWithArgs 修复 PR 中的问题，支持命令参数
+// FixPRWithArgs fixes issues in PR, supporting command parameters
 func (a *Agent) FixPRWithArgs(ctx context.Context, event *github.IssueCommentEvent, args string) error {
 	return a.processPRWithArgs(ctx, event, args, "Fix")
 }
 
-// FixPRWithArgsAndAI 修复 PR 中的问题，支持命令参数和AI模型
+// FixPRWithArgsAndAI fixes issues in PR, supporting command parameters and AI models
 func (a *Agent) FixPRWithArgsAndAI(ctx context.Context, event *github.IssueCommentEvent, aiModel, args string) error {
 	return a.processPRWithArgsAndAI(ctx, event, aiModel, args, "Fix")
 }
 
-// ContinuePRFromReviewComment 从 PR 代码行评论继续处理任务
+// ContinuePRFromReviewComment continues processing tasks from PR code line comments
 func (a *Agent) ContinuePRFromReviewComment(ctx context.Context, event *github.PullRequestReviewCommentEvent, args string) error {
 	return a.ContinuePRFromReviewCommentWithAI(ctx, event, "", args)
 }
 
-// ContinuePRFromReviewCommentWithAI 从 PR 代码行评论继续处理任务，支持AI模型
+// ContinuePRFromReviewCommentWithAI continues processing tasks from PR code line comments, supporting AI models
 func (a *Agent) ContinuePRFromReviewCommentWithAI(ctx context.Context, event *github.PullRequestReviewCommentEvent, aiModel, args string) error {
 	log := xlog.NewWith(ctx)
 

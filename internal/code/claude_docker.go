@@ -13,18 +13,18 @@ import (
 	"github.com/qiniu/x/log"
 )
 
-// claudeCode Docker 实现
+// claudeCode Docker implementation
 type claudeCode struct {
 	containerName string
 }
 
 func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
-	// 解析仓库信息，只获取仓库名，不包含完整URL
+	// Parse repository information, only get repository name, not including complete URL
 	repoName := extractRepoName(workspace.Repository)
-	// 新的容器命名规则：claude__组织__仓库__PR号（使用双下划线分隔符）
+	// New container naming rule: claude__organization__repository__PR_number (using double underscore separator)
 	containerName := fmt.Sprintf("claude__%s__%s__%d", workspace.Org, repoName, workspace.PRNumber)
 
-	// 检查是否已经有对应的容器在运行
+	// Check if corresponding container is already running
 	if isContainerRunning(containerName) {
 		log.Infof("Found existing container: %s, reusing it", containerName)
 		return &claudeCode{

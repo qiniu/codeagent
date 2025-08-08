@@ -7,37 +7,37 @@ import (
 	"github.com/google/go-github/v58/github"
 )
 
-// TemplatePromptGenerator 基于模板的提示词生成器
+// TemplatePromptGenerator template-based prompt generator
 type TemplatePromptGenerator struct {
 	formatter ContextFormatter
 }
 
-// NewTemplatePromptGenerator 创建新的模板生成器
+// NewTemplatePromptGenerator creates a new template generator
 func NewTemplatePromptGenerator(formatter ContextFormatter) *TemplatePromptGenerator {
 	return &TemplatePromptGenerator{
 		formatter: formatter,
 	}
 }
 
-// GeneratePrompt 使用模板生成提示词
+// GeneratePrompt generates prompts using templates
 func (g *TemplatePromptGenerator) GeneratePrompt(ctx *EnhancedContext, mode string, args string) (string, error) {
-	// 构建变量映射
+	// Build variable mapping
 	variables := g.buildVariables(ctx, mode, args)
 
-	// 根据模式选择模板
+	// Select template based on mode
 	template := g.selectTemplate(mode)
 
-	// 执行变量替换
+	// Execute variable substitution
 	prompt := g.substituteVariables(template, variables)
 
 	return prompt, nil
 }
 
-// buildVariables 构建变量映射
+// buildVariables builds variable mapping
 func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode string, args string) map[string]string {
 	vars := make(map[string]string)
 
-	// 基础信息
+	// Basic information
 	vars["REPOSITORY"] = ""
 	vars["PR_NUMBER"] = ""
 	vars["ISSUE_NUMBER"] = ""
@@ -52,16 +52,16 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 	vars["MODE"] = mode
 	vars["ARGS"] = args
 
-	// 从上下文中提取信息
+	// Extract information from context
 	if ctx.Type == ContextTypeIssue {
-		// Issue上下文 - 优先使用metadata中的信息
+		// Issue context - prefer information from metadata
 		vars["REPOSITORY"] = ""
 		vars["ISSUE_NUMBER"] = ""
 		vars["ISSUE_TITLE"] = ""
 		vars["ISSUE_BODY"] = ""
 		vars["IS_PR"] = "false"
 
-		// 从metadata中提取Issue信息
+		// Extract Issue information from metadata
 		if repo, ok := ctx.Metadata["repository"]; ok {
 			vars["REPOSITORY"] = fmt.Sprintf("%v", repo)
 		}
@@ -75,7 +75,7 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 			vars["ISSUE_BODY"] = fmt.Sprintf("%v", issueBody)
 		}
 
-		// 向后兼容：如果Subject是IssueCommentEvent，也尝试提取
+		// Backward compatibility: if Subject is IssueCommentEvent, also try to extract
 		if event, ok := ctx.Subject.(*github.IssueCommentEvent); ok {
 			if vars["REPOSITORY"] == "" {
 				vars["REPOSITORY"] = event.Repo.GetFullName()
@@ -91,12 +91,12 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 			}
 		}
 	} else if ctx.Code != nil {
-		// PR上下文
+		// PR context
 		vars["REPOSITORY"] = ctx.Code.Repository
 		vars["PR_NUMBER"] = ""
 		vars["ISSUE_NUMBER"] = ""
 
-		// 从metadata中提取PR/Issue编号
+		// Extract PR/Issue numbers from metadata
 		if prNumber, ok := ctx.Metadata["pr_number"]; ok {
 			vars["PR_NUMBER"] = fmt.Sprintf("%v", prNumber)
 			vars["IS_PR"] = "true"
@@ -107,7 +107,7 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 		}
 	}
 
-	// 文件变更信息
+	// File change information
 	if ctx.Code != nil && len(ctx.Code.Files) > 0 {
 		var filesBuilder strings.Builder
 		for _, file := range ctx.Code.Files {
@@ -119,7 +119,7 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 		vars["CHANGED_FILES"] = "No files changed"
 	}
 
-	// 评论信息
+	// Comment information
 	if len(ctx.Comments) > 0 {
 		var commentsBuilder strings.Builder
 		for _, comment := range ctx.Comments {
@@ -133,7 +133,7 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 		vars["COMMENTS"] = "No comments"
 	}
 
-	// 格式化上下文 - 使用格式化器生成Markdown
+	// Format context - use formatter to generate Markdown
 	if formatted, err := g.formatter.FormatToMarkdown(ctx); err == nil {
 		vars["FORMATTED_CONTEXT"] = formatted
 	} else {
