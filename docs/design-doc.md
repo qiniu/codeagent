@@ -10,7 +10,7 @@
 - **Code Implementation** ：可以实现简单的修复、重构，甚至新功能
 - **PR/Issue Integration**：与 GitHub 评论和公关评论无缝协作
 
-### 1.2 支持大量用户接入使用
+### 1.2 支持大量用户接入使用(交由AIGC部门主要负责“api.qnnaigc.com”)
 
 需要面向内部大规模使用，但 LLM 的官方api_key是有限的，无法为每个人提供一个官方的api_key。我们希望设计一个AI Gateway（AI网关/账号池），为每个人分发一个内部账号，该账号会通过AI Gateway映射到一个可用的api_key
 
