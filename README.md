@@ -2,7 +2,7 @@
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/qiniu/codeagent)](https://goreportcard.com/report/github.com/qiniu/codeagent)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/qiniu/codeagent)](https://go.dev/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/qiniu/codeagent/workflows/CI/badge.svg)](https://github.com/qiniu/codeagent/actions)
 
 **CodeAgent** is a Go-based AI-powered automated code generation and collaboration system that seamlessly integrates with GitHub. It receives AI instructions through GitHub webhooks and automatically handles code generation, modification, and review tasks for Issues and Pull Requests.
@@ -290,7 +290,7 @@ Please read our [Contributing Guide](CONTRIBUTING.md) for detailed information a
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [Apache License 2.0](LICENSE).
 
 ## 🙏 Acknowledgments
 
