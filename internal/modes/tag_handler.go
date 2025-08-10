@@ -903,31 +903,38 @@ func (th *TagHandler) processPRCommand(
 		xl.Infof("Changes committed and pushed successfully, commit hash: %s", commitHash)
 	}
 
-	// 12. 更新PR描述并添加完成评论
-	xl.Infof("Updating PR description and adding completion comment")
+	// 12. 更新PR描述（仅对/code命令）并添加完成评论
+	xl.Infof("Adding completion comment")
 
-	// 解析结构化输出用于PR描述
-	summary, changes, testPlan := th.parseStructuredOutput(string(output))
+	// 只有 /code 命令才更新PR描述，/continue 和 /fix 命令不更新PR描述
+	if cmdInfo.Command == models.CommandCode {
+		xl.Infof("Updating PR description for /code command")
+		
+		// 解析结构化输出用于PR描述
+		summary, changes, testPlan := th.parseStructuredOutput(string(output))
 
-	// 使用新的PR格式化器创建优雅描述
-	prFormatter := ctxsys.NewPRFormatter()
-	prBody := prFormatter.FormatPRDescription(
-		pr.GetTitle(),
-		pr.GetBody(),
-		summary,
-		changes,
-		testPlan,
-		string(output),
-		pr.GetNumber(),
-	)
+		// 使用新的PR格式化器创建优雅描述
+		prFormatter := ctxsys.NewPRFormatter()
+		prBody := prFormatter.FormatPRDescription(
+			pr.GetTitle(),
+			pr.GetBody(),
+			summary,
+			changes,
+			testPlan,
+			string(output),
+			pr.GetNumber(),
+		)
 
-	// 更新PR描述
-	err = th.updatePRWithMCP(ctx, ws, pr, prBody, string(output))
-	if err != nil {
-		xl.Errorf("Failed to update PR description via MCP: %v", err)
-		// 不返回错误，因为这不是致命的
+		// 更新PR描述
+		err = th.updatePRWithMCP(ctx, ws, pr, prBody, string(output))
+		if err != nil {
+			xl.Errorf("Failed to update PR description via MCP: %v", err)
+			// 不返回错误，因为这不是致命的
+		} else {
+			xl.Infof("Successfully updated PR description via MCP")
+		}
 	} else {
-		xl.Infof("Successfully updated PR description via MCP")
+		xl.Infof("Skipping PR description update for %s command", cmdInfo.Command)
 	}
 
 	// 添加简洁的完成评论

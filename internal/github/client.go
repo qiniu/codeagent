@@ -460,13 +460,8 @@ func (c *Client) ReplyToReviewComment(pr *github.PullRequest, commentID int64, c
 
 // UpdatePullRequest 更新 PR 的 Body
 func (c *Client) UpdatePullRequest(pr *github.PullRequest, newBody string) error {
-	return c.UpdatePullRequestWithMode(pr, newBody, false)
-}
-
-// UpdatePullRequestWithMode 更新 PR 的 Body，支持追加模式
-func (c *Client) UpdatePullRequestWithMode(pr *github.PullRequest, newBody string, appendMode bool) error {
 	prURL := pr.GetHTMLURL()
-	log.Infof("Updating PR body for URL: %s (append mode: %v)", prURL, appendMode)
+	log.Infof("Updating PR body for URL: %s", prURL)
 
 	repoOwner, repoName := c.parseRepoURL(prURL)
 	if repoOwner == "" || repoName == "" {
@@ -475,28 +470,7 @@ func (c *Client) UpdatePullRequestWithMode(pr *github.PullRequest, newBody strin
 
 	log.Infof("Parsed repository: %s/%s, PR number: %d", repoOwner, repoName, pr.GetNumber())
 
-	var finalBody string
-	if appendMode {
-		// 获取当前PR的最新信息以获取现有的描述
-		currentPR, _, err := c.client.PullRequests.Get(context.Background(), repoOwner, repoName, pr.GetNumber())
-		if err != nil {
-			return fmt.Errorf("failed to get current PR: %w", err)
-		}
-
-		// 构建新的Body：原有内容 + 分隔符 + 新内容
-		originalBody := currentPR.GetBody()
-		if originalBody != "" {
-			finalBody = originalBody + "\n\n---\n\n" + newBody
-		} else {
-			finalBody = newBody
-		}
-		log.Infof("Appending to existing PR description")
-	} else {
-		finalBody = newBody
-		log.Infof("Replacing PR description")
-	}
-
-	prRequest := &github.PullRequest{Body: &finalBody}
+	prRequest := &github.PullRequest{Body: &newBody}
 	_, _, err := c.client.PullRequests.Edit(context.Background(), repoOwner, repoName, pr.GetNumber(), prRequest)
 	if err != nil {
 		return fmt.Errorf("failed to update PR body: %w", err)
