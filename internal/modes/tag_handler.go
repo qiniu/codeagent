@@ -909,7 +909,7 @@ func (th *TagHandler) processPRCommand(
 	// 只有 /code 命令才更新PR描述，/continue 和 /fix 命令不更新PR描述
 	if cmdInfo.Command == models.CommandCode {
 		xl.Infof("Updating PR description for /code command")
-		
+
 		// 解析结构化输出用于PR描述
 		summary, changes, testPlan := th.parseStructuredOutput(string(output))
 

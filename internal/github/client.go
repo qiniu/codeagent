@@ -480,7 +480,6 @@ func (c *Client) UpdatePullRequest(pr *github.PullRequest, newBody string) error
 	return nil
 }
 
-
 // GetReviewComments 获取指定 review 的所有 comments
 func (c *Client) GetReviewComments(pr *github.PullRequest, reviewID int64) ([]*github.PullRequestComment, error) {
 	prURL := pr.GetHTMLURL()
