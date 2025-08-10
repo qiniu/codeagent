@@ -111,6 +111,10 @@ func NewGitHubCommentsServer(client *github.Client) *GitHubCommentsServer {
 									Type:        "string",
 									Description: "New PR description/body (Markdown supported)",
 								},
+								"replace": {
+									Type:        "boolean",
+									Description: "Whether to completely replace the existing description (default: false, which means append)",
+								},
 							},
 							Required: []string{"pr_number", "body"},
 						},
@@ -643,8 +647,17 @@ func (s *GitHubCommentsServer) updatePRDescription(ctx context.Context, call *mo
 		return nil, fmt.Errorf("failed to get PR: %w", err)
 	}
 
-	// 更新PR描述
-	err = s.client.UpdatePullRequest(pr, body)
+	// 检查是否需要追加内容（保留原有描述）
+	// 检查参数中是否指定了replace模式，默认为追加模式以保护原有内容
+	appendMode := true
+	if replaceModeVal, exists := call.Function.Arguments["replace"]; exists {
+		if replaceModeBool, ok := replaceModeVal.(bool); ok {
+			appendMode = !replaceModeBool // replace=true 意味着 append=false
+		}
+	}
+
+	// 根据模式选择更新或追加
+	err = s.client.UpdatePullRequestWithMode(pr, body, appendMode)
 	if err != nil {
 		xl.Errorf("Failed to update PR description: %v", err)
 		return nil, fmt.Errorf("failed to update PR description: %w", err)
