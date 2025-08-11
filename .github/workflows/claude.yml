@@ -1,0 +1,31 @@
+name: Claude Code Action
+
+on:
+  issue_comment:
+    types: [created, edited]
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  claude:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      
+    steps:
+      - name: Install bun
+        run: curl -fsSL https://bun.sh/install | bash
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 20 
+          
+      - name: Claude Code Action
+        uses: anthropics/claude-code-action@v0.0.31
+        with:
+          github_token: ${{ secrets.MY_GITHUB_TOKEN }}
+          anthropic_api_key: ${{secrets.ANTHROPIC_API_KEY}}
+          claude_env: |
+            DEBUG: true
+            ANTHROPIC_BASE_URL: ${{secrets.ANTHROPIC_BASE_URL}}
