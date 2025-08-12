@@ -9,6 +9,7 @@ import (
 
 	"github.com/qiniu/codeagent/internal/agent"
 	"github.com/qiniu/codeagent/internal/config"
+	"github.com/qiniu/codeagent/internal/content"
 	"github.com/qiniu/codeagent/pkg/signature"
 
 	"github.com/google/go-github/v58/github"
@@ -17,13 +18,58 @@ import (
 )
 
 type Handler struct {
-	config        *config.Config
-	agent         *agent.Agent
-	enhancedAgent *agent.EnhancedAgent // New Enhanced Agent field
+	config           *config.Config
+	agent            *agent.Agent
+	enhancedAgent    *agent.EnhancedAgent // New Enhanced Agent field
+	contentProcessor *content.Processor
 }
 
 func NewHandler(cfg *config.Config, agent *agent.Agent) *Handler {
-	return &Handler{config: cfg, agent: agent}
+	return &Handler{
+		config:           cfg,
+		agent:            agent,
+		contentProcessor: content.NewProcessor(),
+	}
+}
+
+// createEnhancedIssueCommentEvent creates an enhanced event with rich content processing
+func (h *Handler) createEnhancedIssueCommentEvent(ctx context.Context, event *github.IssueCommentEvent) *EnhancedIssueCommentEvent {
+	enhanced := &EnhancedIssueCommentEvent{
+		IssueCommentEvent: event,
+	}
+
+	// Process comment rich content
+	if commentBody := event.Comment.GetBody(); commentBody != "" {
+		if richContent, err := h.contentProcessor.ProcessContent(ctx, commentBody); err == nil {
+			enhanced.CommentRichContent = richContent
+			enhanced.FormattedComment = h.contentProcessor.FormatForAI(richContent)
+		}
+	}
+
+	// Process issue rich content
+	if issueBody := event.Issue.GetBody(); issueBody != "" {
+		if richContent, err := h.contentProcessor.ProcessContent(ctx, issueBody); err == nil {
+			enhanced.IssueRichContent = richContent
+			enhanced.FormattedIssue = h.contentProcessor.FormatForAI(richContent)
+		}
+	}
+
+	return enhanced
+}
+
+// Helper functions for logging rich content info
+func getAttachmentCount(richContent *content.RichContent) []content.AttachmentInfo {
+	if richContent == nil {
+		return []content.AttachmentInfo{}
+	}
+	return richContent.Attachments
+}
+
+func getCodeBlockCount(richContent *content.RichContent) []content.CodeBlock {
+	if richContent == nil {
+		return []content.CodeBlock{}
+	}
+	return richContent.CodeBlocks
 }
 
 // NewEnhancedHandler creates Enhanced webhook handler
@@ -167,12 +213,17 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 		return
 	}
 
-	comment := event.Comment.GetBody()
+	// Create enhanced event with rich content processing
+	enhancedEvent := h.createEnhancedIssueCommentEvent(ctx, &event)
+	
+	comment := event.Comment.GetBody() // Keep raw comment for command parsing
 	issueNumber := event.Issue.GetNumber()
 	issueTitle := event.Issue.GetTitle()
 
-	log.Infof("Processing issue comment: issue=#%d, title=%s, comment_length=%d",
-		issueNumber, issueTitle, len(comment))
+	log.Infof("Processing issue comment: issue=#%d, title=%s, comment_length=%d, attachments=%d, code_blocks=%d",
+		issueNumber, issueTitle, len(comment),
+		len(getAttachmentCount(enhancedEvent.CommentRichContent)),
+		len(getCodeBlockCount(enhancedEvent.CommentRichContent)))
 
 	// 检查是否是 PR 评论（Issue 的 PullRequest 字段不为空）
 	if event.Issue.PullRequestLinks != nil {

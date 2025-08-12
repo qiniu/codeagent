@@ -1,10 +1,12 @@
 package context
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/qiniu/codeagent/internal/content"
 	ghclient "github.com/qiniu/codeagent/internal/github"
 
 	"github.com/google/go-github/v58/github"
@@ -12,19 +14,41 @@ import (
 
 // DefaultContextCollector 默认上下文收集器实现
 type DefaultContextCollector struct {
-	githubClient *ghclient.Client
+	githubClient     *ghclient.Client
+	contentProcessor *content.Processor
 }
 
 // NewDefaultContextCollector 创建默认上下文收集器
 func NewDefaultContextCollector(githubClient *ghclient.Client) *DefaultContextCollector {
 	return &DefaultContextCollector{
-		githubClient: githubClient,
+		githubClient:     githubClient,
+		contentProcessor: content.NewProcessor(),
 	}
+}
+
+// processContentSafely safely processes content through rich content processor
+func (c *DefaultContextCollector) processContentSafely(ctx context.Context, body string) string {
+	if body == "" {
+		return body
+	}
+	
+	richContent, err := c.contentProcessor.ProcessContent(ctx, body)
+	if err != nil {
+		// Log error but return original content as fallback
+		return body
+	}
+	
+	return c.contentProcessor.FormatForAI(richContent)
 }
 
 // CollectBasicContext 收集基础上下文
 func (c *DefaultContextCollector) CollectBasicContext(eventType string, payload interface{}) (*EnhancedContext, error) {
-	ctx := &EnhancedContext{
+	return c.CollectBasicContextWithProcessor(context.Background(), eventType, payload)
+}
+
+// CollectBasicContextWithProcessor 收集基础上下文（支持富内容处理）
+func (c *DefaultContextCollector) CollectBasicContextWithProcessor(ctx context.Context, eventType string, payload interface{}) (*EnhancedContext, error) {
+	enhancedCtx := &EnhancedContext{
 		Timestamp: time.Now(),
 		Metadata:  make(map[string]interface{}),
 	}
@@ -32,56 +56,61 @@ func (c *DefaultContextCollector) CollectBasicContext(eventType string, payload 
 	switch eventType {
 	case "issue_comment":
 		if event, ok := payload.(*github.IssueCommentEvent); ok {
-			ctx.Type = ContextTypeIssue
-			ctx.Subject = event
-			ctx.Priority = PriorityHigh
-			ctx.Metadata["issue_number"] = event.Issue.GetNumber()
-			ctx.Metadata["issue_title"] = event.Issue.GetTitle()
-			ctx.Metadata["issue_body"] = event.Issue.GetBody()
-			ctx.Metadata["comment_id"] = event.Comment.GetID()
-			ctx.Metadata["repository"] = event.Repo.GetFullName()
-			ctx.Metadata["sender"] = event.GetSender().GetLogin()
+			enhancedCtx.Type = ContextTypeIssue
+			enhancedCtx.Subject = event
+			enhancedCtx.Priority = PriorityHigh
+			enhancedCtx.Metadata["issue_number"] = event.Issue.GetNumber()
+			enhancedCtx.Metadata["issue_title"] = event.Issue.GetTitle()
+			enhancedCtx.Metadata["issue_body"] = c.processContentSafely(ctx, event.Issue.GetBody())
+			enhancedCtx.Metadata["comment_body"] = c.processContentSafely(ctx, event.Comment.GetBody())
+			enhancedCtx.Metadata["comment_id"] = event.Comment.GetID()
+			enhancedCtx.Metadata["repository"] = event.Repo.GetFullName()
+			enhancedCtx.Metadata["sender"] = event.GetSender().GetLogin()
 		}
 	case "pull_request_review_comment":
 		if event, ok := payload.(*github.PullRequestReviewCommentEvent); ok {
-			ctx.Type = ContextTypeReviewComment
-			ctx.Subject = event
-			ctx.Priority = PriorityMedium
-			ctx.Metadata["pr_number"] = event.PullRequest.GetNumber()
-			ctx.Metadata["comment_id"] = event.Comment.GetID()
-			ctx.Metadata["file_path"] = event.Comment.GetPath()
-			ctx.Metadata["line_number"] = event.Comment.GetLine()
+			enhancedCtx.Type = ContextTypeReviewComment
+			enhancedCtx.Subject = event
+			enhancedCtx.Priority = PriorityMedium
+			enhancedCtx.Metadata["pr_number"] = event.PullRequest.GetNumber()
+			enhancedCtx.Metadata["comment_id"] = event.Comment.GetID()
+			enhancedCtx.Metadata["comment_body"] = c.processContentSafely(ctx, event.Comment.GetBody())
+			enhancedCtx.Metadata["file_path"] = event.Comment.GetPath()
+			enhancedCtx.Metadata["line_number"] = event.Comment.GetLine()
 		}
 	case "pull_request_review":
 		if event, ok := payload.(*github.PullRequestReviewEvent); ok {
-			ctx.Type = ContextTypeReview
-			ctx.Subject = event
-			ctx.Priority = PriorityHigh
-			ctx.Metadata["pr_number"] = event.PullRequest.GetNumber()
-			ctx.Metadata["review_id"] = event.Review.GetID()
-			ctx.Metadata["review_state"] = event.Review.GetState()
+			enhancedCtx.Type = ContextTypeReview
+			enhancedCtx.Subject = event
+			enhancedCtx.Priority = PriorityHigh
+			enhancedCtx.Metadata["pr_number"] = event.PullRequest.GetNumber()
+			enhancedCtx.Metadata["review_id"] = event.Review.GetID()
+			enhancedCtx.Metadata["review_state"] = event.Review.GetState()
+			enhancedCtx.Metadata["review_body"] = c.processContentSafely(ctx, event.Review.GetBody())
 		}
 	case "pull_request":
 		if event, ok := payload.(*github.PullRequestEvent); ok {
-			ctx.Type = ContextTypePR
-			ctx.Subject = event
-			ctx.Priority = PriorityCritical
-			ctx.Metadata["pr_number"] = event.PullRequest.GetNumber()
-			ctx.Metadata["action"] = event.GetAction()
+			enhancedCtx.Type = ContextTypePR
+			enhancedCtx.Subject = event
+			enhancedCtx.Priority = PriorityCritical
+			enhancedCtx.Metadata["pr_number"] = event.PullRequest.GetNumber()
+			enhancedCtx.Metadata["pr_body"] = c.processContentSafely(ctx, event.PullRequest.GetBody())
+			enhancedCtx.Metadata["action"] = event.GetAction()
 		}
 	case "issues":
 		if event, ok := payload.(*github.IssuesEvent); ok {
-			ctx.Type = ContextTypeIssue
-			ctx.Subject = event
-			ctx.Priority = PriorityMedium
-			ctx.Metadata["issue_number"] = event.Issue.GetNumber()
-			ctx.Metadata["action"] = event.GetAction()
+			enhancedCtx.Type = ContextTypeIssue
+			enhancedCtx.Subject = event
+			enhancedCtx.Priority = PriorityMedium
+			enhancedCtx.Metadata["issue_number"] = event.Issue.GetNumber()
+			enhancedCtx.Metadata["issue_body"] = c.processContentSafely(ctx, event.Issue.GetBody())
+			enhancedCtx.Metadata["action"] = event.GetAction()
 		}
 	default:
 		return nil, fmt.Errorf("unsupported event type: %s", eventType)
 	}
 
-	return ctx, nil
+	return enhancedCtx, nil
 }
 
 // CollectCodeContext 收集代码上下文
@@ -201,6 +230,11 @@ func (c *DefaultContextCollector) CollectGitHubContext(repoFullName string, prNu
 
 // CollectCommentContext 收集评论上下文
 func (c *DefaultContextCollector) CollectCommentContext(pr *github.PullRequest, currentCommentID int64) ([]CommentContext, error) {
+	return c.CollectCommentContextWithProcessor(context.Background(), pr, currentCommentID)
+}
+
+// CollectCommentContextWithProcessor 收集评论上下文（支持富内容处理）
+func (c *DefaultContextCollector) CollectCommentContextWithProcessor(ctx context.Context, pr *github.PullRequest, currentCommentID int64) ([]CommentContext, error) {
 	// 使用现有的方法获取所有评论
 	allComments, err := c.githubClient.GetAllPRComments(pr)
 	if err != nil {
@@ -216,7 +250,7 @@ func (c *DefaultContextCollector) CollectCommentContext(pr *github.PullRequest, 
 				ID:        comment.GetID(),
 				Type:      "comment",
 				Author:    comment.GetUser().GetLogin(),
-				Body:      comment.GetBody(),
+				Body:      c.processContentSafely(ctx, comment.GetBody()),
 				CreatedAt: comment.GetCreatedAt().Time,
 				UpdatedAt: comment.GetUpdatedAt().Time,
 			})
@@ -230,7 +264,7 @@ func (c *DefaultContextCollector) CollectCommentContext(pr *github.PullRequest, 
 				ID:         comment.GetID(),
 				Type:       "review_comment",
 				Author:     comment.GetUser().GetLogin(),
-				Body:       comment.GetBody(),
+				Body:       c.processContentSafely(ctx, comment.GetBody()),
 				CreatedAt:  comment.GetCreatedAt().Time,
 				UpdatedAt:  comment.GetUpdatedAt().Time,
 				FilePath:   comment.GetPath(),
@@ -247,7 +281,7 @@ func (c *DefaultContextCollector) CollectCommentContext(pr *github.PullRequest, 
 				ID:          review.GetID(),
 				Type:        "review",
 				Author:      review.GetUser().GetLogin(),
-				Body:        review.GetBody(),
+				Body:        c.processContentSafely(ctx, review.GetBody()),
 				CreatedAt:   review.GetSubmittedAt().Time,
 				UpdatedAt:   review.GetSubmittedAt().Time,
 				ReviewState: review.GetState(),

@@ -10,6 +10,7 @@ import (
 
 	"github.com/qiniu/codeagent/internal/code"
 	"github.com/qiniu/codeagent/internal/config"
+	"github.com/qiniu/codeagent/internal/content"
 	ghclient "github.com/qiniu/codeagent/internal/github"
 	"github.com/qiniu/codeagent/internal/workspace"
 	"github.com/qiniu/codeagent/pkg/models"
@@ -20,10 +21,11 @@ import (
 )
 
 type Agent struct {
-	config         *config.Config
-	github         *ghclient.Client
-	workspace      *workspace.Manager
-	sessionManager *code.SessionManager
+	config           *config.Config
+	github           *ghclient.Client
+	workspace        *workspace.Manager
+	sessionManager   *code.SessionManager
+	contentProcessor *content.Processor
 }
 
 func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
@@ -35,10 +37,11 @@ func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
 	}
 
 	a := &Agent{
-		config:         cfg,
-		github:         githubClient,
-		workspace:      workspaceManager,
-		sessionManager: code.NewSessionManager(cfg),
+		config:           cfg,
+		github:           githubClient,
+		workspace:        workspaceManager,
+		sessionManager:   code.NewSessionManager(cfg),
+		contentProcessor: content.NewProcessor(),
 	}
 
 	go a.StartCleanupRoutine()
@@ -166,7 +169,22 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 	}
 	log.Infof("Code client initialized successfully")
 
-	// 8. Execute code modification
+	// 8. Process rich content from issue
+	log.Infof("Processing rich content from issue")
+	richContent, err := a.contentProcessor.ProcessContent(ctx, event.Issue.GetBody())
+	if err != nil {
+		log.Errorf("Failed to process rich content: %v", err)
+		// Continue with plain text as fallback
+		richContent = &content.RichContent{
+			PlainText: event.Issue.GetBody(),
+		}
+	}
+
+	// Format content for AI consumption
+	formattedContent := a.contentProcessor.FormatForAI(richContent)
+	log.Infof("Rich content processed: %d attachments, %d code blocks", len(richContent.Attachments), len(richContent.CodeBlocks))
+
+	// 9. Execute code modification
 	codePrompt := fmt.Sprintf(`Modify code according to Issue:
 
 Title: %s
@@ -177,7 +195,7 @@ Output format:
 Brief description of changes
 
 %s
-- List modified files and specific changes`, event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
+- List modified files and specific changes`, event.Issue.GetTitle(), formattedContent, models.SectionSummary, models.SectionChanges)
 
 	log.Infof("Executing code modification with AI")
 	codeResp, err := code.PromptWithRetry(ctx, codeClient, codePrompt, 3)
@@ -423,7 +441,15 @@ func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueC
 	var currentComment string
 	if event.Comment != nil {
 		currentCommentID = event.Comment.GetID()
-		currentComment = event.Comment.GetBody()
+		// Process rich content from comment
+		if richContent, err := a.contentProcessor.ProcessContent(ctx, event.Comment.GetBody()); err == nil {
+			currentComment = a.contentProcessor.FormatForAI(richContent)
+			log.Infof("Processed rich content: %d attachments, %d code blocks", 
+				len(richContent.Attachments), len(richContent.CodeBlocks))
+		} else {
+			log.Warnf("Failed to process rich content, using plain text: %v", err)
+			currentComment = event.Comment.GetBody()
+		}
 	}
 	historicalContext := a.formatHistoricalComments(allComments, currentCommentID)
 
@@ -663,8 +689,19 @@ func (a *Agent) ContinuePRFromReviewCommentWithAI(ctx context.Context, event *gi
 		lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
 	}
 
+	// Process rich content from review comment
+	var formattedComment string
+	if richContent, err := a.contentProcessor.ProcessContent(ctx, event.Comment.GetBody()); err == nil {
+		formattedComment = a.contentProcessor.FormatForAI(richContent)
+		log.Infof("Processed review comment rich content: %d attachments, %d code blocks", 
+			len(richContent.Attachments), len(richContent.CodeBlocks))
+	} else {
+		log.Warnf("Failed to process review comment rich content, using plain text: %v", err)
+		formattedComment = event.Comment.GetBody()
+	}
+
 	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n%s",
-		event.Comment.GetBody(),
+		formattedComment,
 		event.Comment.GetPath(),
 		lineRangeInfo)
 
@@ -770,8 +807,19 @@ func (a *Agent) FixPRFromReviewCommentWithAI(ctx context.Context, event *github.
 		lineRangeInfo = fmt.Sprintf("行号：%d", endLine)
 	}
 
+	// Process rich content from review comment
+	var formattedComment string
+	if richContent, err := a.contentProcessor.ProcessContent(ctx, event.Comment.GetBody()); err == nil {
+		formattedComment = a.contentProcessor.FormatForAI(richContent)
+		log.Infof("Processed review comment rich content: %d attachments, %d code blocks", 
+			len(richContent.Attachments), len(richContent.CodeBlocks))
+	} else {
+		log.Warnf("Failed to process review comment rich content, using plain text: %v", err)
+		formattedComment = event.Comment.GetBody()
+	}
+
 	commentContext := fmt.Sprintf("代码行评论：%s\n文件：%s\n%s",
-		event.Comment.GetBody(),
+		formattedComment,
 		event.Comment.GetPath(),
 		lineRangeInfo)
 
@@ -876,7 +924,17 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUserAndAI(ctx context.Context, eve
 
 	// 添加 review body 作为总体上下文
 	if event.Review.GetBody() != "" {
-		commentContexts = append(commentContexts, fmt.Sprintf("Review 总体说明：%s", event.Review.GetBody()))
+		// Process rich content from review body
+		var formattedReviewBody string
+		if richContent, err := a.contentProcessor.ProcessContent(ctx, event.Review.GetBody()); err == nil {
+			formattedReviewBody = a.contentProcessor.FormatForAI(richContent)
+			log.Infof("Processed review body rich content: %d attachments, %d code blocks", 
+				len(richContent.Attachments), len(richContent.CodeBlocks))
+		} else {
+			log.Warnf("Failed to process review body rich content, using plain text: %v", err)
+			formattedReviewBody = event.Review.GetBody()
+		}
+		commentContexts = append(commentContexts, fmt.Sprintf("Review 总体说明：%s", formattedReviewBody))
 	}
 
 	// 为每个 comment 构建详细上下文
@@ -884,7 +942,14 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUserAndAI(ctx context.Context, eve
 		startLine := comment.GetStartLine()
 		endLine := comment.GetLine()
 		filePath := comment.GetPath()
-		commentBody := comment.GetBody()
+		
+		// Process rich content from individual review comment
+		var commentBody string
+		if richContent, err := a.contentProcessor.ProcessContent(ctx, comment.GetBody()); err == nil {
+			commentBody = a.contentProcessor.FormatForAI(richContent)
+		} else {
+			commentBody = comment.GetBody()
+		}
 
 		var lineRangeInfo string
 		if startLine != 0 && endLine != 0 && startLine != endLine {
