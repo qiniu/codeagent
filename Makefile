@@ -14,7 +14,7 @@ all: build
 build:
 	@echo "Building CodeAgent..."
 	@mkdir -p $(BUILD_DIR)
-	@GOOS=linux GOARCH=amd64 go build -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
+	@go build -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
 	@echo "Build completed: $(BUILD_DIR)/$(BINARY_NAME)"
 
 # Clean target
