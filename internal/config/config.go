@@ -34,8 +34,17 @@ type ServerConfig struct {
 }
 
 type GitHubConfig struct {
-	Token      string `yaml:"token"`
-	WebhookURL string `yaml:"webhook_url"`
+	Token      string           `yaml:"token"`       // Existing PAT support
+	WebhookURL string           `yaml:"webhook_url"` // Existing webhook URL
+	App        GitHubAppConfig  `yaml:"app"`         // New GitHub App configuration
+	AuthMode   string           `yaml:"auth_mode"`   // "token" | "app" | "auto"
+}
+
+type GitHubAppConfig struct {
+	AppID           int64  `yaml:"app_id"`
+	PrivateKeyPath  string `yaml:"private_key_path"`
+	PrivateKeyEnv   string `yaml:"private_key_env"`
+	PrivateKey      string `yaml:"private_key"`      // Direct content (not recommended for production)
 }
 
 type WorkspaceConfig struct {
@@ -87,9 +96,30 @@ func Load(configPath string) (*Config, error) {
 }
 
 func (c *Config) loadFromEnv() {
+	// Existing GitHub PAT configuration
 	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
 		c.GitHub.Token = token
 	}
+	
+	// New GitHub App configuration
+	if appIDStr := os.Getenv("GITHUB_APP_ID"); appIDStr != "" {
+		if appID, err := strconv.ParseInt(appIDStr, 10, 64); err == nil {
+			c.GitHub.App.AppID = appID
+		}
+	}
+	if privateKeyPath := os.Getenv("GITHUB_APP_PRIVATE_KEY_PATH"); privateKeyPath != "" {
+		c.GitHub.App.PrivateKeyPath = privateKeyPath
+	}
+	if privateKeyEnv := os.Getenv("GITHUB_APP_PRIVATE_KEY_ENV"); privateKeyEnv != "" {
+		c.GitHub.App.PrivateKeyEnv = privateKeyEnv
+	}
+	if privateKey := os.Getenv("GITHUB_APP_PRIVATE_KEY"); privateKey != "" {
+		c.GitHub.App.PrivateKey = privateKey
+	}
+	if authMode := os.Getenv("GITHUB_AUTH_MODE"); authMode != "" {
+		c.GitHub.AuthMode = authMode
+	}
+
 	if apiKey := os.Getenv("CLAUDE_API_KEY"); apiKey != "" {
 		c.Claude.APIKey = apiKey
 	}
@@ -137,7 +167,7 @@ func loadFromEnv() *Config {
 		}
 	}
 
-	return &Config{
+	config := &Config{
 		Server: ServerConfig{
 			Port:          port,
 			WebhookSecret: os.Getenv("WEBHOOK_SECRET"),
@@ -171,6 +201,11 @@ func loadFromEnv() *Config {
 		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
 		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", true),
 	}
+
+	// Load additional environment variables including GitHub App config
+	config.loadFromEnv()
+
+	return config
 }
 
 // resolvePaths 将配置中的相对路径转换为绝对路径
@@ -201,4 +236,142 @@ func getEnvBoolOrDefault(key string, defaultValue bool) bool {
 		}
 	}
 	return defaultValue
+}
+
+// GitHub App configuration validation and helpers
+
+// AuthMode constants for GitHub authentication
+const (
+	AuthModeToken = "token" // Personal Access Token
+	AuthModeApp   = "app"   // GitHub App
+	AuthModeAuto  = "auto"  // Automatic detection
+)
+
+// ValidateGitHubConfig validates the GitHub configuration
+func (c *Config) ValidateGitHubConfig() error {
+	github := &c.GitHub
+
+	// Normalize auth mode - auto-detect when empty or explicitly set to auto
+	if github.AuthMode == "" || github.AuthMode == AuthModeAuto {
+		// Auto-detect based on available configuration
+		if github.App.AppID > 0 && (github.App.PrivateKeyPath != "" || github.App.PrivateKeyEnv != "" || github.App.PrivateKey != "") {
+			github.AuthMode = AuthModeApp
+		} else if github.Token != "" {
+			github.AuthMode = AuthModeToken
+		} else {
+			github.AuthMode = AuthModeAuto
+		}
+	}
+
+	// Validate based on auth mode
+	switch github.AuthMode {
+	case AuthModeToken:
+		if github.Token == "" {
+			return fmt.Errorf("GitHub token is required when auth_mode is 'token'")
+		}
+	case AuthModeApp:
+		if github.App.AppID <= 0 {
+			return fmt.Errorf("GitHub App ID is required when auth_mode is 'app'")
+		}
+		if github.App.PrivateKeyPath == "" && github.App.PrivateKeyEnv == "" && github.App.PrivateKey == "" {
+			return fmt.Errorf("GitHub App private key source is required when auth_mode is 'app'")
+		}
+	case AuthModeAuto:
+		// Auto mode requires at least one authentication method
+		hasToken := github.Token != ""
+		hasApp := github.App.AppID > 0 && (github.App.PrivateKeyPath != "" || github.App.PrivateKeyEnv != "" || github.App.PrivateKey != "")
+		
+		if !hasToken && !hasApp {
+			return fmt.Errorf("GitHub authentication is required: either provide token or app configuration")
+		}
+	default:
+		return fmt.Errorf("invalid GitHub auth_mode: %s (valid options: token, app, auto)", github.AuthMode)
+	}
+
+	return nil
+}
+
+// IsGitHubAppConfigured returns whether GitHub App is properly configured
+func (c *Config) IsGitHubAppConfigured() bool {
+	app := &c.GitHub.App
+	return app.AppID > 0 && (app.PrivateKeyPath != "" || app.PrivateKeyEnv != "" || app.PrivateKey != "")
+}
+
+// IsGitHubTokenConfigured returns whether GitHub PAT is properly configured
+func (c *Config) IsGitHubTokenConfigured() bool {
+	return c.GitHub.Token != ""
+}
+
+// GetGitHubAuthMode returns the effective authentication mode
+func (c *Config) GetGitHubAuthMode() string {
+	if c.GitHub.AuthMode != "" {
+		return c.GitHub.AuthMode
+	}
+
+	// Auto-detect
+	if c.IsGitHubAppConfigured() {
+		return AuthModeApp
+	} else if c.IsGitHubTokenConfigured() {
+		return AuthModeToken
+	}
+
+	return AuthModeAuto
+}
+
+// SetDefaults sets default values for configuration fields
+func (c *Config) SetDefaults() {
+	// Set default auth mode if not specified
+	if c.GitHub.AuthMode == "" {
+		c.GitHub.AuthMode = AuthModeAuto
+	}
+
+	// Set default workspace cleanup after if not specified
+	if c.Workspace.CleanupAfter == 0 {
+		c.Workspace.CleanupAfter = 24 * time.Hour
+	}
+
+	// Set default base directory if not specified
+	if c.Workspace.BaseDir == "" {
+		c.Workspace.BaseDir = "/tmp/codeagent"
+	}
+
+	// Set default server port if not specified
+	if c.Server.Port == 0 {
+		c.Server.Port = 8080
+	}
+}
+
+// Validate validates the entire configuration
+func (c *Config) Validate() error {
+	// Set defaults first
+	c.SetDefaults()
+
+	// Validate GitHub configuration
+	if err := c.ValidateGitHubConfig(); err != nil {
+		return fmt.Errorf("GitHub configuration error: %w", err)
+	}
+
+	// Validate server configuration
+	if c.Server.Port <= 0 || c.Server.Port > 65535 {
+		return fmt.Errorf("invalid server port: %d", c.Server.Port)
+	}
+
+	if c.Server.WebhookSecret == "" {
+		return fmt.Errorf("webhook secret is required")
+	}
+
+	// Validate code provider
+	if c.CodeProvider == "" {
+		return fmt.Errorf("code provider is required")
+	}
+
+	validProviders := map[string]bool{
+		"claude": true,
+		"gemini": true,
+	}
+	if !validProviders[c.CodeProvider] {
+		return fmt.Errorf("invalid code provider: %s (valid options: claude, gemini)", c.CodeProvider)
+	}
+
+	return nil
 }
