@@ -31,13 +31,13 @@ func (p *PATAuthenticator) GetClient(ctx context.Context) (*github.Client, error
 
 	// Create OAuth2 token source
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: p.token})
-	
+
 	// Create HTTP client with OAuth2 transport
 	httpClient := oauth2.NewClient(ctx, ts)
-	
+
 	// Create GitHub client
 	client := github.NewClient(httpClient)
-	
+
 	return client, nil
 }
 

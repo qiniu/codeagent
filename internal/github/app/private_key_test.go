@@ -133,7 +133,7 @@ func TestPrivateKeyLoader_LoadFromEnv(t *testing.T) {
 	pemData := pem.EncodeToMemory(pemBlock)
 
 	envVar := "TEST_PRIVATE_KEY"
-	
+
 	t.Run("valid env var", func(t *testing.T) {
 		// Set environment variable
 		os.Setenv(envVar, string(pemData))

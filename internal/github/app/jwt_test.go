@@ -158,7 +158,7 @@ func TestNewGitHubAppClaims(t *testing.T) {
 	now := time.Now()
 	expectedMin := now.Add(8 * time.Minute)
 	expectedMax := now.Add(10 * time.Minute)
-	
+
 	assert.True(t, claims.ExpiresAt.After(expectedMin))
 	assert.True(t, claims.ExpiresAt.Before(expectedMax))
 }
@@ -176,7 +176,7 @@ func TestGitHubAppClaims_Valid(t *testing.T) {
 		// Manually set expiration to past
 		pastTime := time.Now().Add(-1 * time.Hour)
 		claims.ExpiresAt = jwt.NewNumericDate(pastTime)
-		
+
 		err := claims.Valid()
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "expired")
@@ -187,7 +187,7 @@ func TestGitHubAppClaims_Valid(t *testing.T) {
 		// Manually set issued time to future
 		futureTime := time.Now().Add(1 * time.Hour)
 		claims.IssuedAt = jwt.NewNumericDate(futureTime)
-		
+
 		err := claims.Valid()
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "before issued")

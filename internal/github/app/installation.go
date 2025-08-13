@@ -103,7 +103,7 @@ func (m *InstallationTokenManager) generateNewToken(ctx context.Context, install
 
 	// Prepare request to GitHub API
 	url := fmt.Sprintf("%s/app/installations/%d/access_tokens", m.baseURL, installationID)
-	
+
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader([]byte("{}")))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -223,7 +223,7 @@ func (m *InstallationTokenManager) CreateTokenWithPermissions(ctx context.Contex
 
 	// Prepare request to GitHub API
 	url := fmt.Sprintf("%s/app/installations/%d/access_tokens", m.baseURL, installationID)
-	
+
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)

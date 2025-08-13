@@ -53,7 +53,7 @@ func (m *GitHubClientManager) GetClient(ctx context.Context) (*github.Client, er
 			log.Infof("Using GitHub App authentication with installation ID: %d", installationID)
 			return m.clientFactory.CreateInstallationClient(ctx, installationID)
 		}
-		
+
 		// If no installation ID in context, log warning and use default client
 		log.Warnf("GitHub App configured but no installation ID found in context, using JWT client")
 	}
@@ -108,7 +108,7 @@ func (m *GitHubClientManager) DetectAuthMode() string {
 
 	authMode := m.config.GetGitHubAuthMode()
 	authInfo := m.GetAuthInfo()
-	
+
 	return fmt.Sprintf("configured=%s, active=%s", authMode, authInfo.Type)
 }
 
@@ -120,17 +120,17 @@ func (m *GitHubClientManager) getInstallationIDFromContext(ctx context.Context) 
 	if installationID, ok := ctx.Value("installation_id").(int64); ok {
 		return installationID
 	}
-	
+
 	// Try alternative context key formats
 	if installationID, ok := ctx.Value("github_installation_id").(int64); ok {
 		return installationID
 	}
-	
+
 	if installationIDStr, ok := ctx.Value("installation_id").(string); ok {
 		// Handle string conversion if needed
 		_ = installationIDStr // placeholder for string to int64 conversion
 	}
-	
+
 	return 0
 }
 

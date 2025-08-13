@@ -12,22 +12,22 @@ import (
 // TokenRefresher handles automatic token refresh for installations
 type TokenRefresher struct {
 	tokenManager *InstallationTokenManager
-	
+
 	// Configuration
-	refreshInterval   time.Duration // How often to check for expiring tokens
-	refreshThreshold  time.Duration // Refresh tokens expiring within this duration
-	maxConcurrency    int           // Maximum number of concurrent refresh operations
+	refreshInterval  time.Duration // How often to check for expiring tokens
+	refreshThreshold time.Duration // Refresh tokens expiring within this duration
+	maxConcurrency   int           // Maximum number of concurrent refresh operations
 
 	// State management
-	running    bool
-	stopCh     chan struct{}
-	doneCh     chan struct{}
-	mu         sync.RWMutex
-	
+	running bool
+	stopCh  chan struct{}
+	doneCh  chan struct{}
+	mu      sync.RWMutex
+
 	// Metrics
-	refreshCount   int64
-	failureCount   int64
-	lastRefreshAt  time.Time
+	refreshCount  int64
+	failureCount  int64
+	lastRefreshAt time.Time
 }
 
 // TokenRefreshConfig configures the token refresher
@@ -81,7 +81,7 @@ func (r *TokenRefresher) Start(ctx context.Context) error {
 
 	go r.run(ctx)
 
-	log.Infof("Token refresher started with interval %v, threshold %v", 
+	log.Infof("Token refresher started with interval %v, threshold %v",
 		r.refreshInterval, r.refreshThreshold)
 
 	return nil
@@ -97,7 +97,7 @@ func (r *TokenRefresher) Stop() error {
 	r.mu.Unlock()
 
 	close(r.stopCh)
-	
+
 	// Wait for the refresh loop to finish
 	select {
 	case <-r.doneCh:
@@ -146,13 +146,13 @@ func (r *TokenRefresher) run(ctx context.Context) {
 // performRefreshCycle checks for expiring tokens and refreshes them
 func (r *TokenRefresher) performRefreshCycle(ctx context.Context) {
 	start := time.Now()
-	
+
 	// Clean up expired tokens first
 	r.tokenManager.CleanupExpiredTokens()
 
 	// Get installations with expiring tokens
 	expiringInstallations := r.tokenManager.GetExpiringTokens(r.refreshThreshold)
-	
+
 	if len(expiringInstallations) == 0 {
 		return
 	}
@@ -168,7 +168,7 @@ func (r *TokenRefresher) performRefreshCycle(ctx context.Context) {
 		wg.Add(1)
 		go func(id int64) {
 			defer wg.Done()
-			
+
 			// Acquire semaphore
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
@@ -199,16 +199,16 @@ func (r *TokenRefresher) refreshInstallationToken(ctx context.Context, installat
 	_, err := r.tokenManager.RefreshToken(refreshCtx, installationID)
 	if err != nil {
 		log.Errorf("Failed to refresh token for installation %d: %v", installationID, err)
-		
+
 		r.mu.Lock()
 		r.failureCount++
 		r.mu.Unlock()
-		
+
 		return
 	}
 
 	log.Infof("Successfully refreshed token for installation %d", installationID)
-	
+
 	r.mu.Lock()
 	r.refreshCount++
 	r.mu.Unlock()

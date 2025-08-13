@@ -166,7 +166,7 @@ func (g *GitHubAppAuthenticator) RefreshInstallationToken(ctx context.Context, i
 	if g.tokenManager == nil {
 		return fmt.Errorf("token manager is not configured")
 	}
-	
+
 	_, err := g.tokenManager.RefreshToken(ctx, installationID)
 	return err
 }

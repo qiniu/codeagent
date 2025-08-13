@@ -26,7 +26,7 @@ func (f *DefaultClientFactory) CreateClient(ctx context.Context) (*github.Client
 	if f.authenticator == nil {
 		return nil, fmt.Errorf("authenticator is not configured")
 	}
-	
+
 	return f.authenticator.GetClient(ctx)
 }
 
@@ -35,7 +35,7 @@ func (f *DefaultClientFactory) CreateInstallationClient(ctx context.Context, ins
 	if f.authenticator == nil {
 		return nil, fmt.Errorf("authenticator is not configured")
 	}
-	
+
 	return f.authenticator.GetInstallationClient(ctx, installationID)
 }
 
@@ -82,11 +82,11 @@ func (b *AuthenticatorBuilder) BuildAuthenticator() (Authenticator, error) {
 			// Log the error but continue to PAT fallback
 			fmt.Printf("Warning: GitHub App configuration failed: %v\n", err)
 		}
-		
+
 		if b.config.IsGitHubTokenConfigured() {
 			return b.buildPATAuthenticator()
 		}
-		
+
 		return nil, fmt.Errorf("no valid GitHub authentication configuration found")
 	default:
 		return nil, fmt.Errorf("unsupported auth mode: %s", authMode)
@@ -142,9 +142,9 @@ func (b *AuthenticatorBuilder) BuildClientFactory() (ClientFactory, error) {
 
 // HybridAuthenticator wraps multiple authenticators and provides fallback behavior
 type HybridAuthenticator struct {
-	primary   Authenticator
-	fallback  Authenticator
-	authMode  string
+	primary  Authenticator
+	fallback Authenticator
+	authMode string
 }
 
 // NewHybridAuthenticator creates a hybrid authenticator with primary and fallback
@@ -197,7 +197,7 @@ func (h *HybridAuthenticator) GetAuthInfo() AuthInfo {
 	if h.primary != nil && h.primary.IsConfigured() {
 		return h.primary.GetAuthInfo()
 	}
-	
+
 	if h.fallback != nil && h.fallback.IsConfigured() {
 		return h.fallback.GetAuthInfo()
 	}
@@ -208,7 +208,7 @@ func (h *HybridAuthenticator) GetAuthInfo() AuthInfo {
 // IsConfigured returns true if at least one authenticator is configured
 func (h *HybridAuthenticator) IsConfigured() bool {
 	return (h.primary != nil && h.primary.IsConfigured()) ||
-		   (h.fallback != nil && h.fallback.IsConfigured())
+		(h.fallback != nil && h.fallback.IsConfigured())
 }
 
 // ValidateAccess validates the working authenticator

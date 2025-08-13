@@ -11,13 +11,13 @@ import (
 func TestGitHubAppConfig(t *testing.T) {
 	// Test environment variable loading for GitHub App
 	originalEnv := map[string]string{
-		"GITHUB_APP_ID":                 os.Getenv("GITHUB_APP_ID"),
-		"GITHUB_APP_PRIVATE_KEY_PATH":   os.Getenv("GITHUB_APP_PRIVATE_KEY_PATH"),
-		"GITHUB_APP_PRIVATE_KEY_ENV":    os.Getenv("GITHUB_APP_PRIVATE_KEY_ENV"),
-		"GITHUB_APP_PRIVATE_KEY":        os.Getenv("GITHUB_APP_PRIVATE_KEY"),
-		"GITHUB_AUTH_MODE":              os.Getenv("GITHUB_AUTH_MODE"),
+		"GITHUB_APP_ID":               os.Getenv("GITHUB_APP_ID"),
+		"GITHUB_APP_PRIVATE_KEY_PATH": os.Getenv("GITHUB_APP_PRIVATE_KEY_PATH"),
+		"GITHUB_APP_PRIVATE_KEY_ENV":  os.Getenv("GITHUB_APP_PRIVATE_KEY_ENV"),
+		"GITHUB_APP_PRIVATE_KEY":      os.Getenv("GITHUB_APP_PRIVATE_KEY"),
+		"GITHUB_AUTH_MODE":            os.Getenv("GITHUB_AUTH_MODE"),
 	}
-	
+
 	// Clean up environment variables after test
 	defer func() {
 		for key, value := range originalEnv {
@@ -48,9 +48,9 @@ func TestGitHubAppConfig(t *testing.T) {
 
 func TestValidateGitHubConfig(t *testing.T) {
 	tests := []struct {
-		name        string
-		config      GitHubConfig
-		expectError bool
+		name          string
+		config        GitHubConfig
+		expectError   bool
 		errorContains string
 	}{
 		{
@@ -339,9 +339,9 @@ func TestConfigSetDefaults(t *testing.T) {
 
 func TestConfigValidate(t *testing.T) {
 	tests := []struct {
-		name        string
-		config      Config
-		expectError bool
+		name          string
+		config        Config
+		expectError   bool
 		errorContains string
 	}{
 		{
@@ -443,11 +443,11 @@ func TestConfigValidate(t *testing.T) {
 func TestBackwardCompatibility(t *testing.T) {
 	// Test that existing configurations still work
 	originalEnv := map[string]string{
-		"GITHUB_TOKEN":    os.Getenv("GITHUB_TOKEN"),
-		"WEBHOOK_SECRET":  os.Getenv("WEBHOOK_SECRET"),
-		"CODE_PROVIDER":   os.Getenv("CODE_PROVIDER"),
+		"GITHUB_TOKEN":   os.Getenv("GITHUB_TOKEN"),
+		"WEBHOOK_SECRET": os.Getenv("WEBHOOK_SECRET"),
+		"CODE_PROVIDER":  os.Getenv("CODE_PROVIDER"),
 	}
-	
+
 	defer func() {
 		for key, value := range originalEnv {
 			if value == "" {
@@ -475,7 +475,7 @@ func TestBackwardCompatibility(t *testing.T) {
 	assert.Equal(t, AuthModeToken, config.GetGitHubAuthMode())
 	assert.True(t, config.IsGitHubTokenConfigured())
 	assert.False(t, config.IsGitHubAppConfigured())
-	
+
 	// After validation, the auth mode should be auto-detected and set to token
 	// ValidateGitHubConfig sets the auth mode during validation when it's empty or auto
 	assert.Equal(t, AuthModeToken, config.GitHub.AuthMode)

@@ -25,7 +25,7 @@ func TestPATAuthenticator(t *testing.T) {
 
 	t.Run("IsConfigured", func(t *testing.T) {
 		assert.True(t, auth.IsConfigured())
-		
+
 		emptyAuth := NewPATAuthenticator("")
 		assert.False(t, emptyAuth.IsConfigured())
 	})
@@ -96,7 +96,7 @@ func TestGitHubAppAuthenticator(t *testing.T) {
 
 	t.Run("IsConfigured", func(t *testing.T) {
 		assert.True(t, auth.IsConfigured())
-		
+
 		// Test with nil components
 		emptyAuth := NewGitHubAppAuthenticator(nil, nil)
 		assert.False(t, emptyAuth.IsConfigured())
@@ -305,7 +305,7 @@ func TestAuthenticatorBuilder(t *testing.T) {
 func TestHybridAuthenticator(t *testing.T) {
 	primaryAuth := NewPATAuthenticator("ghp_primary_token")
 	fallbackAuth := NewPATAuthenticator("ghp_fallback_token")
-	
+
 	hybrid := NewHybridAuthenticator(primaryAuth, fallbackAuth, config.AuthModeAuto)
 
 	t.Run("IsConfigured", func(t *testing.T) {
@@ -328,9 +328,9 @@ func TestHybridAuthenticator(t *testing.T) {
 		// Use unconfigured primary and configured fallback
 		emptyPrimary := NewPATAuthenticator("")
 		workingFallback := NewPATAuthenticator("ghp_fallback_token")
-		
+
 		hybridWithFallback := NewHybridAuthenticator(emptyPrimary, workingFallback, config.AuthModeAuto)
-		
+
 		ctx := context.Background()
 		client, err := hybridWithFallback.GetClient(ctx)
 		require.NoError(t, err)
@@ -347,13 +347,13 @@ func parseURL(s string) (*url.URL, error) {
 func privateKeyToPEM(key *rsa.PrivateKey) string {
 	// Convert RSA private key to PEM format
 	privateKeyDER := x509.MarshalPKCS1PrivateKey(key)
-	
+
 	// Create PEM block
 	privateKeyBlock := pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: privateKeyDER,
 	}
-	
+
 	// Encode to PEM format
 	return string(pem.EncodeToMemory(&privateKeyBlock))
 }

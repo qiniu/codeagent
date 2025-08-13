@@ -210,7 +210,7 @@ func (a *EnhancedAgent) extractInstallationIDFromPayload(ctx context.Context, pa
 				}
 
 				xl.Infof("Extracted installation ID from webhook payload: %d", installationID)
-				
+
 				// 将 installation ID 添加到 context
 				ctxWithInstallation := context.WithValue(ctx, "installation_id", installationID)
 				return ctxWithInstallation, nil

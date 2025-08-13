@@ -16,9 +16,9 @@ import (
 
 func TestToken_IsExpired(t *testing.T) {
 	tests := []struct {
-		name      string
-		token     *Token
-		expected  bool
+		name     string
+		token    *Token
+		expected bool
 	}{
 		{
 			name: "not expired",
@@ -148,11 +148,11 @@ func createTestJWTGenerator() *JWTGenerator {
 
 func TestNewInstallationTokenManager(t *testing.T) {
 	jwtGen := createTestJWTGenerator()
-	
+
 	// Test with custom HTTP client
 	customClient := &http.Client{Timeout: 60 * time.Second}
 	manager := NewInstallationTokenManager(jwtGen, customClient)
-	
+
 	assert.NotNil(t, manager)
 	assert.Equal(t, jwtGen, manager.jwtGenerator)
 	assert.Equal(t, customClient, manager.httpClient)
@@ -283,10 +283,10 @@ func TestInstallationTokenManager_RefreshToken(t *testing.T) {
 
 func TestInstallationTokenManager_CreateTokenWithPermissions(t *testing.T) {
 	var receivedBody map[string]interface{}
-	
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&receivedBody)
-		
+
 		response := TokenResponse{
 			Token:     "ghs_permission_token",
 			ExpiresAt: time.Now().Add(1 * time.Hour),
@@ -348,7 +348,7 @@ func TestInstallationTokenManager_CacheOperations(t *testing.T) {
 	manager.cache.Set(123, testToken)
 	manager.cache.Set(456, testToken)
 	assert.Equal(t, 2, manager.GetCacheSize())
-	
+
 	manager.ClearCache()
 	assert.Equal(t, 0, manager.GetCacheSize())
 }
