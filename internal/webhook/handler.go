@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
 	"github.com/qiniu/codeagent/internal/agent"
 	"github.com/qiniu/codeagent/internal/config"
-	"github.com/qiniu/codeagent/pkg/signature"
 
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/reqid"
@@ -79,28 +79,11 @@ func (h *Handler) handleOriginalWebhook(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 2. 验证 Webhook 签名
-	if h.config.Server.WebhookSecret != "" {
-		// 优先使用 SHA-256 签名
-		sig256 := r.Header.Get("X-Hub-Signature-256")
-		if sig256 != "" {
-			if err := signature.ValidateGitHubSignature(sig256, body, h.config.Server.WebhookSecret); err != nil {
-				http.Error(w, "invalid signature", http.StatusUnauthorized)
-				return
-			}
-		} else {
-			// 如果没有 SHA-256 签名，尝试 SHA-1 签名 (已弃用但仍支持)
-			sig1 := r.Header.Get("X-Hub-Signature")
-			if sig1 != "" {
-				if err := signature.ValidateGitHubSignatureSHA1(sig1, body, h.config.Server.WebhookSecret); err != nil {
-					http.Error(w, "invalid signature", http.StatusUnauthorized)
-					return
-				}
-			} else {
-				http.Error(w, "missing signature", http.StatusUnauthorized)
-				return
-			}
-		}
+	// 2. 智能验证 Webhook 签名（自动检测 GitHub App vs Repository webhook）
+	if err := h.ValidateWebhookSignature(r, body); err != nil {
+		log.Printf("Webhook signature validation failed: %v", err)
+		http.Error(w, "invalid signature", http.StatusUnauthorized)
+		return
 	}
 
 	// 3. 获取事件类型
@@ -540,28 +523,11 @@ func (h *Handler) handleEnhancedWebhook(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 2. 验证 Webhook 签名
-	if h.config.Server.WebhookSecret != "" {
-		// 优先使用 SHA-256 签名
-		sig256 := r.Header.Get("X-Hub-Signature-256")
-		if sig256 != "" {
-			if err := signature.ValidateGitHubSignature(sig256, body, h.config.Server.WebhookSecret); err != nil {
-				http.Error(w, "invalid signature", http.StatusUnauthorized)
-				return
-			}
-		} else {
-			// 如果没有 SHA-256 签名，尝试 SHA-1 签名 (已弃用但仍支持)
-			sig1 := r.Header.Get("X-Hub-Signature")
-			if sig1 != "" {
-				if err := signature.ValidateGitHubSignatureSHA1(sig1, body, h.config.Server.WebhookSecret); err != nil {
-					http.Error(w, "invalid signature", http.StatusUnauthorized)
-					return
-				}
-			} else {
-				http.Error(w, "missing signature", http.StatusUnauthorized)
-				return
-			}
-		}
+	// 2. 智能验证 Webhook 签名（复用统一的签名验证逻辑）
+	if err := h.ValidateWebhookSignature(r, body); err != nil {
+		log.Printf("Enhanced webhook signature validation failed: %v", err)
+		http.Error(w, "invalid signature", http.StatusUnauthorized)
+		return
 	}
 
 	// 3. 获取事件类型
@@ -600,7 +566,7 @@ func (h *Handler) handleEnhancedWebhook(w http.ResponseWriter, r *http.Request) 
 		}
 	}(eventType, body, deliveryID, ctx)
 
-	// 7. 返回成功响应
+	// 6. 返回成功响应
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("enhanced event processing started"))
 }

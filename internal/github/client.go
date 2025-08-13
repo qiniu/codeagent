@@ -13,28 +13,23 @@ import (
 
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/log"
-	"golang.org/x/oauth2"
 )
 
 type Client struct {
-	client *github.Client
-	config *config.Config
+	manager *GitHubClientManager
+	config  *config.Config
 }
 
 func NewClient(cfg *config.Config) (*Client, error) {
-	if cfg.GitHub.Token == "" {
-		return nil, fmt.Errorf("GitHub token is required")
+	// Create GitHub client manager with automatic authentication detection
+	manager, err := NewGitHubClientManager(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub client manager: %w", err)
 	}
 
-	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: cfg.GitHub.Token},
-	)
-	tc := oauth2.NewClient(context.Background(), ts)
-	client := github.NewClient(tc)
-
 	return &Client{
-		client: client,
-		config: cfg,
+		manager: manager,
+		config:  cfg,
 	}, nil
 }
 
@@ -119,6 +114,18 @@ func (c *Client) checkGitConfig(workspacePath string) {
 
 // CreatePullRequest 创建 Pull Request
 func (c *Client) CreatePullRequest(workspace *models.Workspace) (*github.PullRequest, error) {
+	return c.CreatePullRequestWithContext(context.Background(), workspace)
+}
+
+// CreatePullRequestWithContext 创建 Pull Request（带context）
+func (c *Client) CreatePullRequestWithContext(ctx context.Context, workspace *models.Workspace) (*github.PullRequest, error) {
+
+	// 获取GitHub客户端
+	githubClient, err := c.manager.GetClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
 	// 解析仓库信息
 	repoOwner, repoName := c.parseRepoURL(workspace.Repository)
 	if repoOwner == "" || repoName == "" {
@@ -126,7 +133,7 @@ func (c *Client) CreatePullRequest(workspace *models.Workspace) (*github.PullReq
 	}
 
 	// 获取仓库的默认分支
-	defaultBranch, err := c.getDefaultBranch(repoOwner, repoName)
+	defaultBranch, err := c.getDefaultBranch(ctx, githubClient, repoOwner, repoName)
 	if err != nil {
 		log.Errorf("Failed to get default branch for %s/%s, using 'main' as fallback: %v", repoOwner, repoName, err)
 		defaultBranch = "main"
@@ -160,7 +167,7 @@ func (c *Client) CreatePullRequest(workspace *models.Workspace) (*github.PullReq
 		Base:  &defaultBranch,
 	}
 
-	pr, _, err := c.client.PullRequests.Create(context.Background(), repoOwner, repoName, newPR)
+	pr, _, err := githubClient.PullRequests.Create(ctx, repoOwner, repoName, newPR)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PR: %w", err)
 	}
@@ -170,8 +177,8 @@ func (c *Client) CreatePullRequest(workspace *models.Workspace) (*github.PullReq
 }
 
 // getDefaultBranch 获取仓库的默认分支
-func (c *Client) getDefaultBranch(owner, repo string) (string, error) {
-	repository, _, err := c.client.Repositories.Get(context.Background(), owner, repo)
+func (c *Client) getDefaultBranch(ctx context.Context, githubClient *github.Client, owner, repo string) (string, error) {
+	repository, _, err := githubClient.Repositories.Get(ctx, owner, repo)
 	if err != nil {
 		return "", fmt.Errorf("failed to get repository info: %w", err)
 	}
@@ -402,7 +409,18 @@ func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullR
 
 // GetPullRequest 获取 PR 的完整信息
 func (c *Client) GetPullRequest(owner, repo string, prNumber int) (*github.PullRequest, error) {
-	pr, _, err := c.client.PullRequests.Get(context.Background(), owner, repo, prNumber)
+	return c.GetPullRequestWithContext(context.Background(), owner, repo, prNumber)
+}
+
+// GetPullRequestWithContext 获取 PR 的完整信息（带context）
+func (c *Client) GetPullRequestWithContext(ctx context.Context, owner, repo string, prNumber int) (*github.PullRequest, error) {
+	// 获取GitHub客户端
+	githubClient, err := c.manager.GetClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
+	pr, _, err := githubClient.PullRequests.Get(ctx, owner, repo, prNumber)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PR #%d: %w", prNumber, err)
 	}
@@ -411,6 +429,17 @@ func (c *Client) GetPullRequest(owner, repo string, prNumber int) (*github.PullR
 
 // CreatePullRequestComment 在 PR 上创建评论
 func (c *Client) CreatePullRequestComment(pr *github.PullRequest, commentBody string) error {
+	return c.CreatePullRequestCommentWithContext(context.Background(), pr, commentBody)
+}
+
+// CreatePullRequestCommentWithContext 在 PR 上创建评论（带context）
+func (c *Client) CreatePullRequestCommentWithContext(ctx context.Context, pr *github.PullRequest, commentBody string) error {
+	// 获取GitHub客户端
+	githubClient, err := c.manager.GetClient(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
 	prURL := pr.GetHTMLURL()
 	log.Infof("Creating comment for PR URL: %s", prURL)
 
@@ -427,7 +456,7 @@ func (c *Client) CreatePullRequestComment(pr *github.PullRequest, commentBody st
 		Body: &commentBody,
 	}
 
-	_, _, err := c.client.Issues.CreateComment(context.Background(), repoOwner, repoName, pr.GetNumber(), comment)
+	_, _, err = githubClient.Issues.CreateComment(ctx, repoOwner, repoName, pr.GetNumber(), comment)
 	if err != nil {
 		return fmt.Errorf("failed to create PR comment: %w", err)
 	}
@@ -438,6 +467,18 @@ func (c *Client) CreatePullRequestComment(pr *github.PullRequest, commentBody st
 
 // ReplyToReviewComment 回复 PR 代码行评论
 func (c *Client) ReplyToReviewComment(pr *github.PullRequest, commentID int64, commentBody string) error {
+	return c.ReplyToReviewCommentWithContext(context.Background(), pr, commentID, commentBody)
+}
+
+// ReplyToReviewCommentWithContext 回复 PR 代码行评论（带context）
+func (c *Client) ReplyToReviewCommentWithContext(ctx context.Context, pr *github.PullRequest, commentID int64, commentBody string) error {
+
+	// 获取GitHub客户端
+	githubClient, err := c.manager.GetClient(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
 	prURL := pr.GetHTMLURL()
 	log.Infof("Replying to review comment %d for PR URL: %s", commentID, prURL)
 
@@ -449,7 +490,7 @@ func (c *Client) ReplyToReviewComment(pr *github.PullRequest, commentID int64, c
 	log.Infof("Parsed repository: %s/%s, PR number: %d, comment ID: %d", repoOwner, repoName, pr.GetNumber(), commentID)
 
 	// 使用 Pull Request Review Comments API 来回复评论
-	_, _, err := c.client.PullRequests.CreateCommentInReplyTo(context.Background(), repoOwner, repoName, pr.GetNumber(), commentBody, commentID)
+	_, _, err = githubClient.PullRequests.CreateCommentInReplyTo(ctx, repoOwner, repoName, pr.GetNumber(), commentBody, commentID)
 	if err != nil {
 		return fmt.Errorf("failed to reply to review comment: %w", err)
 	}
@@ -460,6 +501,17 @@ func (c *Client) ReplyToReviewComment(pr *github.PullRequest, commentID int64, c
 
 // UpdatePullRequest 更新 PR 的 Body
 func (c *Client) UpdatePullRequest(pr *github.PullRequest, newBody string) error {
+	return c.UpdatePullRequestWithContext(context.Background(), pr, newBody)
+}
+
+// UpdatePullRequestWithContext 更新 PR 的 Body（带context）
+func (c *Client) UpdatePullRequestWithContext(ctx context.Context, pr *github.PullRequest, newBody string) error {
+	// 获取GitHub客户端
+	githubClient, err := c.manager.GetClient(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
 	prURL := pr.GetHTMLURL()
 	log.Infof("Updating PR body for URL: %s", prURL)
 
@@ -471,7 +523,7 @@ func (c *Client) UpdatePullRequest(pr *github.PullRequest, newBody string) error
 	log.Infof("Parsed repository: %s/%s, PR number: %d", repoOwner, repoName, pr.GetNumber())
 
 	prRequest := &github.PullRequest{Body: &newBody}
-	_, _, err := c.client.PullRequests.Edit(context.Background(), repoOwner, repoName, pr.GetNumber(), prRequest)
+	_, _, err = githubClient.PullRequests.Edit(ctx, repoOwner, repoName, pr.GetNumber(), prRequest)
 	if err != nil {
 		return fmt.Errorf("failed to update PR body: %w", err)
 	}
@@ -482,13 +534,24 @@ func (c *Client) UpdatePullRequest(pr *github.PullRequest, newBody string) error
 
 // GetReviewComments 获取指定 review 的所有 comments
 func (c *Client) GetReviewComments(pr *github.PullRequest, reviewID int64) ([]*github.PullRequestComment, error) {
+	return c.GetReviewCommentsWithContext(context.Background(), pr, reviewID)
+}
+
+// GetReviewCommentsWithContext 获取指定 review 的所有 comments（带context）
+func (c *Client) GetReviewCommentsWithContext(ctx context.Context, pr *github.PullRequest, reviewID int64) ([]*github.PullRequestComment, error) {
+	// 获取GitHub客户端
+	githubClient, err := c.manager.GetClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
 	prURL := pr.GetHTMLURL()
 	repoOwner, repoName := c.parseRepoURL(prURL)
 	if repoOwner == "" || repoName == "" {
 		return nil, fmt.Errorf("invalid repository URL: %s", prURL)
 	}
 
-	comments, _, err := c.client.PullRequests.ListComments(context.Background(), repoOwner, repoName, pr.GetNumber(), &github.PullRequestListCommentsOptions{})
+	comments, _, err := githubClient.PullRequests.ListComments(ctx, repoOwner, repoName, pr.GetNumber(), &github.PullRequestListCommentsOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get review comments: %w", err)
 	}
@@ -506,6 +569,18 @@ func (c *Client) GetReviewComments(pr *github.PullRequest, reviewID int64) ([]*g
 
 // GetAllPRComments 获取 PR 的所有评论，包括一般评论和代码行评论
 func (c *Client) GetAllPRComments(pr *github.PullRequest) (*models.PRAllComments, error) {
+	return c.GetAllPRCommentsWithContext(context.Background(), pr)
+}
+
+// GetAllPRCommentsWithContext 获取 PR 的所有评论，包括一般评论和代码行评论（带context）
+func (c *Client) GetAllPRCommentsWithContext(ctx context.Context, pr *github.PullRequest) (*models.PRAllComments, error) {
+
+	// 获取GitHub客户端
+	githubClient, err := c.manager.GetClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
 	prURL := pr.GetHTMLURL()
 	repoOwner, repoName := c.parseRepoURL(prURL)
 	if repoOwner == "" || repoName == "" {
@@ -516,19 +591,19 @@ func (c *Client) GetAllPRComments(pr *github.PullRequest) (*models.PRAllComments
 	log.Infof("Fetching all comments for PR #%d", prNumber)
 
 	// 获取一般 PR 评论 (Issue Comments)
-	issueComments, _, err := c.client.Issues.ListComments(context.Background(), repoOwner, repoName, prNumber, &github.IssueListCommentsOptions{})
+	issueComments, _, err := githubClient.Issues.ListComments(ctx, repoOwner, repoName, prNumber, &github.IssueListCommentsOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PR issue comments: %w", err)
 	}
 
 	// 获取代码行评论 (Review Comments)
-	reviewComments, _, err := c.client.PullRequests.ListComments(context.Background(), repoOwner, repoName, prNumber, &github.PullRequestListCommentsOptions{})
+	reviewComments, _, err := githubClient.PullRequests.ListComments(ctx, repoOwner, repoName, prNumber, &github.PullRequestListCommentsOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PR review comments: %w", err)
 	}
 
 	// 获取 PR 的所有 reviews
-	reviews, _, err := c.client.PullRequests.ListReviews(context.Background(), repoOwner, repoName, prNumber, &github.ListOptions{})
+	reviews, _, err := githubClient.PullRequests.ListReviews(ctx, repoOwner, repoName, prNumber, &github.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PR reviews: %w", err)
 	}
@@ -681,6 +756,12 @@ Important: Please return only the plain text commit message content, do not incl
 
 // DeleteCodeAgentBranch 删除CodeAgent创建的分支
 func (c *Client) DeleteCodeAgentBranch(ctx context.Context, owner, repo, branchName string) error {
+	// 获取GitHub客户端
+	githubClient, err := c.manager.GetClient(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
 	log.Infof("Attempting to delete CodeAgent branch: %s", branchName)
 
 	// 确保只删除codeagent开头的分支
@@ -690,7 +771,7 @@ func (c *Client) DeleteCodeAgentBranch(ctx context.Context, owner, repo, branchN
 	}
 
 	// 使用GitHub API删除分支
-	_, err := c.client.Git.DeleteRef(ctx, owner, repo, fmt.Sprintf("heads/%s", branchName))
+	_, err = githubClient.Git.DeleteRef(ctx, owner, repo, fmt.Sprintf("heads/%s", branchName))
 	if err != nil {
 		// 如果分支不存在，这不是错误
 		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "Reference does not exist") {
@@ -706,11 +787,17 @@ func (c *Client) DeleteCodeAgentBranch(ctx context.Context, owner, repo, branchN
 
 // CreateComment 在Issue或PR上创建评论
 func (c *Client) CreateComment(ctx context.Context, owner, repo string, issueNumber int, body string) (*github.IssueComment, error) {
+	// 获取GitHub客户端
+	githubClient, err := c.manager.GetClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
 	comment := &github.IssueComment{
 		Body: github.String(body),
 	}
 
-	createdComment, _, err := c.client.Issues.CreateComment(ctx, owner, repo, issueNumber, comment)
+	createdComment, _, err := githubClient.Issues.CreateComment(ctx, owner, repo, issueNumber, comment)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create comment: %w", err)
 	}
@@ -720,11 +807,17 @@ func (c *Client) CreateComment(ctx context.Context, owner, repo string, issueNum
 
 // UpdateComment 更新已存在的评论
 func (c *Client) UpdateComment(ctx context.Context, owner, repo string, commentID int64, body string) error {
+	// 获取GitHub客户端
+	githubClient, err := c.manager.GetClient(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
 	comment := &github.IssueComment{
 		Body: github.String(body),
 	}
 
-	_, _, err := c.client.Issues.EditComment(ctx, owner, repo, commentID, comment)
+	_, _, err = githubClient.Issues.EditComment(ctx, owner, repo, commentID, comment)
 	if err != nil {
 		return fmt.Errorf("failed to update comment: %w", err)
 	}
@@ -734,7 +827,13 @@ func (c *Client) UpdateComment(ctx context.Context, owner, repo string, commentI
 
 // GetComment 获取评论内容
 func (c *Client) GetComment(ctx context.Context, owner, repo string, commentID int64) (*github.IssueComment, error) {
-	comment, _, err := c.client.Issues.GetComment(ctx, owner, repo, commentID)
+	// 获取GitHub客户端
+	githubClient, err := c.manager.GetClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
+	comment, _, err := githubClient.Issues.GetComment(ctx, owner, repo, commentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get comment: %w", err)
 	}
@@ -744,7 +843,13 @@ func (c *Client) GetComment(ctx context.Context, owner, repo string, commentID i
 
 // GetClient 获取底层的GitHub客户端（用于MCP服务器）
 func (c *Client) GetClient() *github.Client {
-	return c.client
+	ctx := context.Background()
+	githubClient, err := c.manager.GetClient(ctx)
+	if err != nil {
+		// Return nil if we can't get the client
+		return nil
+	}
+	return githubClient
 }
 
 // min 返回两个整数中的较小值

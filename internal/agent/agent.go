@@ -35,7 +35,7 @@ func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
 		return nil
 	}
 
-	// Initialize legacy GitHub client for backward compatibility
+	// Initialize GitHub client that uses the new manager internally
 	githubClient, err := ghclient.NewClient(cfg)
 	if err != nil {
 		log.Errorf("Failed to create GitHub client: %v", err)
@@ -128,14 +128,14 @@ func (a *Agent) GetAuthInfo() interface{} {
 	if a.githubManager == nil {
 		return map[string]string{"status": "not_initialized"}
 	}
-	
+
 	authInfo := a.githubManager.GetAuthInfo()
 	return map[string]interface{}{
-		"type":         authInfo.Type,
-		"user":         authInfo.User,
-		"permissions":  authInfo.Permissions,
-		"app_id":       authInfo.AppID,
-		"configured":   a.githubManager.DetectAuthMode(),
+		"type":        authInfo.Type,
+		"user":        authInfo.User,
+		"permissions": authInfo.Permissions,
+		"app_id":      authInfo.AppID,
+		"configured":  a.githubManager.DetectAuthMode(),
 	}
 }
 
@@ -171,7 +171,7 @@ func (a *Agent) ProcessIssueCommentWithAI(ctx context.Context, event *github.Iss
 
 	// 3. Create initial PR (before code generation)
 	log.Infof("Creating initial PR")
-	pr, err := a.github.CreatePullRequest(ws)
+	pr, err := a.github.CreatePullRequestWithContext(ctx, ws)
 	if err != nil {
 		log.Errorf("Failed to create PR: %v", err)
 		return err
@@ -276,7 +276,7 @@ Brief description of changes
 	prBody += "<details><summary>Original Prompt</summary>\n\n" + codePrompt + "\n\n</details>"
 
 	log.Infof("Updating PR body")
-	if err = a.github.UpdatePullRequest(pr, prBody); err != nil {
+	if err = a.github.UpdatePullRequestWithContext(ctx, pr, prBody); err != nil {
 		log.Errorf("Failed to update PR body with execution result: %v", err)
 		return err
 	}
@@ -409,7 +409,9 @@ func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueC
 
 	// 3. 从 GitHub API 获取完整的 PR 信息
 	log.Infof("Fetching PR information from GitHub API")
-	pr, err := a.github.GetPullRequest(repoOwner, repoName, event.Issue.GetNumber())
+
+	// 使用GitHub client获取PR信息（内部自动使用新的认证系统）
+	pr, err := a.github.GetPullRequestWithContext(ctx, repoOwner, repoName, event.Issue.GetNumber())
 	if err != nil {
 		log.Errorf("Failed to get PR #%d: %v", prNumber, err)
 		return fmt.Errorf("failed to get PR information: %w", err)
@@ -456,7 +458,7 @@ func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueC
 
 	// 7. 获取所有PR评论历史用于构建上下文
 	log.Infof("Fetching all PR comments for historical context")
-	allComments, err := a.github.GetAllPRComments(pr)
+	allComments, err := a.github.GetAllPRCommentsWithContext(ctx, pr)
 	if err != nil {
 		log.Warnf("Failed to get PR comments for context: %v", err)
 		// 不返回错误，使用简单的prompt
@@ -516,7 +518,9 @@ func (a *Agent) processPRWithArgsAndAI(ctx context.Context, event *github.IssueC
 	// 11. 评论到 PR
 	commentBody := string(output)
 	log.Infof("Creating PR comment")
-	if err = a.github.CreatePullRequestComment(pr, commentBody); err != nil {
+
+	// 使用GitHub client创建评论（内部自动使用新的认证系统）
+	if err := a.github.CreatePullRequestCommentWithContext(ctx, pr, commentBody); err != nil {
 		log.Errorf("Failed to create PR comment: %v", err)
 		return fmt.Errorf("failed to create PR comment: %w", err)
 	}
@@ -746,7 +750,7 @@ func (a *Agent) ContinuePRFromReviewCommentWithAI(ctx context.Context, event *gi
 
 	// 6. 回复原始评论
 	commentBody := string(output)
-	if err = a.github.ReplyToReviewComment(pr, event.Comment.GetID(), commentBody); err != nil {
+	if err = a.github.ReplyToReviewCommentWithContext(ctx, pr, event.Comment.GetID(), commentBody); err != nil {
 		log.Errorf("failed to reply to review comment for continue: %v", err)
 		return err
 	}
@@ -853,7 +857,7 @@ func (a *Agent) FixPRFromReviewCommentWithAI(ctx context.Context, event *github.
 
 	// 6. 回复原始评论
 	commentBody := string(output)
-	if err = a.github.ReplyToReviewComment(pr, event.Comment.GetID(), commentBody); err != nil {
+	if err = a.github.ReplyToReviewCommentWithContext(ctx, pr, event.Comment.GetID(), commentBody); err != nil {
 		log.Errorf("failed to reply to review comment for fix: %v", err)
 		return err
 	}
@@ -890,7 +894,7 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUserAndAI(ctx context.Context, eve
 	}
 
 	// 3. 获取指定 review 的所有 comments
-	reviewComments, err := a.github.GetReviewComments(pr, reviewID)
+	reviewComments, err := a.github.GetReviewCommentsWithContext(ctx, pr, reviewID)
 	if err != nil {
 		log.Errorf("Failed to get review comments: %v", err)
 		return err
@@ -1004,7 +1008,8 @@ func (a *Agent) ProcessPRFromReviewWithTriggerUserAndAI(ctx context.Context, eve
 		}
 	}
 
-	if err = a.github.CreatePullRequestComment(pr, responseBody); err != nil {
+	// 使用GitHub client创建评论（内部自动使用新的认证系统）
+	if err := a.github.CreatePullRequestCommentWithContext(ctx, pr, responseBody); err != nil {
 		log.Errorf("failed to create PR comment for batch processing result: %v", err)
 		return err
 	}

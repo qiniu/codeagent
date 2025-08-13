@@ -34,17 +34,17 @@ type ServerConfig struct {
 }
 
 type GitHubConfig struct {
-	Token      string           `yaml:"token"`       // Existing PAT support
-	WebhookURL string           `yaml:"webhook_url"` // Existing webhook URL
-	App        GitHubAppConfig  `yaml:"app"`         // New GitHub App configuration
-	AuthMode   string           `yaml:"auth_mode"`   // "token" | "app" | "auto"
+	Token      string          `yaml:"token"`       // Existing PAT support
+	WebhookURL string          `yaml:"webhook_url"` // Existing webhook URL
+	App        GitHubAppConfig `yaml:"app"`         // New GitHub App configuration
+	AuthMode   string          `yaml:"auth_mode"`   // "token" | "app" | "auto"
 }
 
 type GitHubAppConfig struct {
-	AppID           int64  `yaml:"app_id"`
-	PrivateKeyPath  string `yaml:"private_key_path"`
-	PrivateKeyEnv   string `yaml:"private_key_env"`
-	PrivateKey      string `yaml:"private_key"`      // Direct content (not recommended for production)
+	AppID          int64  `yaml:"app_id"`
+	PrivateKeyPath string `yaml:"private_key_path"` // Path to private key file (recommended, highest priority)
+	PrivateKeyEnv  string `yaml:"private_key_env"`  // Environment variable name containing private key (medium priority)
+	PrivateKey     string `yaml:"private_key"`      // Direct private key content (lowest priority, not recommended for production)
 }
 
 type WorkspaceConfig struct {
@@ -100,7 +100,7 @@ func (c *Config) loadFromEnv() {
 	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
 		c.GitHub.Token = token
 	}
-	
+
 	// New GitHub App configuration
 	if appIDStr := os.Getenv("GITHUB_APP_ID"); appIDStr != "" {
 		if appID, err := strconv.ParseInt(appIDStr, 10, 64); err == nil {
@@ -280,7 +280,7 @@ func (c *Config) ValidateGitHubConfig() error {
 		// Auto mode requires at least one authentication method
 		hasToken := github.Token != ""
 		hasApp := github.App.AppID > 0 && (github.App.PrivateKeyPath != "" || github.App.PrivateKeyEnv != "" || github.App.PrivateKey != "")
-		
+
 		if !hasToken && !hasApp {
 			return fmt.Errorf("GitHub authentication is required: either provide token or app configuration")
 		}
