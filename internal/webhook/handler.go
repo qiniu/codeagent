@@ -160,6 +160,13 @@ func (h *Handler) handleIssueComment(ctx context.Context, w http.ResponseWriter,
 		return
 	}
 
+	// Add installation ID to context if available (GitHub App support)
+	if event.Installation != nil && event.Installation.GetID() != 0 {
+		installationID := event.Installation.GetID()
+		log.Infof("GitHub App installation detected: %d", installationID)
+		ctx = context.WithValue(ctx, "installation_id", installationID)
+	}
+
 	// 检查是否包含命令
 	if event.Comment == nil || event.Issue == nil {
 		log.Debugf("Issue comment event missing comment or issue data")
@@ -265,6 +272,13 @@ func (h *Handler) handlePRReviewComment(ctx context.Context, w http.ResponseWrit
 		return
 	}
 
+	// Add installation ID to context if available (GitHub App support)
+	if event.Installation != nil && event.Installation.GetID() != 0 {
+		installationID := event.Installation.GetID()
+		log.Infof("GitHub App installation detected: %d", installationID)
+		ctx = context.WithValue(ctx, "installation_id", installationID)
+	}
+
 	prNumber := event.PullRequest.GetNumber()
 	prTitle := event.PullRequest.GetTitle()
 	log.Infof("Received PR review comment for PR #%d: %s", prNumber, prTitle)
@@ -339,6 +353,13 @@ func (h *Handler) handlePRReview(ctx context.Context, w http.ResponseWriter, bod
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("invalid pr review event"))
 		return
+	}
+
+	// Add installation ID to context if available (GitHub App support)
+	if event.Installation != nil && event.Installation.GetID() != 0 {
+		installationID := event.Installation.GetID()
+		log.Infof("GitHub App installation detected: %d", installationID)
+		ctx = context.WithValue(ctx, "installation_id", installationID)
 	}
 
 	prNumber := event.PullRequest.GetNumber()
@@ -420,6 +441,13 @@ func (h *Handler) handlePullRequest(ctx context.Context, w http.ResponseWriter, 
 		return
 	}
 
+	// Add installation ID to context if available (GitHub App support)
+	if event.Installation != nil && event.Installation.GetID() != 0 {
+		installationID := event.Installation.GetID()
+		log.Infof("GitHub App installation detected: %d", installationID)
+		ctx = context.WithValue(ctx, "installation_id", installationID)
+	}
+
 	action := event.GetAction()
 	prNumber := event.PullRequest.GetNumber()
 	prTitle := event.PullRequest.GetTitle()
@@ -483,6 +511,13 @@ func (h *Handler) handlePush(ctx context.Context, w http.ResponseWriter, body []
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("invalid push event"))
 		return
+	}
+
+	// Add installation ID to context if available (GitHub App support)
+	if event.Installation != nil && event.Installation.GetID() != 0 {
+		installationID := event.Installation.GetID()
+		log.Infof("GitHub App installation detected: %d", installationID)
+		ctx = context.WithValue(ctx, "installation_id", installationID)
 	}
 
 	ref := event.GetRef()

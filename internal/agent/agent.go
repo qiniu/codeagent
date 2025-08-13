@@ -22,12 +22,20 @@ import (
 type Agent struct {
 	config         *config.Config
 	github         *ghclient.Client
+	githubManager  *ghclient.GitHubClientManager
 	workspace      *workspace.Manager
 	sessionManager *code.SessionManager
 }
 
 func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
-	// Initialize GitHub client
+	// Initialize GitHub client manager (new auto-detection approach)
+	githubManager, err := ghclient.NewGitHubClientManager(cfg)
+	if err != nil {
+		log.Errorf("Failed to create GitHub client manager: %v", err)
+		return nil
+	}
+
+	// Initialize legacy GitHub client for backward compatibility
 	githubClient, err := ghclient.NewClient(cfg)
 	if err != nil {
 		log.Errorf("Failed to create GitHub client: %v", err)
@@ -37,9 +45,14 @@ func New(cfg *config.Config, workspaceManager *workspace.Manager) *Agent {
 	a := &Agent{
 		config:         cfg,
 		github:         githubClient,
+		githubManager:  githubManager,
 		workspace:      workspaceManager,
 		sessionManager: code.NewSessionManager(cfg),
 	}
+
+	// Log authentication info
+	authInfo := githubManager.GetAuthInfo()
+	log.Infof("GitHub authentication initialized: type=%s, user=%s", authInfo.Type, authInfo.User)
 
 	go a.StartCleanupRoutine()
 
@@ -91,6 +104,39 @@ func (a *Agent) cleanupExpiredResources() {
 		log.Infof("Cleaned up expired workspace: %s (AI model: %s)", ws.Path, ws.AIModel)
 	}
 
+}
+
+// GetGitHubClient returns a GitHub client with automatic authentication detection
+// This method should be used instead of direct access to a.github for new code
+func (a *Agent) GetGitHubClient(ctx context.Context) (*github.Client, error) {
+	if a.githubManager == nil {
+		return nil, fmt.Errorf("GitHub client manager is not initialized")
+	}
+	return a.githubManager.GetClient(ctx)
+}
+
+// GetGitHubInstallationClient returns a GitHub client for a specific installation
+func (a *Agent) GetGitHubInstallationClient(ctx context.Context, installationID int64) (*github.Client, error) {
+	if a.githubManager == nil {
+		return nil, fmt.Errorf("GitHub client manager is not initialized")
+	}
+	return a.githubManager.GetInstallationClient(ctx, installationID)
+}
+
+// GetAuthInfo returns information about the current GitHub authentication
+func (a *Agent) GetAuthInfo() interface{} {
+	if a.githubManager == nil {
+		return map[string]string{"status": "not_initialized"}
+	}
+	
+	authInfo := a.githubManager.GetAuthInfo()
+	return map[string]interface{}{
+		"type":         authInfo.Type,
+		"user":         authInfo.User,
+		"permissions":  authInfo.Permissions,
+		"app_id":       authInfo.AppID,
+		"configured":   a.githubManager.DetectAuthMode(),
+	}
 }
 
 // ProcessIssueComment processes Issue comment events, including complete repository information
