@@ -543,8 +543,6 @@ func (m *Manager) CreateWorkspaceFromIssueWithAI(issue *github.Issue, aiModel st
 		CreatedAt:   time.Now(),
 		Issue:       issue,
 	}
-
-	log.Infof("Created workspace from Issue #%d: %s", issue.GetNumber(), ws.Path)
 	return ws
 }
 

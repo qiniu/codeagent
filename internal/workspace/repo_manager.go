@@ -279,19 +279,19 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 	worktreePath := filepath.Join(orgDir, worktreeName)
 	log.Infof("Worktree path: %s", worktreePath)
 
-	// 检查是否存在现有的 worktree 使用相同分支
-	if err := r.handleExistingWorktree(branch, worktreePath); err != nil {
-		if err.Error() == "worktree_exists_at_target_path" {
-			// 工作树已存在于目标路径，直接返回现有的信息
-			log.Infof("Reusing existing worktree at: %s", worktreePath)
-			return &WorktreeInfo{
-				Worktree: worktreePath,
-				Branch:   branch,
-			}, nil
-		}
-		log.Errorf("Failed to handle existing worktree: %v", err)
-		return nil, err
-	}
+	// // 检查是否存在现有的 worktree 使用相同分支
+	// if err := r.handleExistingWorktree(branch, worktreePath); err != nil {
+	// 	if err.Error() == "worktree_exists_at_target_path" {
+	// 		// 工作树已存在于目标路径，直接返回现有的信息
+	// 		log.Infof("Reusing existing worktree at: %s", worktreePath)
+	// 		return &WorktreeInfo{
+	// 			Worktree: worktreePath,
+	// 			Branch:   branch,
+	// 		}, nil
+	// 	}
+	// 	log.Errorf("Failed to handle existing worktree: %v", err)
+	// 	return nil, err
+	// }
 
 	// 创建 worktree
 	var cmd *exec.Cmd
@@ -433,7 +433,6 @@ func (r *RepoManager) updateMainRepository() error {
 	if err != nil {
 		return fmt.Errorf("failed to fetch latest changes: %w, output: %s", err, string(fetchOutput))
 	}
-	log.Infof("Fetched latest changes for main repository")
 
 	// 2. 获取当前分支
 	cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")

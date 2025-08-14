@@ -25,9 +25,9 @@ func NewManager() *Manager {
 func (m *Manager) RegisterHandler(handler ModeHandler) {
 	m.handlers = append(m.handlers, handler)
 
-	// 按优先级排序（高优先级在前）
+	// 按优先级排序（数字越小优先级越高）
 	sort.Slice(m.handlers, func(i, j int) bool {
-		return m.handlers[i].GetPriority() > m.handlers[j].GetPriority()
+		return m.handlers[i].GetPriority() < m.handlers[j].GetPriority()
 	})
 }
 

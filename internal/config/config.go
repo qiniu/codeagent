@@ -19,6 +19,9 @@ type Config struct {
 	Docker       DockerConfig    `yaml:"docker"`
 	CodeProvider string          `yaml:"code_provider"`
 	UseDocker    bool            `yaml:"use_docker"`
+
+	// v0.6 Configuration
+	Commands CommandsConfig `yaml:"commands"`
 }
 
 type GeminiConfig struct {
@@ -66,6 +69,10 @@ type DockerConfig struct {
 	Network string `yaml:"network"`
 }
 
+type CommandsConfig struct {
+	GlobalPath string `yaml:"global_path"`
+}
+
 func Load(configPath string) (*Config, error) {
 	// 首先尝试从文件加载
 	if _, err := os.Stat(configPath); err == nil {
@@ -83,7 +90,9 @@ func Load(configPath string) (*Config, error) {
 		config.loadFromEnv()
 
 		// 将相对路径转换为绝对路径
-		config.resolvePaths(filepath.Dir(configPath))
+		if err := config.resolvePaths(filepath.Dir(configPath)); err != nil {
+			return nil, fmt.Errorf("failed to resolve paths: %w", err)
+		}
 
 		return &config, nil
 	}
@@ -91,7 +100,9 @@ func Load(configPath string) (*Config, error) {
 	// 如果文件不存在，从环境变量创建配置
 	config := loadFromEnv()
 	// 将相对路径转换为绝对路径（相对于当前工作目录）
-	config.resolvePaths(".")
+	if err := config.resolvePaths("."); err != nil {
+		return nil, fmt.Errorf("failed to resolve paths: %w", err)
+	}
 	return config, nil
 }
 
@@ -154,6 +165,9 @@ func (c *Config) loadFromEnv() {
 			c.UseDocker = useDocker
 		}
 	}
+	if globalPath := os.Getenv("GLOBAL_COMMANDS_PATH"); globalPath != "" {
+		c.Commands.GlobalPath = globalPath
+	}
 }
 
 func loadFromEnv() *Config {
@@ -196,13 +210,16 @@ func loadFromEnv() *Config {
 			Socket:  getEnvOrDefault("DOCKER_SOCKET", "unix:///var/run/docker.sock"),
 			Network: getEnvOrDefault("DOCKER_NETWORK", "bridge"),
 		},
+		Commands: CommandsConfig{
+			GlobalPath: getEnvOrDefault("GLOBAL_COMMANDS_PATH", "/opt/codeagent/.codeagent"),
+		},
 		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
 		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", true),
 	}
 }
 
 // resolvePaths 将配置中的相对路径转换为绝对路径
-func (c *Config) resolvePaths(configDir string) {
+func (c *Config) resolvePaths(configDir string) error {
 	// 处理工作空间基础目录
 	if c.Workspace.BaseDir != "" {
 		// 如果路径不是绝对路径，则相对于配置文件目录解析
@@ -213,6 +230,23 @@ func (c *Config) resolvePaths(configDir string) {
 			}
 		}
 	}
+
+	// 处理全局命令路径
+	if c.Commands.GlobalPath != "" {
+		// 如果路径不是绝对路径，则相对于配置文件目录解析
+		if !filepath.IsAbs(c.Commands.GlobalPath) {
+			absPath, err := filepath.Abs(filepath.Join(configDir, c.Commands.GlobalPath))
+			if err == nil {
+				c.Commands.GlobalPath = absPath
+			}
+		}
+
+		// 确保路径存在
+		if _, err := os.Stat(c.Commands.GlobalPath); os.IsNotExist(err) {
+			return fmt.Errorf("global commands path does not exist: %s", c.Commands.GlobalPath)
+		}
+	}
+	return nil
 }
 
 func getEnvOrDefault(key, defaultValue string) string {

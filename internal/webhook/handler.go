@@ -27,12 +27,6 @@ func NewHandler(cfg *config.Config, enhancedAgent *agent.EnhancedAgent) *Handler
 
 // HandleWebhook webhook handler using Enhanced Agent
 func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
-	xlog.New("").Infof("Using Enhanced Agent for webhook processing")
-	h.handleEnhancedWebhook(w, r)
-}
-
-// handleEnhancedWebhook Enhanced Agent webhook处理 - 使用新的事件系统
-func (h *Handler) handleEnhancedWebhook(w http.ResponseWriter, r *http.Request) {
 	// 1. 读取请求体 (需要在签名验证前读取)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -86,17 +80,14 @@ func (h *Handler) handleEnhancedWebhook(w http.ResponseWriter, r *http.Request) 
 	ctx := reqid.NewContext(context.Background(), traceID)
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Received webhook event via Enhanced Handler: %s", eventType)
-	xl.Debugf("Request body size: %d bytes", len(body))
 
 	// 5. 使用Enhanced Agent的统一事件处理，传递原始字节数据
 	go func(eventType string, payload []byte, deliveryID string, traceCtx context.Context) {
 		traceLog := xlog.NewWith(traceCtx)
-		traceLog.Infof("Starting Enhanced Agent event processing: %s", eventType)
-
 		if err := h.enhancedAgent.ProcessGitHubWebhookEvent(traceCtx, eventType, deliveryID, payload); err != nil {
-			traceLog.Warnf("Enhanced Agent event processing error: %v", err)
+			traceLog.Warnf("enhanced agent event processing error: %v", err)
 		} else {
-			traceLog.Infof("Enhanced Agent event processing completed successfully")
+			traceLog.Infof("enhanced agent event processing completed successfully")
 		}
 	}(eventType, body, deliveryID, ctx)
 
