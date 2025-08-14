@@ -43,7 +43,7 @@ func (g *GitHubAppAuthenticator) GetClient(ctx context.Context) (*github.Client,
 
 	// Create HTTP client with the Apps transport for JWT authentication
 	httpClient := &http.Client{Transport: g.appsTransport}
-	
+
 	// Create GitHub client
 	client := github.NewClient(httpClient)
 

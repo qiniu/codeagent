@@ -1,6 +1,7 @@
 package context
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -202,7 +203,7 @@ func (c *DefaultContextCollector) CollectGitHubContext(repoFullName string, prNu
 // CollectCommentContext 收集评论上下文
 func (c *DefaultContextCollector) CollectCommentContext(pr *github.PullRequest, currentCommentID int64) ([]CommentContext, error) {
 	// 使用现有的方法获取所有评论
-	allComments, err := c.githubClient.GetAllPRComments(pr)
+	allComments, err := c.githubClient.GetAllPRComments(context.Background(), pr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all PR comments: %w", err)
 	}

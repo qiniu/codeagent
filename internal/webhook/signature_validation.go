@@ -55,28 +55,23 @@ func (h *Handler) ValidateWebhookSignature(r *http.Request, body []byte) error {
 	needValidation, signatureHeader := h.shouldValidateSignature(r, body)
 
 	if !needValidation {
-		log.Printf("Signature validation not required")
 		return nil
 	}
 
 	// 需要验证但没有配置 secret
 	if h.config.Server.WebhookSecret == "" {
-		log.Printf("Signature validation required but no webhook secret configured")
 		return signature.ErrMissingSignature
 	}
 
 	// 进行签名验证
 	if signatureHeader == "" {
-		log.Printf("Signature validation required but no signature header found")
 		return signature.ErrMissingSignature
 	}
 
 	// 根据签名类型进行验证
 	if r.Header.Get("X-Hub-Signature-256") != "" {
-		log.Printf("Validating SHA-256 signature")
 		return signature.ValidateGitHubSignature(signatureHeader, body, h.config.Server.WebhookSecret)
 	} else {
-		log.Printf("Validating SHA-1 signature")
 		return signature.ValidateGitHubSignatureSHA1(signatureHeader, body, h.config.Server.WebhookSecret)
 	}
 }

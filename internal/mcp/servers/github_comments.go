@@ -256,15 +256,11 @@ func (s *GitHubCommentsServer) HandleToolCall(ctx context.Context, call *models.
 
 // Initialize 初始化服务器
 func (s *GitHubCommentsServer) Initialize(ctx context.Context) error {
-	xl := xlog.NewWith(ctx)
-	xl.Infof("Initializing GitHub Comments MCP server")
 	return nil
 }
 
 // Shutdown 关闭服务器
 func (s *GitHubCommentsServer) Shutdown(ctx context.Context) error {
-	xl := xlog.NewWith(ctx)
-	xl.Infof("Shutting down GitHub Comments MCP server")
 	return nil
 }
 
@@ -529,7 +525,7 @@ func (s *GitHubCommentsServer) listPRComments(ctx context.Context, call *models.
 	}
 
 	// 获取所有评论
-	allComments, err := s.client.GetAllPRComments(pr)
+	allComments, err := s.client.GetAllPRComments(ctx, pr)
 	if err != nil {
 		return &models.ToolResult{
 			ID:      call.ID,
@@ -637,14 +633,14 @@ func (s *GitHubCommentsServer) updatePRDescription(ctx context.Context, call *mo
 	xl.Infof("Updating PR #%d description in %s/%s", prNumber, owner, repo)
 
 	// 先获取PR对象
-	pr, err := s.client.GetPullRequest(owner, repo, prNumber)
+	pr, err := s.client.GetPullRequest(ctx, owner, repo, prNumber)
 	if err != nil {
 		xl.Errorf("Failed to get PR: %v", err)
 		return nil, fmt.Errorf("failed to get PR: %w", err)
 	}
 
 	// 更新PR描述
-	err = s.client.UpdatePullRequest(pr, body)
+	err = s.client.UpdatePullRequest(ctx, pr, body)
 	if err != nil {
 		xl.Errorf("Failed to update PR description: %v", err)
 		return nil, fmt.Errorf("failed to update PR description: %w", err)

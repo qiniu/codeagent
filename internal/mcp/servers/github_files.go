@@ -191,15 +191,11 @@ func (s *GitHubFilesServer) HandleToolCall(ctx context.Context, call *models.Too
 
 // Initialize 初始化服务器
 func (s *GitHubFilesServer) Initialize(ctx context.Context) error {
-	xl := xlog.NewWith(ctx)
-	xl.Infof("Initializing GitHub Files MCP server")
 	return nil
 }
 
 // Shutdown 关闭服务器
 func (s *GitHubFilesServer) Shutdown(ctx context.Context) error {
-	xl := xlog.NewWith(ctx)
-	xl.Infof("Shutting down GitHub Files MCP server")
 	return nil
 }
 

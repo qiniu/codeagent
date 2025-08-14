@@ -410,7 +410,7 @@ func (th *TagHandler) createPRAndInitializeProgress(
 
 	// 创建初始PR（在代码生成之前）
 	xl.Infof("Creating initial PR before code generation")
-	pr, err := th.github.CreatePullRequestWithContext(ctx, ws)
+	pr, err := th.github.CreatePullRequest(ctx, ws)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create PR: %w", err)
 	}
@@ -806,7 +806,7 @@ func (th *TagHandler) processPRCommand(
 
 	// 3. 从GitHub API获取完整的PR信息
 	xl.Infof("Fetching PR information from GitHub API")
-	pr, err := th.github.GetPullRequestWithContext(ctx, repoOwner, repoName, prNumber)
+	pr, err := th.github.GetPullRequest(ctx, repoOwner, repoName, prNumber)
 	if err != nil {
 		xl.Errorf("Failed to get PR #%d: %v", prNumber, err)
 		return fmt.Errorf("failed to get PR information: %w", err)
@@ -853,7 +853,7 @@ func (th *TagHandler) processPRCommand(
 	if err != nil {
 		xl.Warnf("Failed to build enhanced prompt, falling back to simple prompt: %v", err)
 		// Fallback to original method
-		allComments, err := th.github.GetAllPRCommentsWithContext(ctx, pr)
+		allComments, err := th.github.GetAllPRComments(ctx, pr)
 		if err != nil {
 			xl.Warnf("Failed to get PR comments for context: %v", err)
 			allComments = &models.PRAllComments{}
@@ -998,7 +998,7 @@ func (th *TagHandler) processPRReviewCommand(
 	xl.Infof("Extracted AI model from branch: %s", cmdInfo.AIModel)
 
 	// 3. 获取指定 review 的所有 comments（只获取本次review的评论）
-	reviewComments, err := th.github.GetReviewCommentsWithContext(ctx, pr, reviewID)
+	reviewComments, err := th.github.GetReviewComments(ctx, pr, reviewID)
 	if err != nil {
 		xl.Errorf("Failed to get review comments: %v", err)
 		return err
@@ -1277,7 +1277,7 @@ func (th *TagHandler) processPRReviewCommentCommand(
 			commitURL)
 	}
 
-	if err = th.github.ReplyToReviewCommentWithContext(ctx, pr, event.Comment.GetID(), replyBody); err != nil {
+	if err = th.github.ReplyToReviewComment(ctx, pr, event.Comment.GetID(), replyBody); err != nil {
 		xl.Errorf("Failed to reply to review comment: %v", err)
 		// 不返回错误，因为这不是致命的，代码修改已经提交成功
 	} else {

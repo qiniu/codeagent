@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/qiniu/codeagent/internal/agent"
 	"github.com/qiniu/codeagent/internal/config"
 	"github.com/qiniu/codeagent/internal/webhook"
 	"github.com/qiniu/codeagent/internal/workspace"
@@ -26,7 +25,6 @@ func main() {
 	claudeAPIKey := flag.String("claude-api-key", "", "Claude API Key (也可以通过 CLAUDE_API_KEY 环境变量设置)")
 	webhookSecret := flag.String("webhook-secret", "", "Webhook Secret (也可以通过 WEBHOOK_SECRET 环境变量设置)")
 	port := flag.Int("port", 0, "服务器端口 (也可以通过 PORT 环境变量设置)")
-	useEnhanced := flag.Bool("enhanced", false, "使用Enhanced Agent (支持新的MCP、模式系统等功能)")
 	flag.Parse()
 
 	// 加载配置
@@ -49,12 +47,9 @@ func main() {
 		cfg.Server.Port = *port
 	}
 
-	// 验证必需的配置
-	if cfg.GitHub.Token == "" {
-		log.Fatalf("GitHub Token is required. Please set it via --github-token flag or GITHUB_TOKEN environment variable")
-	}
-	if cfg.Server.WebhookSecret == "" {
-		log.Fatalf("Webhook Secret is required. Please set it via --webhook-secret flag or WEBHOOK_SECRET environment variable")
+	// 验证配置
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Configuration validation failed: %v", err)
 	}
 
 	log.Infof("Configuration validated successfully")
@@ -62,39 +57,13 @@ func main() {
 	// 初始化工作空间管理器
 	workspaceManager := workspace.NewManager(cfg)
 
-	var webhookHandler *webhook.Handler
+	log.Infof("Starting with Enhanced Agent (支持MCP、模式系统等新功能)")
+	log.Infof("Using factory pattern for per-request agent creation")
+	log.Infof("GitHub auth type: %s", cfg.GetGitHubAuthType())
 
-	// 根据参数选择使用原始Agent还是Enhanced Agent
-	if *useEnhanced {
-		log.Infof("Starting with Enhanced Agent (支持MCP、模式系统等新功能)")
-
-		// 初始化 Enhanced Agent
-		enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
-		if err != nil {
-			log.Fatalf("Failed to create Enhanced Agent: %v", err)
-		}
-
-		// 初始化 Enhanced Webhook 处理器
-		webhookHandler = webhook.NewEnhancedHandler(cfg, enhancedAgent)
-
-		// 注册优雅关闭处理
-		defer func() {
-			log.Infof("Shutting down Enhanced Agent...")
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := enhancedAgent.Shutdown(ctx); err != nil {
-				log.Errorf("Failed to shutdown Enhanced Agent: %v", err)
-			}
-		}()
-	} else {
-		log.Infof("Starting with Original Agent (传统模式)")
-
-		// 初始化原始 Agent
-		originalAgent := agent.New(cfg, workspaceManager)
-
-		// 初始化原始 Webhook 处理器
-		webhookHandler = webhook.NewHandler(cfg, originalAgent)
-	}
+	// 初始化 Webhook 处理器（使用工厂模式）
+	// 这样每个webhook请求都会创建专用的EnhancedAgent实例
+	webhookHandler := webhook.NewHandler(cfg, workspaceManager)
 
 	// 设置路由
 	mux := http.NewServeMux()

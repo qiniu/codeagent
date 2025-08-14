@@ -23,7 +23,7 @@ func TestEnhancedAgentPRCommands(t *testing.T) {
 	// 创建测试Agent
 	cfg := createTestConfig()
 	workspaceManager := workspace.NewManager(cfg)
-	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
+	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager, 0)
 	require.NoError(t, err)
 	defer enhancedAgent.Shutdown(context.Background())
 

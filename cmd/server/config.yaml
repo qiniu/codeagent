@@ -13,7 +13,7 @@ github:
     # 私钥配置（三种方式，按优先级顺序）/ Private key configuration (3 methods, in priority order):
     
     # 方式1：文件路径（推荐，最高优先级）/ Method 1: File path (recommended, highest priority)
-    private_key_path: "/Users/xxxxx.private-key.pem"
+    private_key_path: "/Users/wangcheng/go/src/codeagent/cmd/server/wangtestapp.2025-08-12.private-key.pem"
     
     # 方式2：环境变量名（中等优先级）/ Method 2: Environment variable name (medium priority)
     # private_key_env: "GITHUB_APP_PRIVATE_KEY"
