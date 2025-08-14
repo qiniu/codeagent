@@ -16,10 +16,9 @@ claude:
   timeout: "30m"
   interactive: false
 
-docker:
-  socket: "unix:///var/run/docker.sock"
-  network: "bridge"
-
 gemini:
   container_image: "goplusorg/codeagent:v0.4"
   timeout: "30m"
+
+commands:
+  global_path: ".codeagent"
