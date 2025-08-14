@@ -13,7 +13,6 @@ import (
 // GitHubClientManager manages GitHub client creation with automatic authentication detection
 type GitHubClientManager struct {
 	config        *config.Config
-	clientFactory auth.ClientFactory
 	authenticator auth.Authenticator
 }
 
@@ -23,24 +22,23 @@ func NewGitHubClientManager(cfg *config.Config) (*GitHubClientManager, error) {
 		return nil, fmt.Errorf("configuration is required")
 	}
 
-	// Build authenticator and factory from configuration
+	// Build authenticator from configuration
 	builder := auth.NewAuthenticatorBuilder(cfg)
-	clientFactory, err := builder.BuildClientFactory()
+	authenticator, err := builder.BuildAuthenticator()
 	if err != nil {
-		return nil, fmt.Errorf("failed to build client factory: %w", err)
+		return nil, fmt.Errorf("failed to build authenticator: %w", err)
 	}
 
 	return &GitHubClientManager{
 		config:        cfg,
-		clientFactory: clientFactory,
-		authenticator: clientFactory.GetAuthenticator(),
+		authenticator: authenticator,
 	}, nil
 }
 
 // GetClient returns a GitHub client using automatic authentication detection
 func (m *GitHubClientManager) GetClient(ctx context.Context) (*github.Client, error) {
-	if m.clientFactory == nil {
-		return nil, fmt.Errorf("client factory is not initialized")
+	if m.authenticator == nil {
+		return nil, fmt.Errorf("authenticator is not initialized")
 	}
 
 	// Get authentication info for logging
@@ -51,7 +49,7 @@ func (m *GitHubClientManager) GetClient(ctx context.Context) (*github.Client, er
 	if authInfo.Type == auth.AuthTypeApp {
 		if installationID := m.getInstallationIDFromContext(ctx); installationID != 0 {
 			log.Infof("Using GitHub App authentication with installation ID: %d", installationID)
-			return m.clientFactory.CreateInstallationClient(ctx, installationID)
+			return m.authenticator.GetInstallationClient(ctx, installationID)
 		}
 
 		// If no installation ID in context, log warning and use default client
@@ -59,19 +57,19 @@ func (m *GitHubClientManager) GetClient(ctx context.Context) (*github.Client, er
 	}
 
 	// Use default client (PAT or JWT for App)
-	return m.clientFactory.CreateClient(ctx)
+	return m.authenticator.GetClient(ctx)
 }
 
 // GetInstallationClient returns a GitHub client for a specific installation
 func (m *GitHubClientManager) GetInstallationClient(ctx context.Context, installationID int64) (*github.Client, error) {
-	if m.clientFactory == nil {
-		return nil, fmt.Errorf("client factory is not initialized")
+	if m.authenticator == nil {
+		return nil, fmt.Errorf("authenticator is not initialized")
 	}
 
 	authInfo := m.authenticator.GetAuthInfo()
 	log.Infof("Creating installation client: type=%s, installation_id=%d", authInfo.Type, installationID)
 
-	return m.clientFactory.CreateInstallationClient(ctx, installationID)
+	return m.authenticator.GetInstallationClient(ctx, installationID)
 }
 
 // GetAuthInfo returns information about the current authentication

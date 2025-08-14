@@ -157,28 +157,6 @@ func TestGitHubAppAuthenticator(t *testing.T) {
 	})
 }
 
-func TestDefaultClientFactory(t *testing.T) {
-	auth := NewPATAuthenticator("ghp_test_token")
-	factory := NewClientFactory(auth)
-
-	t.Run("GetAuthenticator", func(t *testing.T) {
-		assert.Equal(t, auth, factory.GetAuthenticator())
-	})
-
-	t.Run("CreateClient", func(t *testing.T) {
-		ctx := context.Background()
-		client, err := factory.CreateClient(ctx)
-		require.NoError(t, err)
-		assert.NotNil(t, client)
-	})
-
-	t.Run("CreateInstallationClient", func(t *testing.T) {
-		ctx := context.Background()
-		client, err := factory.CreateInstallationClient(ctx, 123)
-		require.NoError(t, err)
-		assert.NotNil(t, client)
-	})
-}
 
 func TestAuthenticatorBuilder(t *testing.T) {
 	t.Run("BuildPATAuthenticator", func(t *testing.T) {
@@ -257,20 +235,6 @@ func TestAuthenticatorBuilder(t *testing.T) {
 		assert.Equal(t, AuthTypePAT, auth.GetAuthInfo().Type)
 	})
 
-	t.Run("BuildClientFactory", func(t *testing.T) {
-		cfg := &config.Config{
-			GitHub: config.GitHubConfig{
-				Token: "ghp_test_token",
-			},
-		}
-
-		builder := NewAuthenticatorBuilder(cfg)
-		factory, err := builder.BuildClientFactory()
-		require.NoError(t, err)
-		assert.NotNil(t, factory)
-		assert.NotNil(t, factory.GetAuthenticator())
-	})
-
 	t.Run("InvalidConfiguration", func(t *testing.T) {
 		cfg := &config.Config{
 			GitHub: config.GitHubConfig{
@@ -282,42 +246,6 @@ func TestAuthenticatorBuilder(t *testing.T) {
 		_, err := builder.BuildAuthenticator()
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "GitHub authentication is required")
-	})
-}
-
-func TestHybridAuthenticator(t *testing.T) {
-	primaryAuth := NewPATAuthenticator("ghp_primary_token")
-	fallbackAuth := NewPATAuthenticator("ghp_fallback_token")
-
-	hybrid := NewHybridAuthenticator(primaryAuth, fallbackAuth)
-
-	t.Run("IsConfigured", func(t *testing.T) {
-		assert.True(t, hybrid.IsConfigured())
-	})
-
-	t.Run("GetAuthInfo", func(t *testing.T) {
-		info := hybrid.GetAuthInfo()
-		assert.Equal(t, AuthTypePAT, info.Type)
-	})
-
-	t.Run("GetClient", func(t *testing.T) {
-		ctx := context.Background()
-		client, err := hybrid.GetClient(ctx)
-		require.NoError(t, err)
-		assert.NotNil(t, client)
-	})
-
-	t.Run("FallbackWhenPrimaryFails", func(t *testing.T) {
-		// Use unconfigured primary and configured fallback
-		emptyPrimary := NewPATAuthenticator("")
-		workingFallback := NewPATAuthenticator("ghp_fallback_token")
-
-		hybridWithFallback := NewHybridAuthenticator(emptyPrimary, workingFallback)
-
-		ctx := context.Background()
-		client, err := hybridWithFallback.GetClient(ctx)
-		require.NoError(t, err)
-		assert.NotNil(t, client)
 	})
 }
 

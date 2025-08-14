@@ -40,15 +40,3 @@ type Authenticator interface {
 	// ValidateAccess validates that the authenticator can access GitHub
 	ValidateAccess(ctx context.Context) error
 }
-
-// ClientFactory creates GitHub clients using the configured authentication method
-type ClientFactory interface {
-	// CreateClient creates a GitHub client using the default authentication
-	CreateClient(ctx context.Context) (*github.Client, error)
-
-	// CreateInstallationClient creates a GitHub client for a specific installation
-	CreateInstallationClient(ctx context.Context, installationID int64) (*github.Client, error)
-
-	// GetAuthenticator returns the underlying authenticator
-	GetAuthenticator() Authenticator
-}
