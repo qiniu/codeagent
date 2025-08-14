@@ -106,10 +106,10 @@ func (m *GitHubClientManager) DetectAuthMode() string {
 		return "unknown"
 	}
 
-	authMode := m.config.GetGitHubAuthMode()
+	authType := m.config.GetGitHubAuthType()
 	authInfo := m.GetAuthInfo()
 
-	return fmt.Sprintf("configured=%s, active=%s", authMode, authInfo.Type)
+	return fmt.Sprintf("detected=%s, active=%s", authType, authInfo.Type)
 }
 
 // getInstallationIDFromContext extracts installation ID from context

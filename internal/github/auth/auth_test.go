@@ -11,11 +11,10 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"time"
 
+	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/codeagent/internal/config"
-	"github.com/qiniu/codeagent/internal/github/app"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -88,17 +87,24 @@ func TestPATAuthenticator(t *testing.T) {
 }
 
 func TestGitHubAppAuthenticator(t *testing.T) {
-	// Create test components
-	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
-	jwtGenerator := app.NewJWTGenerator(12345, privateKey)
-	tokenManager := app.NewInstallationTokenManager(jwtGenerator, nil)
-	auth := NewGitHubAppAuthenticator(tokenManager, jwtGenerator)
+	// Generate test private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	// Convert to PEM format
+	privateKeyPEM := privateKeyToPEM(privateKey)
+
+	// Create ghinstallation transport
+	transport, err := ghinstallation.NewAppsTransport(http.DefaultTransport, 12345, []byte(privateKeyPEM))
+	require.NoError(t, err)
+
+	auth := NewGitHubAppAuthenticator(transport, 12345)
 
 	t.Run("IsConfigured", func(t *testing.T) {
 		assert.True(t, auth.IsConfigured())
 
 		// Test with nil components
-		emptyAuth := NewGitHubAppAuthenticator(nil, nil)
+		emptyAuth := NewGitHubAppAuthenticator(nil, 0)
 		assert.False(t, emptyAuth.IsConfigured())
 	})
 
@@ -116,24 +122,6 @@ func TestGitHubAppAuthenticator(t *testing.T) {
 	})
 
 	t.Run("GetInstallationClient", func(t *testing.T) {
-		// Create test server for installation token API
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/app/installations/123/access_tokens" {
-				response := app.TokenResponse{
-					Token:     "ghs_test_installation_token",
-					ExpiresAt: time.Now().Add(1 * time.Hour),
-					TokenType: "token",
-				}
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusCreated)
-				json.NewEncoder(w).Encode(response)
-			}
-		}))
-		defer server.Close()
-
-		// Set custom base URL for token manager
-		tokenManager.SetBaseURL(server.URL)
-
 		ctx := context.Background()
 		client, err := auth.GetInstallationClient(ctx, 123)
 		require.NoError(t, err)
@@ -196,8 +184,7 @@ func TestAuthenticatorBuilder(t *testing.T) {
 	t.Run("BuildPATAuthenticator", func(t *testing.T) {
 		cfg := &config.Config{
 			GitHub: config.GitHubConfig{
-				Token:    "ghp_test_token",
-				AuthMode: config.AuthModeToken,
+				Token: "ghp_test_token",
 			},
 		}
 
@@ -219,7 +206,6 @@ func TestAuthenticatorBuilder(t *testing.T) {
 
 		cfg := &config.Config{
 			GitHub: config.GitHubConfig{
-				AuthMode: config.AuthModeApp,
 				App: config.GitHubAppConfig{
 					AppID:      12345,
 					PrivateKey: privateKeyPEM,
@@ -235,14 +221,14 @@ func TestAuthenticatorBuilder(t *testing.T) {
 		assert.Equal(t, AuthTypeApp, auth.GetAuthInfo().Type)
 	})
 
-	t.Run("BuildAutoModeWithApp", func(t *testing.T) {
+	t.Run("BuildAppAuthenticatorWithPATFallback", func(t *testing.T) {
 		privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 		require.NoError(t, err)
 		privateKeyPEM := privateKeyToPEM(privateKey)
 
 		cfg := &config.Config{
 			GitHub: config.GitHubConfig{
-				AuthMode: config.AuthModeAuto,
+				Token: "ghp_test_token", // This should be ignored since App has priority
 				App: config.GitHubAppConfig{
 					AppID:      12345,
 					PrivateKey: privateKeyPEM,
@@ -254,14 +240,13 @@ func TestAuthenticatorBuilder(t *testing.T) {
 		auth, err := builder.BuildAuthenticator()
 		require.NoError(t, err)
 		assert.NotNil(t, auth)
-		assert.Equal(t, AuthTypeApp, auth.GetAuthInfo().Type)
+		assert.Equal(t, AuthTypeApp, auth.GetAuthInfo().Type) // Should prioritize App over PAT
 	})
 
-	t.Run("BuildAutoModeWithPAT", func(t *testing.T) {
+	t.Run("BuildPATWhenNoApp", func(t *testing.T) {
 		cfg := &config.Config{
 			GitHub: config.GitHubConfig{
-				Token:    "ghp_test_token",
-				AuthMode: config.AuthModeAuto,
+				Token: "ghp_test_token",
 			},
 		}
 
@@ -275,8 +260,7 @@ func TestAuthenticatorBuilder(t *testing.T) {
 	t.Run("BuildClientFactory", func(t *testing.T) {
 		cfg := &config.Config{
 			GitHub: config.GitHubConfig{
-				Token:    "ghp_test_token",
-				AuthMode: config.AuthModeToken,
+				Token: "ghp_test_token",
 			},
 		}
 
@@ -290,15 +274,14 @@ func TestAuthenticatorBuilder(t *testing.T) {
 	t.Run("InvalidConfiguration", func(t *testing.T) {
 		cfg := &config.Config{
 			GitHub: config.GitHubConfig{
-				AuthMode: config.AuthModeToken,
-				// Missing token
+				// No token or app configured
 			},
 		}
 
 		builder := NewAuthenticatorBuilder(cfg)
 		_, err := builder.BuildAuthenticator()
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "GitHub token is required")
+		assert.Contains(t, err.Error(), "GitHub authentication is required")
 	})
 }
 
@@ -306,7 +289,7 @@ func TestHybridAuthenticator(t *testing.T) {
 	primaryAuth := NewPATAuthenticator("ghp_primary_token")
 	fallbackAuth := NewPATAuthenticator("ghp_fallback_token")
 
-	hybrid := NewHybridAuthenticator(primaryAuth, fallbackAuth, config.AuthModeAuto)
+	hybrid := NewHybridAuthenticator(primaryAuth, fallbackAuth)
 
 	t.Run("IsConfigured", func(t *testing.T) {
 		assert.True(t, hybrid.IsConfigured())
@@ -329,7 +312,7 @@ func TestHybridAuthenticator(t *testing.T) {
 		emptyPrimary := NewPATAuthenticator("")
 		workingFallback := NewPATAuthenticator("ghp_fallback_token")
 
-		hybridWithFallback := NewHybridAuthenticator(emptyPrimary, workingFallback, config.AuthModeAuto)
+		hybridWithFallback := NewHybridAuthenticator(emptyPrimary, workingFallback)
 
 		ctx := context.Background()
 		client, err := hybridWithFallback.GetClient(ctx)

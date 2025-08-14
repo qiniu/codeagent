@@ -3,10 +3,12 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"os"
 
+	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/codeagent/internal/config"
-	"github.com/qiniu/codeagent/internal/github/app"
 )
 
 // DefaultClientFactory implements ClientFactory
@@ -55,6 +57,7 @@ func NewAuthenticatorBuilder(cfg *config.Config) *AuthenticatorBuilder {
 }
 
 // BuildAuthenticator builds an authenticator based on the configuration
+// Automatically prioritizes GitHub App over PAT if both are configured
 func (b *AuthenticatorBuilder) BuildAuthenticator() (Authenticator, error) {
 	if b.config == nil {
 		return nil, fmt.Errorf("configuration is required")
@@ -65,32 +68,22 @@ func (b *AuthenticatorBuilder) BuildAuthenticator() (Authenticator, error) {
 		return nil, fmt.Errorf("invalid GitHub configuration: %w", err)
 	}
 
-	authMode := b.config.GetGitHubAuthMode()
-
-	switch authMode {
-	case config.AuthModeToken:
-		return b.buildPATAuthenticator()
-	case config.AuthModeApp:
-		return b.buildAppAuthenticator()
-	case config.AuthModeAuto:
-		// Try to build app authenticator first, fallback to PAT
-		if b.config.IsGitHubAppConfigured() {
-			appAuth, err := b.buildAppAuthenticator()
-			if err == nil {
-				return appAuth, nil
-			}
-			// Log the error but continue to PAT fallback
-			fmt.Printf("Warning: GitHub App configuration failed: %v\n", err)
+	// Prioritize GitHub App over PAT
+	if b.config.IsGitHubAppConfigured() {
+		appAuth, err := b.buildAppAuthenticator()
+		if err == nil {
+			return appAuth, nil
 		}
-
-		if b.config.IsGitHubTokenConfigured() {
-			return b.buildPATAuthenticator()
-		}
-
-		return nil, fmt.Errorf("no valid GitHub authentication configuration found")
-	default:
-		return nil, fmt.Errorf("unsupported auth mode: %s", authMode)
+		// Log the error but continue to PAT fallback
+		fmt.Printf("Warning: GitHub App configuration failed: %v\n", err)
 	}
+
+	// Fallback to PAT if GitHub App is not configured or failed
+	if b.config.IsGitHubTokenConfigured() {
+		return b.buildPATAuthenticator()
+	}
+
+	return nil, fmt.Errorf("no valid GitHub authentication configuration found")
 }
 
 // buildPATAuthenticator builds a PAT authenticator
@@ -102,7 +95,7 @@ func (b *AuthenticatorBuilder) buildPATAuthenticator() (Authenticator, error) {
 	return NewPATAuthenticator(b.config.GitHub.Token), nil
 }
 
-// buildAppAuthenticator builds a GitHub App authenticator
+// buildAppAuthenticator builds a GitHub App authenticator using ghinstallation
 func (b *AuthenticatorBuilder) buildAppAuthenticator() (Authenticator, error) {
 	if !b.config.IsGitHubAppConfigured() {
 		return nil, fmt.Errorf("GitHub App is not configured")
@@ -110,24 +103,33 @@ func (b *AuthenticatorBuilder) buildAppAuthenticator() (Authenticator, error) {
 
 	appConfig := b.config.GitHub.App
 
-	// Load private key
-	privateKey, err := app.LoadPrivateKey(
-		appConfig.PrivateKeyPath,
-		appConfig.PrivateKeyEnv,
-		appConfig.PrivateKey,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load GitHub App private key: %w", err)
+	// Determine private key source and create transport
+	var transport *ghinstallation.AppsTransport
+	var err error
+
+	if appConfig.PrivateKeyPath != "" {
+		// Load from file path
+		transport, err = ghinstallation.NewAppsTransportKeyFromFile(http.DefaultTransport, appConfig.AppID, appConfig.PrivateKeyPath)
+	} else if appConfig.PrivateKeyEnv != "" {
+		// Load from environment variable
+		privateKeyData := os.Getenv(appConfig.PrivateKeyEnv)
+		if privateKeyData == "" {
+			return nil, fmt.Errorf("private key environment variable %s is empty", appConfig.PrivateKeyEnv)
+		}
+		transport, err = ghinstallation.NewAppsTransport(http.DefaultTransport, appConfig.AppID, []byte(privateKeyData))
+	} else if appConfig.PrivateKey != "" {
+		// Load from direct configuration
+		transport, err = ghinstallation.NewAppsTransport(http.DefaultTransport, appConfig.AppID, []byte(appConfig.PrivateKey))
+	} else {
+		return nil, fmt.Errorf("no private key source configured")
 	}
 
-	// Create JWT generator
-	jwtGenerator := app.NewJWTGenerator(appConfig.AppID, privateKey)
-
-	// Create installation token manager
-	tokenManager := app.NewInstallationTokenManager(jwtGenerator, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub App transport: %w", err)
+	}
 
 	// Create authenticator
-	return NewGitHubAppAuthenticator(tokenManager, jwtGenerator), nil
+	return NewGitHubAppAuthenticator(transport, appConfig.AppID), nil
 }
 
 // BuildClientFactory builds a client factory from configuration
@@ -144,15 +146,13 @@ func (b *AuthenticatorBuilder) BuildClientFactory() (ClientFactory, error) {
 type HybridAuthenticator struct {
 	primary  Authenticator
 	fallback Authenticator
-	authMode string
 }
 
 // NewHybridAuthenticator creates a hybrid authenticator with primary and fallback
-func NewHybridAuthenticator(primary, fallback Authenticator, authMode string) *HybridAuthenticator {
+func NewHybridAuthenticator(primary, fallback Authenticator) *HybridAuthenticator {
 	return &HybridAuthenticator{
 		primary:  primary,
 		fallback: fallback,
-		authMode: authMode,
 	}
 }
 

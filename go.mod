@@ -1,6 +1,8 @@
 module github.com/qiniu/codeagent
 
-go 1.21
+go 1.23.0
+
+toolchain go1.23.3
 
 require (
 	github.com/google/go-github/v58 v58.0.0
@@ -11,9 +13,12 @@ require (
 )
 
 require (
+	github.com/bradleyfalzon/ghinstallation/v2 v2.16.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/google/go-github/v72 v72.0.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	golang.org/x/net v0.17.0 // indirect

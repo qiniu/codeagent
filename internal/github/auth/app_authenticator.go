@@ -5,17 +5,16 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v58/github"
-	"github.com/qiniu/codeagent/internal/github/app"
-	"golang.org/x/oauth2"
 )
 
-// GitHubAppAuthenticator implements Authenticator using GitHub App
+// GitHubAppAuthenticator implements Authenticator using GitHub App with ghinstallation
 type GitHubAppAuthenticator struct {
-	tokenManager *app.InstallationTokenManager
-	jwtGenerator *app.JWTGenerator
-	httpClient   *http.Client
-	appInfo      *AppInfo // Cached app information
+	appsTransport *ghinstallation.AppsTransport
+	appID         int64
+	httpClient    *http.Client
+	appInfo       *AppInfo // Cached app information
 }
 
 // AppInfo contains cached GitHub App information
@@ -26,67 +25,46 @@ type AppInfo struct {
 	Description string `json:"description"`
 }
 
-// NewGitHubAppAuthenticator creates a new GitHub App authenticator
-func NewGitHubAppAuthenticator(tokenManager *app.InstallationTokenManager, jwtGenerator *app.JWTGenerator) *GitHubAppAuthenticator {
+// NewGitHubAppAuthenticator creates a new GitHub App authenticator using ghinstallation
+func NewGitHubAppAuthenticator(appsTransport *ghinstallation.AppsTransport, appID int64) *GitHubAppAuthenticator {
 	return &GitHubAppAuthenticator{
-		tokenManager: tokenManager,
-		jwtGenerator: jwtGenerator,
-		httpClient:   &http.Client{},
+		appsTransport: appsTransport,
+		appID:         appID,
+		httpClient:    &http.Client{Transport: appsTransport},
 	}
 }
 
 // GetClient returns a GitHub client authenticated with GitHub App JWT
 // This client can only access app-level APIs, not installation-specific resources
 func (g *GitHubAppAuthenticator) GetClient(ctx context.Context) (*github.Client, error) {
-	if g.jwtGenerator == nil {
-		return nil, fmt.Errorf("JWT generator is not configured")
+	if g.appsTransport == nil {
+		return nil, fmt.Errorf("GitHub App transport is not configured")
 	}
 
-	// Generate JWT for app-level authentication
-	jwt, err := g.jwtGenerator.GenerateJWT(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate JWT: %w", err)
-	}
-
-	// Create OAuth2 token source with JWT
-	ts := oauth2.StaticTokenSource(&oauth2.Token{
-		AccessToken: jwt,
-		TokenType:   "Bearer",
-	})
-
-	// Create HTTP client with OAuth2 transport
-	httpClient := oauth2.NewClient(ctx, ts)
-
+	// Create HTTP client with the Apps transport for JWT authentication
+	httpClient := &http.Client{Transport: g.appsTransport}
+	
 	// Create GitHub client
 	client := github.NewClient(httpClient)
 
 	return client, nil
 }
 
-// GetInstallationClient returns a GitHub client for a specific installation
+// GetInstallationClient returns a GitHub client for a specific installation using ghinstallation
 func (g *GitHubAppAuthenticator) GetInstallationClient(ctx context.Context, installationID int64) (*github.Client, error) {
-	if g.tokenManager == nil {
-		return nil, fmt.Errorf("token manager is not configured")
+	if g.appsTransport == nil {
+		return nil, fmt.Errorf("GitHub App transport is not configured")
 	}
 
 	if installationID <= 0 {
 		return nil, fmt.Errorf("invalid installation ID: %d", installationID)
 	}
 
-	// Get installation access token
-	token, err := g.tokenManager.GetToken(ctx, installationID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get installation token: %w", err)
-	}
+	// Create installation transport using ghinstallation
+	installationTransport := ghinstallation.NewFromAppsTransport(g.appsTransport, installationID)
 
-	// Create OAuth2 token source with installation token
-	ts := oauth2.StaticTokenSource(&oauth2.Token{
-		AccessToken: token.AccessToken,
-		TokenType:   token.TokenType,
-	})
-
-	// Create HTTP client with OAuth2 transport
-	httpClient := oauth2.NewClient(ctx, ts)
+	// Create HTTP client with installation transport
+	httpClient := &http.Client{Transport: installationTransport}
 
 	// Create GitHub client
 	client := github.NewClient(httpClient)
@@ -97,11 +75,8 @@ func (g *GitHubAppAuthenticator) GetInstallationClient(ctx context.Context, inst
 // GetAuthInfo returns authentication information
 func (g *GitHubAppAuthenticator) GetAuthInfo() AuthInfo {
 	authInfo := AuthInfo{
-		Type: AuthTypeApp,
-	}
-
-	if g.jwtGenerator != nil {
-		authInfo.AppID = g.jwtGenerator.GetAppID()
+		Type:  AuthTypeApp,
+		AppID: g.appID,
 	}
 
 	// If we have cached app info, use it
@@ -120,7 +95,7 @@ func (g *GitHubAppAuthenticator) GetAuthInfo() AuthInfo {
 
 // IsConfigured returns whether the GitHub App authenticator is properly configured
 func (g *GitHubAppAuthenticator) IsConfigured() bool {
-	return g.jwtGenerator != nil && g.jwtGenerator.IsConfigured() && g.tokenManager != nil
+	return g.appsTransport != nil && g.appID > 0
 }
 
 // ValidateAccess validates that the GitHub App can access GitHub
@@ -150,38 +125,27 @@ func (g *GitHubAppAuthenticator) ValidateAccess(ctx context.Context) error {
 
 // ValidateInstallationAccess validates access to a specific installation
 func (g *GitHubAppAuthenticator) ValidateInstallationAccess(ctx context.Context, installationID int64) error {
-	return g.tokenManager.ValidateInstallationAccess(ctx, installationID)
+	// Try to create an installation client and make a simple API call
+	client, err := g.GetInstallationClient(ctx, installationID)
+	if err != nil {
+		return fmt.Errorf("failed to create installation client: %w", err)
+	}
+
+	// Try to get installation information to validate access
+	_, _, err = client.Apps.GetInstallation(ctx, installationID)
+	if err != nil {
+		return fmt.Errorf("failed to validate installation %d access: %w", installationID, err)
+	}
+
+	return nil
 }
 
 // GetAppID returns the GitHub App ID
 func (g *GitHubAppAuthenticator) GetAppID() int64 {
-	if g.jwtGenerator == nil {
-		return 0
-	}
-	return g.jwtGenerator.GetAppID()
-}
-
-// RefreshInstallationToken forces a refresh of the installation token
-func (g *GitHubAppAuthenticator) RefreshInstallationToken(ctx context.Context, installationID int64) error {
-	if g.tokenManager == nil {
-		return fmt.Errorf("token manager is not configured")
-	}
-
-	_, err := g.tokenManager.RefreshToken(ctx, installationID)
-	return err
+	return g.appID
 }
 
 // SetHTTPClient sets a custom HTTP client (useful for testing)
 func (g *GitHubAppAuthenticator) SetHTTPClient(client *http.Client) {
 	g.httpClient = client
-}
-
-// GetTokenManager returns the underlying token manager (for advanced use cases)
-func (g *GitHubAppAuthenticator) GetTokenManager() *app.InstallationTokenManager {
-	return g.tokenManager
-}
-
-// GetJWTGenerator returns the underlying JWT generator (for advanced use cases)
-func (g *GitHubAppAuthenticator) GetJWTGenerator() *app.JWTGenerator {
-	return g.jwtGenerator
 }

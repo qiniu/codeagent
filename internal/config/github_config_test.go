@@ -15,7 +15,6 @@ func TestGitHubAppConfig(t *testing.T) {
 		"GITHUB_APP_PRIVATE_KEY_PATH": os.Getenv("GITHUB_APP_PRIVATE_KEY_PATH"),
 		"GITHUB_APP_PRIVATE_KEY_ENV":  os.Getenv("GITHUB_APP_PRIVATE_KEY_ENV"),
 		"GITHUB_APP_PRIVATE_KEY":      os.Getenv("GITHUB_APP_PRIVATE_KEY"),
-		"GITHUB_AUTH_MODE":            os.Getenv("GITHUB_AUTH_MODE"),
 	}
 
 	// Clean up environment variables after test
@@ -34,7 +33,6 @@ func TestGitHubAppConfig(t *testing.T) {
 	os.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "/path/to/key.pem")
 	os.Setenv("GITHUB_APP_PRIVATE_KEY_ENV", "PRIVATE_KEY_CONTENT")
 	os.Setenv("GITHUB_APP_PRIVATE_KEY", "test-private-key")
-	os.Setenv("GITHUB_AUTH_MODE", "app")
 
 	config := &Config{}
 	config.loadFromEnv()
@@ -43,7 +41,6 @@ func TestGitHubAppConfig(t *testing.T) {
 	assert.Equal(t, "/path/to/key.pem", config.GitHub.App.PrivateKeyPath)
 	assert.Equal(t, "PRIVATE_KEY_CONTENT", config.GitHub.App.PrivateKeyEnv)
 	assert.Equal(t, "test-private-key", config.GitHub.App.PrivateKey)
-	assert.Equal(t, "app", config.GitHub.AuthMode)
 }
 
 func TestValidateGitHubConfig(t *testing.T) {
@@ -56,15 +53,13 @@ func TestValidateGitHubConfig(t *testing.T) {
 		{
 			name: "valid PAT configuration",
 			config: GitHubConfig{
-				Token:    "ghp_test_token",
-				AuthMode: AuthModeToken,
+				Token: "ghp_test_token",
 			},
 			expectError: false,
 		},
 		{
 			name: "valid GitHub App configuration",
 			config: GitHubConfig{
-				AuthMode: AuthModeApp,
 				App: GitHubAppConfig{
 					AppID:          12345,
 					PrivateKeyPath: "/path/to/key.pem",
@@ -73,10 +68,9 @@ func TestValidateGitHubConfig(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "valid auto mode with both configurations",
+			name: "valid configuration with both (App should take priority)",
 			config: GitHubConfig{
-				Token:    "ghp_test_token",
-				AuthMode: AuthModeAuto,
+				Token: "ghp_test_token",
 				App: GitHubAppConfig{
 					AppID:          12345,
 					PrivateKeyPath: "/path/to/key.pem",
@@ -85,67 +79,30 @@ func TestValidateGitHubConfig(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "invalid token mode without token",
+			name: "invalid app configuration without app ID",
 			config: GitHubConfig{
-				AuthMode: AuthModeToken,
-			},
-			expectError:   true,
-			errorContains: "GitHub token is required",
-		},
-		{
-			name: "invalid app mode without app ID",
-			config: GitHubConfig{
-				AuthMode: AuthModeApp,
 				App: GitHubAppConfig{
 					PrivateKeyPath: "/path/to/key.pem",
 				},
-			},
-			expectError:   true,
-			errorContains: "GitHub App ID is required",
-		},
-		{
-			name: "invalid app mode without private key",
-			config: GitHubConfig{
-				AuthMode: AuthModeApp,
-				App: GitHubAppConfig{
-					AppID: 12345,
-				},
-			},
-			expectError:   true,
-			errorContains: "private key source is required",
-		},
-		{
-			name: "invalid auto mode without any authentication",
-			config: GitHubConfig{
-				AuthMode: AuthModeAuto,
 			},
 			expectError:   true,
 			errorContains: "GitHub authentication is required",
 		},
 		{
-			name: "invalid auth mode",
-			config: GitHubConfig{
-				AuthMode: "invalid",
-			},
-			expectError:   true,
-			errorContains: "invalid GitHub auth_mode",
-		},
-		{
-			name: "auto-detection - app mode",
+			name: "invalid app configuration without private key",
 			config: GitHubConfig{
 				App: GitHubAppConfig{
-					AppID:          12345,
-					PrivateKeyPath: "/path/to/key.pem",
+					AppID: 12345,
 				},
 			},
-			expectError: false,
+			expectError:   true,
+			errorContains: "GitHub authentication is required",
 		},
 		{
-			name: "auto-detection - token mode",
-			config: GitHubConfig{
-				Token: "ghp_test_token",
-			},
-			expectError: false,
+			name:          "no authentication configured",
+			config:        GitHubConfig{},
+			expectError:   true,
+			errorContains: "GitHub authentication is required",
 		},
 	}
 
@@ -270,59 +227,51 @@ func TestIsGitHubTokenConfigured(t *testing.T) {
 	}
 }
 
-func TestGetGitHubAuthMode(t *testing.T) {
+func TestGetGitHubAuthType(t *testing.T) {
 	tests := []struct {
 		name     string
 		config   GitHubConfig
 		expected string
 	}{
 		{
-			name: "explicit token mode",
+			name: "app configuration (should prioritize over token)",
 			config: GitHubConfig{
-				AuthMode: AuthModeToken,
-				Token:    "ghp_test_token",
-			},
-			expected: AuthModeToken,
-		},
-		{
-			name: "explicit app mode",
-			config: GitHubConfig{
-				AuthMode: AuthModeApp,
+				Token: "ghp_test_token",
 				App: GitHubAppConfig{
 					AppID:          12345,
 					PrivateKeyPath: "/path/to/key.pem",
 				},
 			},
-			expected: AuthModeApp,
+			expected: "app",
 		},
 		{
-			name: "auto-detect app mode",
+			name: "app configuration only",
 			config: GitHubConfig{
 				App: GitHubAppConfig{
 					AppID:          12345,
 					PrivateKeyPath: "/path/to/key.pem",
 				},
 			},
-			expected: AuthModeApp,
+			expected: "app",
 		},
 		{
-			name: "auto-detect token mode",
+			name: "token configuration only",
 			config: GitHubConfig{
 				Token: "ghp_test_token",
 			},
-			expected: AuthModeToken,
+			expected: "token",
 		},
 		{
 			name:     "no configuration",
 			config:   GitHubConfig{},
-			expected: AuthModeAuto,
+			expected: "none",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := &Config{GitHub: tt.config}
-			assert.Equal(t, tt.expected, config.GetGitHubAuthMode())
+			assert.Equal(t, tt.expected, config.GetGitHubAuthType())
 		})
 	}
 }
@@ -331,7 +280,6 @@ func TestConfigSetDefaults(t *testing.T) {
 	config := &Config{}
 	config.SetDefaults()
 
-	assert.Equal(t, AuthModeAuto, config.GitHub.AuthMode)
 	assert.Equal(t, "/tmp/codeagent", config.Workspace.BaseDir)
 	assert.Equal(t, 8080, config.Server.Port)
 	assert.NotZero(t, config.Workspace.CleanupAfter)
@@ -352,8 +300,7 @@ func TestConfigValidate(t *testing.T) {
 					WebhookSecret: "test-secret",
 				},
 				GitHub: GitHubConfig{
-					Token:    "ghp_test_token",
-					AuthMode: AuthModeToken,
+					Token: "ghp_test_token",
 				},
 				CodeProvider: "claude",
 			},
@@ -367,7 +314,6 @@ func TestConfigValidate(t *testing.T) {
 					WebhookSecret: "test-secret",
 				},
 				GitHub: GitHubConfig{
-					AuthMode: AuthModeApp,
 					App: GitHubAppConfig{
 						AppID:          12345,
 						PrivateKeyPath: "/path/to/key.pem",
@@ -470,13 +416,8 @@ func TestBackwardCompatibility(t *testing.T) {
 	err := config.Validate()
 	assert.NoError(t, err)
 
-	// Check that auth mode is auto-detected as token
-	// Note: GetGitHubAuthMode should detect token mode when only token is configured
-	assert.Equal(t, AuthModeToken, config.GetGitHubAuthMode())
+	// Check that auth type is detected as token
+	assert.Equal(t, "token", config.GetGitHubAuthType())
 	assert.True(t, config.IsGitHubTokenConfigured())
 	assert.False(t, config.IsGitHubAppConfigured())
-
-	// After validation, the auth mode should be auto-detected and set to token
-	// ValidateGitHubConfig sets the auth mode during validation when it's empty or auto
-	assert.Equal(t, AuthModeToken, config.GitHub.AuthMode)
 }

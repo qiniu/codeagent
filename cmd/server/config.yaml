@@ -3,10 +3,10 @@ server:
   webhook_secret: "1234567890"
 
 github:
-  # 可选：保留 PAT 作为回退方案
+  # PAT 配置（可选，如果配置了GitHub App，则作为回退方案）
   token: "ghp_your_personal_access_token"
   
-  # GitHub App 配置 / GitHub App Configuration
+  # GitHub App 配置（推荐，优先级高于PAT）/ GitHub App Configuration (recommended, higher priority than PAT)
   app:
     app_id: 1032243
     
@@ -23,9 +23,6 @@ github:
     #   -----BEGIN RSA PRIVATE KEY-----
     #   MIIEpAIBAAKCAQEA...
     #   -----END RSA PRIVATE KEY-----
-  
-  # 认证模式（可选）
-  auth_mode: "token"  # auto（默认）| app | token
 
 workspace:
   base_dir: "/tmp/codeagent"

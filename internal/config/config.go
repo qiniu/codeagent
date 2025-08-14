@@ -34,10 +34,9 @@ type ServerConfig struct {
 }
 
 type GitHubConfig struct {
-	Token      string          `yaml:"token"`       // Existing PAT support
-	WebhookURL string          `yaml:"webhook_url"` // Existing webhook URL
-	App        GitHubAppConfig `yaml:"app"`         // New GitHub App configuration
-	AuthMode   string          `yaml:"auth_mode"`   // "token" | "app" | "auto"
+	Token      string          `yaml:"token"`       // PAT support
+	WebhookURL string          `yaml:"webhook_url"` // Webhook URL
+	App        GitHubAppConfig `yaml:"app"`         // GitHub App configuration
 }
 
 type GitHubAppConfig struct {
@@ -115,9 +114,6 @@ func (c *Config) loadFromEnv() {
 	}
 	if privateKey := os.Getenv("GITHUB_APP_PRIVATE_KEY"); privateKey != "" {
 		c.GitHub.App.PrivateKey = privateKey
-	}
-	if authMode := os.Getenv("GITHUB_AUTH_MODE"); authMode != "" {
-		c.GitHub.AuthMode = authMode
 	}
 
 	if apiKey := os.Getenv("CLAUDE_API_KEY"); apiKey != "" {
@@ -240,52 +236,26 @@ func getEnvBoolOrDefault(key string, defaultValue bool) bool {
 
 // GitHub App configuration validation and helpers
 
-// AuthMode constants for GitHub authentication
-const (
-	AuthModeToken = "token" // Personal Access Token
-	AuthModeApp   = "app"   // GitHub App
-	AuthModeAuto  = "auto"  // Automatic detection
-)
-
 // ValidateGitHubConfig validates the GitHub configuration
 func (c *Config) ValidateGitHubConfig() error {
 	github := &c.GitHub
 
-	// Normalize auth mode - auto-detect when empty or explicitly set to auto
-	if github.AuthMode == "" || github.AuthMode == AuthModeAuto {
-		// Auto-detect based on available configuration
-		if github.App.AppID > 0 && (github.App.PrivateKeyPath != "" || github.App.PrivateKeyEnv != "" || github.App.PrivateKey != "") {
-			github.AuthMode = AuthModeApp
-		} else if github.Token != "" {
-			github.AuthMode = AuthModeToken
-		} else {
-			github.AuthMode = AuthModeAuto
-		}
+	// Check if at least one authentication method is configured
+	hasToken := github.Token != ""
+	hasApp := github.App.AppID > 0 && (github.App.PrivateKeyPath != "" || github.App.PrivateKeyEnv != "" || github.App.PrivateKey != "")
+
+	if !hasToken && !hasApp {
+		return fmt.Errorf("GitHub authentication is required: provide either token or app configuration")
 	}
 
-	// Validate based on auth mode
-	switch github.AuthMode {
-	case AuthModeToken:
-		if github.Token == "" {
-			return fmt.Errorf("GitHub token is required when auth_mode is 'token'")
-		}
-	case AuthModeApp:
+	// Validate GitHub App configuration if any App config is provided
+	if github.App.AppID > 0 || github.App.PrivateKeyPath != "" || github.App.PrivateKeyEnv != "" || github.App.PrivateKey != "" {
 		if github.App.AppID <= 0 {
-			return fmt.Errorf("GitHub App ID is required when auth_mode is 'app'")
+			return fmt.Errorf("GitHub App ID is required when App configuration is provided")
 		}
 		if github.App.PrivateKeyPath == "" && github.App.PrivateKeyEnv == "" && github.App.PrivateKey == "" {
-			return fmt.Errorf("GitHub App private key source is required when auth_mode is 'app'")
+			return fmt.Errorf("GitHub App private key source is required when App ID is configured")
 		}
-	case AuthModeAuto:
-		// Auto mode requires at least one authentication method
-		hasToken := github.Token != ""
-		hasApp := github.App.AppID > 0 && (github.App.PrivateKeyPath != "" || github.App.PrivateKeyEnv != "" || github.App.PrivateKey != "")
-
-		if !hasToken && !hasApp {
-			return fmt.Errorf("GitHub authentication is required: either provide token or app configuration")
-		}
-	default:
-		return fmt.Errorf("invalid GitHub auth_mode: %s (valid options: token, app, auto)", github.AuthMode)
 	}
 
 	return nil
@@ -302,29 +272,19 @@ func (c *Config) IsGitHubTokenConfigured() bool {
 	return c.GitHub.Token != ""
 }
 
-// GetGitHubAuthMode returns the effective authentication mode
-func (c *Config) GetGitHubAuthMode() string {
-	if c.GitHub.AuthMode != "" {
-		return c.GitHub.AuthMode
-	}
-
-	// Auto-detect
+// GetGitHubAuthType returns the detected authentication type (app or token)
+func (c *Config) GetGitHubAuthType() string {
+	// Prioritize GitHub App over PAT
 	if c.IsGitHubAppConfigured() {
-		return AuthModeApp
+		return "app"
 	} else if c.IsGitHubTokenConfigured() {
-		return AuthModeToken
+		return "token"
 	}
-
-	return AuthModeAuto
+	return "none"
 }
 
 // SetDefaults sets default values for configuration fields
 func (c *Config) SetDefaults() {
-	// Set default auth mode if not specified
-	if c.GitHub.AuthMode == "" {
-		c.GitHub.AuthMode = AuthModeAuto
-	}
-
 	// Set default workspace cleanup after if not specified
 	if c.Workspace.CleanupAfter == 0 {
 		c.Workspace.CleanupAfter = 24 * time.Hour
