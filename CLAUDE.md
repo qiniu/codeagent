@@ -16,7 +16,7 @@ GitHub Events (AI Instructions) → Webhook → CodeAgent → Branch Creation �
 
 ### Core Components
 
-- **Agent** (`internal/agent/agent.go`): Orchestrates the entire workflow
+- **EnhancedAgent** (`internal/agent/enhanced_agent.go`): Orchestrates the entire workflow with modern architecture
 - **Webhook Handler** (`internal/webhook/handler.go`): Handles GitHub webhooks (Issues and PRs)
 - **Workspace Manager** (`internal/workspace/manager.go`): Manages temporary Git worktrees
 - **Code Providers** (`internal/code/`): Supports Claude (Docker/CLI) and Gemini (Docker/CLI)
@@ -31,16 +31,13 @@ GitHub Events (AI Instructions) → Webhook → CodeAgent → Branch Creation �
 make build
 
 # Run locally with configuration
-./scripts/start.sh                    # Gemini + CLI mode (default)
-./scripts/start.sh -p claude -d       # Claude + Docker mode
-./scripts/start.sh -p gemini -d       # Gemini + Docker mode
-./scripts/start.sh -p claude          # Claude + CLI mode
+# No startup scripts - use direct Go commands or build binary
 
 # Direct Go run
 export GITHUB_TOKEN="your-token"
 export GOOGLE_API_KEY="your-key"      # or CLAUDE_API_KEY
 export WEBHOOK_SECRET="your-secret"
-go run ./cmd/server --port 8888
+go run ./cmd/server --port 8888  # Now always uses EnhancedAgent
 ```
 
 ### Testing
@@ -86,11 +83,11 @@ server:
   - `code/` - AI provider implementations (Claude/Gemini)
   - `github/` - GitHub API client
 - `pkg/models/` - Shared data structures
-- `scripts/` - Utility scripts, including `start.sh`
+- `scripts/` - Utility scripts directory (currently empty)
 
 ### Development Workflow
 
-1. **Local Development**: Use CLI mode `./scripts/start.sh -p claude/gemini`
+1. **Local Development**: Use direct Go commands `go run ./cmd/server`
 2. **Testing**: Send test webhooks and example GitHub events
 3. **Docker Development**: Use Docker mode for containerized testing
 4. **Workspace Management**: Temporary worktrees created in `/tmp/codeagent`, automatically cleaned up after 24 hours
