@@ -3,9 +3,10 @@ name: Claude Code Action
 on:
   issue_comment:
     types: [created, edited]
-  pull_request_target:
-    types: [opened, synchronize, reopened, edited]
-
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned, edited]
 jobs:
   claude:
     runs-on: ubuntu-latest
@@ -13,14 +14,14 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-      
+
     steps:
       - name: Install bun
         run: curl -fsSL https://bun.sh/install | bash
       - uses: actions/checkout@v3
         with:
-          fetch-depth: 20 
-          
+          fetch-depth: 20
+
       - name: Claude Code Action
         uses: anthropics/claude-code-action@v0.0.31
         with:
