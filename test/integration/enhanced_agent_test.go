@@ -39,7 +39,7 @@ func TestEnhancedAgentIntegration(t *testing.T) {
 	workspaceManager := workspace.NewManager(cfg)
 
 	// 3. 创建增强版Agent
-	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
+	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager, 0)
 	require.NoError(t, err)
 	defer enhancedAgent.Shutdown(context.Background())
 
@@ -66,7 +66,7 @@ func TestEnhancedAgentIssueCommentFlow(t *testing.T) {
 	// 创建测试Agent
 	cfg := createTestConfig()
 	workspaceManager := workspace.NewManager(cfg)
-	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
+	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager, 0)
 	require.NoError(t, err)
 	defer enhancedAgent.Shutdown(context.Background())
 
@@ -95,7 +95,7 @@ func TestEnhancedAgentIssueCommentFlow(t *testing.T) {
 func TestMCPToolsIntegration(t *testing.T) {
 	cfg := createTestConfig()
 	workspaceManager := workspace.NewManager(cfg)
-	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
+	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager, 0)
 	require.NoError(t, err)
 	defer enhancedAgent.Shutdown(context.Background())
 
@@ -148,7 +148,7 @@ func TestProgressCommentIntegration(t *testing.T) {
 	// 这是一个单元测试级别的集成测试，不需要真实网络调用
 	cfg := createTestConfig()
 	workspaceManager := workspace.NewManager(cfg)
-	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
+	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager, 0)
 	require.NoError(t, err)
 	defer enhancedAgent.Shutdown(context.Background())
 

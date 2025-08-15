@@ -54,7 +54,7 @@ func (m *Manager) RegisterServer(name string, server MCPServer) error {
 	}
 
 	info := server.GetInfo()
-	xl.Infof("Registered MCP server: %s v%s (%d tools)",
+	xl.Debugf("Registered MCP server: %s v%s (%d tools)",
 		info.Name, info.Version, len(info.Capabilities.Tools))
 
 	return nil
@@ -263,6 +263,6 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		return fmt.Errorf("shutdown errors: %s", strings.Join(errors, "; "))
 	}
 
-	xl.Infof("All MCP servers shutdown successfully")
+	xl.Debugf("All MCP servers shutdown successfully")
 	return nil
 }

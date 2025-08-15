@@ -8,8 +8,20 @@ server:
   webhook_secret: your-webhook-secret-here
 
 github:
+  # PAT configuration (optional if GitHub App is configured)
   token: your-github-token-here
   webhook_url: https://your-domain.com/webhook
+  
+  # GitHub App configuration (recommended, higher priority than PAT)
+  app:
+    app_id: your-app-id-here
+    # Private key configuration (choose one method):
+    private_key_path: /path/to/your-app.private-key.pem  # Method 1: File path (recommended)
+    # private_key_env: GITHUB_APP_PRIVATE_KEY             # Method 2: Environment variable
+    # private_key: |                                      # Method 3: Direct content (not recommended for production)
+    #   -----BEGIN RSA PRIVATE KEY-----
+    #   your-private-key-content-here
+    #   -----END RSA PRIVATE KEY-----
 
 workspace:
   base_dir: /tmp/codeagent

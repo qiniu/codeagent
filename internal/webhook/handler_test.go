@@ -52,8 +52,8 @@ func TestHandleWebhook_SignatureValidation(t *testing.T) {
 		{
 			name:           "missing signature",
 			signature:      "",
-			expectedStatus: http.StatusUnauthorized,
-			expectedBody:   "missing signature\n",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "missing X-GitHub-Event header",
 		},
 	}
 

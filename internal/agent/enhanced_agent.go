@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/qiniu/codeagent/internal/code"
@@ -36,14 +38,12 @@ type EnhancedAgent struct {
 }
 
 // NewEnhancedAgent 创建增强版Agent
-func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (*EnhancedAgent, error) {
-	xl := xlog.New("")
-	xl.Infof("NewEnhancedAgent: %+v", cfg)
+func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager, installationID int64) (*EnhancedAgent, error) {
 
-	// 1. 初始化GitHub客户端
-	githubClient, err := ghclient.NewClient(cfg)
+	// 1. 初始化GitHub客户端并绑定到特定installation
+	githubClient, err := ghclient.NewClientWithInstallation(cfg, installationID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
+		return nil, fmt.Errorf("failed to create GitHub client for installation %d: %w", installationID, err)
 	}
 
 	// 2. 初始化事件解析器
@@ -52,7 +52,7 @@ func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (
 	// 3. 初始化MCP管理器和服务器
 	mcpManager := mcp.NewManager()
 
-	// 注册内置MCP服务器
+	// 注册内置MCP服务器（直接使用重构后的客户端）
 	githubFiles := servers.NewGitHubFilesServer(githubClient)
 	githubComments := servers.NewGitHubCommentsServer(githubClient)
 
@@ -73,7 +73,7 @@ func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (
 	// 6. 初始化模式管理器
 	modeManager := modes.NewManager()
 
-	// 注册处理器（按优先级顺序）
+	// 注册处理器（按优先级顺序，直接使用重构后的客户端）
 	tagHandler := modes.NewTagHandler(cfg.CodeProvider, githubClient, workspaceManager, mcpClient, sessionManager)
 	agentHandler := modes.NewAgentHandler(githubClient, workspaceManager, mcpClient)
 	reviewHandler := modes.NewReviewHandler(githubClient, workspaceManager, mcpClient, sessionManager)
@@ -97,9 +97,6 @@ func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (
 		taskFactory:    taskFactory,
 	}
 
-	xl.Infof("Enhanced Agent initialized with %d MCP servers and %d mode handlers",
-		len(mcpManager.GetServers()), modeManager.GetHandlerCount())
-
 	return agent, nil
 }
 
@@ -108,12 +105,16 @@ func (a *EnhancedAgent) ProcessGitHubWebhookEvent(ctx context.Context, eventType
 	xl := xlog.NewWith(ctx)
 
 	startTime := time.Now()
-	xl.Infof("Processing GitHub webhook event: %s, delivery_id: %s", eventType, deliveryID)
 
-	// 1. 解析GitHub事件为类型安全的上下文
+	// 解析GitHub事件为类型安全的上下文（不需要再提取installation ID，已经在创建时绑定）
 	githubCtx, err := a.eventParser.ParseWebhookEvent(ctx, eventType, deliveryID, payload)
 	if err != nil {
-		xl.Warnf("Failed to parse GitHub webhook event: %v", err)
+		// 对于不支持的事件类型，使用DEBUG级别，避免日志冗余
+		if strings.Contains(err.Error(), "unsupported event type") {
+			xl.Debugf("Skipping unsupported event type: %s", eventType)
+		} else {
+			xl.Warnf("Failed to parse GitHub webhook event: %v", err)
+		}
 		return fmt.Errorf("failed to parse webhook event: %w", err)
 	}
 
@@ -124,7 +125,7 @@ func (a *EnhancedAgent) ProcessGitHubWebhookEvent(ctx context.Context, eventType
 func (a *EnhancedAgent) processGitHubContext(ctx context.Context, githubCtx models.GitHubContext, startTime time.Time) error {
 	xl := xlog.NewWith(ctx)
 
-	xl.Infof("Parsed event type: %s for repository: %s",
+	xl.Debugf("Processing event: %s for repository: %s",
 		githubCtx.GetEventType(), githubCtx.GetRepository().GetFullName())
 
 	// 2. 选择合适的处理器
@@ -170,6 +171,39 @@ func (a *EnhancedAgent) Shutdown(ctx context.Context) error {
 		return err
 	}
 
-	xl.Infof("Enhanced Agent shutdown completed")
+	xl.Debugf("Enhanced Agent shutdown completed")
 	return nil
+}
+
+// ExtractInstallationIDFromPayload 从 webhook payload 中提取 installation ID（用于工厂函数）
+func ExtractInstallationIDFromPayload(payload []byte) (int64, error) {
+	// 解析payload为通用map，提取installation信息
+	var data map[string]interface{}
+	if err := json.Unmarshal(payload, &data); err != nil {
+		return 0, fmt.Errorf("failed to parse webhook payload: %w", err)
+	}
+
+	// 检查是否存在installation字段
+	if installation, ok := data["installation"]; ok {
+		if installationMap, ok := installation.(map[string]interface{}); ok {
+			if idInterface, ok := installationMap["id"]; ok {
+				var installationID int64
+				switch v := idInterface.(type) {
+				case float64:
+					installationID = int64(v)
+				case int64:
+					installationID = v
+				case int:
+					installationID = int64(v)
+				default:
+					return 0, fmt.Errorf("invalid installation ID type: %T", v)
+				}
+
+				return installationID, nil
+			}
+		}
+	}
+
+	// 如果没有找到installation字段，返回0（PAT模式）
+	return 0, fmt.Errorf("no installation found in payload")
 }
