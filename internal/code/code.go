@@ -44,6 +44,10 @@ func New(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 		return NewClaudeLocal(workspace, cfg)
 	case ProviderGemini:
 		if cfg.UseDocker {
+			// 检查是否启用交互式模式
+			if cfg.Gemini.Interactive {
+				return NewGeminiInteractive(workspace, cfg)
+			}
 			return NewGeminiDocker(workspace, cfg)
 		}
 		return NewGeminiLocal(workspace, cfg)
