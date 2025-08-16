@@ -19,6 +19,9 @@ const (
 
 	// ReviewMode 自动审查模式
 	ReviewMode ExecutionMode = "review"
+
+	// CustomCommandMode 自定义命令模式
+	CustomCommandMode ExecutionMode = "custom-commands"
 )
 
 // ModeHandler 模式处理器接口
@@ -85,9 +88,10 @@ func NewModeManager() *ModeManager {
 	return &ModeManager{
 		handlers: make([]ModeHandler, 0),
 		enabled: map[ExecutionMode]bool{
-			TagMode:    true,  // 默认启用Tag模式
-			AgentMode:  false, // 默认禁用Agent模式
-			ReviewMode: false, // 默认禁用Review模式
+			TagMode:           true,  // 默认启用Tag模式
+			AgentMode:         false, // 默认禁用Agent模式
+			ReviewMode:        false, // 默认禁用Review模式
+			CustomCommandMode: false, // 默认禁用自定义命令模式，需要手动启用
 		},
 	}
 }

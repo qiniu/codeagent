@@ -19,6 +19,9 @@ type Config struct {
 	Docker       DockerConfig    `yaml:"docker"`
 	CodeProvider string          `yaml:"code_provider"`
 	UseDocker    bool            `yaml:"use_docker"`
+
+	// v0.6 Configuration
+	Commands CommandsConfig `yaml:"commands"`
 }
 
 type GeminiConfig struct {
@@ -55,6 +58,10 @@ type ClaudeConfig struct {
 type DockerConfig struct {
 	Socket  string `yaml:"socket"`
 	Network string `yaml:"network"`
+}
+
+type CommandsConfig struct {
+	GlobalPath string `yaml:"global_path"`
 }
 
 func Load(configPath string) (*Config, error) {
@@ -167,6 +174,9 @@ func loadFromEnv() *Config {
 		Docker: DockerConfig{
 			Socket:  getEnvOrDefault("DOCKER_SOCKET", "unix:///var/run/docker.sock"),
 			Network: getEnvOrDefault("DOCKER_NETWORK", "bridge"),
+		},
+		Commands: CommandsConfig{
+			GlobalPath: getEnvOrDefault("GLOBAL_COMMANDS_PATH", "/opt/codeagent/.codeagent"),
 		},
 		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
 		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", true),

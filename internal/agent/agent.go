@@ -74,6 +74,14 @@ func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (
 	modeManager := modes.NewManager()
 
 	// 注册处理器（按优先级顺序）
+	// Custom command handler has highest priority to handle custom commands first
+	var customCmdHandler *modes.CustomCommandHandler
+	if cfg.Commands.GlobalPath != "" {
+		customCmdHandler = modes.NewCustomCommandHandler(githubClient, workspaceManager, sessionManager, mcpClient, cfg.Commands.GlobalPath, cfg.CodeProvider)
+		modeManager.RegisterHandler(customCmdHandler)
+		xl.Infof("Custom command handler registered with global config path: %s", cfg.Commands.GlobalPath)
+	}
+
 	tagHandler := modes.NewTagHandler(cfg.CodeProvider, githubClient, workspaceManager, mcpClient, sessionManager)
 	agentHandler := modes.NewAgentHandler(githubClient, workspaceManager, mcpClient)
 	reviewHandler := modes.NewReviewHandler(githubClient, workspaceManager, mcpClient, sessionManager)

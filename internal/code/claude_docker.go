@@ -67,6 +67,16 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"-w", "/workspace", // 设置工作目录
 	}
 
+	// Mount processed .codeagent directory if available
+	if workspace.ProcessedCodeAgentPath != "" {
+		if _, err := os.Stat(workspace.ProcessedCodeAgentPath); err == nil {
+			args = append(args, "-v", fmt.Sprintf("%s:/workspace/.codeagent", workspace.ProcessedCodeAgentPath))
+			log.Infof("Mounting processed .codeagent directory: %s -> /workspace/.codeagent", workspace.ProcessedCodeAgentPath)
+		} else {
+			log.Warnf("Processed .codeagent directory not found: %s", workspace.ProcessedCodeAgentPath)
+		}
+	}
+
 	// 添加 Claude API 相关环境变量
 	if cfg.Claude.AuthToken != "" {
 		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=%s", cfg.Claude.AuthToken))
