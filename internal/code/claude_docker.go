@@ -76,6 +76,9 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	if cfg.Claude.BaseURL != "" {
 		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_BASE_URL=%s", cfg.Claude.BaseURL))
 	}
+	if cfg.GitHub.GHToken != "" {
+		args = append(args, "-e", fmt.Sprintf("GH_TOKEN=%s", cfg.GitHub.GHToken))
+	}
 
 	// 添加容器镜像
 	args = append(args, cfg.Claude.ContainerImage)
