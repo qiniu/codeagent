@@ -36,6 +36,7 @@ type ServerConfig struct {
 type GitHubConfig struct {
 	Token      string `yaml:"token"`
 	WebhookURL string `yaml:"webhook_url"`
+	GHToken    string `yaml:"gh_token"`
 }
 
 type WorkspaceConfig struct {
@@ -89,6 +90,9 @@ func Load(configPath string) (*Config, error) {
 func (c *Config) loadFromEnv() {
 	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
 		c.GitHub.Token = token
+	}
+	if ghToken := os.Getenv("GH_TOKEN"); ghToken != "" {
+		c.GitHub.GHToken = ghToken
 	}
 	if apiKey := os.Getenv("CLAUDE_API_KEY"); apiKey != "" {
 		c.Claude.APIKey = apiKey
@@ -145,6 +149,7 @@ func loadFromEnv() *Config {
 		GitHub: GitHubConfig{
 			Token:      os.Getenv("GITHUB_TOKEN"),
 			WebhookURL: os.Getenv("WEBHOOK_URL"),
+			GHToken:    os.Getenv("GH_TOKEN"),
 		},
 		Workspace: WorkspaceConfig{
 			BaseDir:      getEnvOrDefault("WORKSPACE_BASE_DIR", "/tmp/codeagent"),
