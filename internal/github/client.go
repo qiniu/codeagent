@@ -9,32 +9,43 @@ import (
 
 	"github.com/qiniu/codeagent/internal/code"
 	"github.com/qiniu/codeagent/internal/config"
+	"github.com/qiniu/codeagent/internal/github/auth"
 	"github.com/qiniu/codeagent/pkg/models"
 
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/log"
-	"golang.org/x/oauth2"
 )
 
 type Client struct {
-	client *github.Client
-	config *config.Config
+	client        *github.Client
+	config        *config.Config
+	authenticator auth.Authenticator
 }
 
 func NewClient(cfg *config.Config) (*Client, error) {
-	if cfg.GitHub.Token == "" {
-		return nil, fmt.Errorf("GitHub token is required")
+	// Create authenticator using auth factory
+	builder := auth.NewAuthenticatorBuilder(cfg)
+	authenticator, err := builder.BuildAuthenticator()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create authenticator: %w", err)
 	}
 
-	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: cfg.GitHub.Token},
-	)
-	tc := oauth2.NewClient(context.Background(), ts)
-	client := github.NewClient(tc)
+	// Validate access to ensure the authenticator works
+	ctx := context.Background()
+	if err := authenticator.ValidateAccess(ctx); err != nil {
+		return nil, fmt.Errorf("failed to validate GitHub access: %w", err)
+	}
+
+	// Get GitHub client from authenticator
+	client, err := authenticator.GetClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
+	}
 
 	return &Client{
-		client: client,
-		config: cfg,
+		client:        client,
+		config:        cfg,
+		authenticator: authenticator,
 	}, nil
 }
 
@@ -745,6 +756,11 @@ func (c *Client) GetComment(ctx context.Context, owner, repo string, commentID i
 // GetClient 获取底层的GitHub客户端（用于MCP服务器）
 func (c *Client) GetClient() *github.Client {
 	return c.client
+}
+
+// GetAuthenticator 获取认证器（用于获取installation客户端等）
+func (c *Client) GetAuthenticator() auth.Authenticator {
+	return c.authenticator
 }
 
 // min 返回两个整数中的较小值
