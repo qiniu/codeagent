@@ -36,6 +36,7 @@ type ServerConfig struct {
 type GitHubConfig struct {
 	Token      string          `yaml:"token"`
 	WebhookURL string          `yaml:"webhook_url"`
+	GHToken    string          `yaml:"gh_token"`
 	App        GitHubAppConfig `yaml:"app"`
 }
 

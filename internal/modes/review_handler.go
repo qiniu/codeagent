@@ -18,21 +18,21 @@ import (
 // 处理自动代码审查相关的事件
 type ReviewHandler struct {
 	*BaseHandler
-	github         *ghclient.Client
+	clientManager  ghclient.ClientManagerInterface
 	workspace      *workspace.Manager
 	mcpClient      mcp.MCPClient
 	sessionManager *code.SessionManager
 }
 
 // NewReviewHandler 创建Review模式处理器
-func NewReviewHandler(github *ghclient.Client, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager) *ReviewHandler {
+func NewReviewHandler(clientManager ghclient.ClientManagerInterface, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager) *ReviewHandler {
 	return &ReviewHandler{
 		BaseHandler: NewBaseHandler(
 			ReviewMode,
 			30, // 最低优先级
 			"Handle automatic code review events",
 		),
-		github:         github,
+		clientManager:  clientManager,
 		workspace:      workspace,
 		mcpClient:      mcpClient,
 		sessionManager: sessionManager,
@@ -108,18 +108,35 @@ func (rh *ReviewHandler) Execute(ctx context.Context, event models.GitHubContext
 	xl.Infof("ReviewHandler executing for event type: %s, action: %s",
 		event.GetEventType(), event.GetEventAction())
 
+	// Extract repository information
+	ghRepo := event.GetRepository()
+	if ghRepo == nil {
+		return fmt.Errorf("no repository information available")
+	}
+
+	repo := &models.Repository{
+		Owner: ghRepo.Owner.GetLogin(),
+		Name:  ghRepo.GetName(),
+	}
+
+	// Get dynamic GitHub client for this repository
+	client, err := rh.clientManager.GetClient(ctx, repo)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client for %s/%s: %w", repo.Owner, repo.Name, err)
+	}
+
 	switch event.GetEventType() {
 	case models.EventPullRequest:
-		return rh.handlePREvent(ctx, event.(*models.PullRequestContext))
+		return rh.handlePREvent(ctx, event.(*models.PullRequestContext), client)
 	case models.EventPush:
-		return rh.handlePushEvent(ctx, event.(*models.PushContext))
+		return rh.handlePushEvent(ctx, event.(*models.PushContext), client)
 	default:
 		return fmt.Errorf("unsupported event type for ReviewHandler: %s", event.GetEventType())
 	}
 }
 
 // handlePREvent 处理PR事件
-func (rh *ReviewHandler) handlePREvent(ctx context.Context, event *models.PullRequestContext) error {
+func (rh *ReviewHandler) handlePREvent(ctx context.Context, event *models.PullRequestContext, client *ghclient.Client) error {
 	xl := xlog.NewWith(ctx)
 
 	switch event.GetEventAction() {
@@ -132,7 +149,7 @@ func (rh *ReviewHandler) handlePREvent(ctx context.Context, event *models.PullRe
 		return nil
 
 	case "closed":
-		return rh.handlePRClosed(ctx, event)
+		return rh.handlePRClosed(ctx, event, client)
 
 	default:
 		return fmt.Errorf("unsupported action for PR event in ReviewHandler: %s", event.GetEventAction())
@@ -140,7 +157,7 @@ func (rh *ReviewHandler) handlePREvent(ctx context.Context, event *models.PullRe
 }
 
 // handlePRClosed 处理PR关闭事件
-func (rh *ReviewHandler) handlePRClosed(ctx context.Context, event *models.PullRequestContext) error {
+func (rh *ReviewHandler) handlePRClosed(ctx context.Context, event *models.PullRequestContext, client *ghclient.Client) error {
 	xl := xlog.NewWith(ctx)
 
 	pr := event.PullRequest
@@ -187,7 +204,7 @@ func (rh *ReviewHandler) handlePRClosed(ctx context.Context, event *models.PullR
 		repoName := pr.GetBase().GetRepo().GetName()
 
 		xl.Infof("Deleting CodeAgent branch: %s from repo %s/%s", prBranch, owner, repoName)
-		err := rh.github.DeleteCodeAgentBranch(ctx, owner, repoName, prBranch)
+		err := client.DeleteCodeAgentBranch(ctx, owner, repoName, prBranch)
 		if err != nil {
 			xl.Errorf("Failed to delete branch %s: %v", prBranch, err)
 			// 不返回错误，继续完成其他清理工作
@@ -203,7 +220,7 @@ func (rh *ReviewHandler) handlePRClosed(ctx context.Context, event *models.PullR
 }
 
 // handlePushEvent 处理Push事件
-func (rh *ReviewHandler) handlePushEvent(ctx context.Context, event *models.PushContext) error {
+func (rh *ReviewHandler) handlePushEvent(ctx context.Context, event *models.PushContext, client *ghclient.Client) error {
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Processing push event to %s with %d commits", event.Ref, len(event.Commits))
 

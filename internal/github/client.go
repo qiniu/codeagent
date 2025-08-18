@@ -17,9 +17,7 @@ import (
 )
 
 type Client struct {
-	client        *github.Client
-	config        *config.Config
-	authenticator auth.Authenticator
+	client *github.Client
 }
 
 func NewClient(cfg *config.Config) (*Client, error) {
@@ -43,9 +41,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	}
 
 	return &Client{
-		client:        client,
-		config:        cfg,
-		authenticator: authenticator,
+		client: client,
 	}, nil
 }
 
@@ -756,11 +752,6 @@ func (c *Client) GetComment(ctx context.Context, owner, repo string, commentID i
 // GetClient 获取底层的GitHub客户端（用于MCP服务器）
 func (c *Client) GetClient() *github.Client {
 	return c.client
-}
-
-// GetAuthenticator 获取认证器（用于获取installation客户端等）
-func (c *Client) GetAuthenticator() auth.Authenticator {
-	return c.authenticator
 }
 
 // min 返回两个整数中的较小值

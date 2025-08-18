@@ -13,10 +13,10 @@ type Factory struct {
 }
 
 // NewFactory 创建新的上下文工厂
-func NewFactory(githubClient *ghclient.Client, logger *xlog.Logger) *Factory {
+func NewFactory(clientManager ghclient.ClientManagerInterface, logger *xlog.Logger) *Factory {
 	// 根据配置选择生成器类型
 	// 使用模板生成器
-	collector := NewDefaultContextCollector(githubClient)
+	collector := NewDefaultContextCollector(clientManager)
 	formatter := NewDefaultContextFormatter(50000) // 50k tokens limit
 	generator := NewTemplatePromptGenerator(formatter)
 

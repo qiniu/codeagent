@@ -16,9 +16,9 @@ type DefaultContextCollector struct {
 }
 
 // NewDefaultContextCollector 创建默认上下文收集器
-func NewDefaultContextCollector(githubClient *ghclient.Client) *DefaultContextCollector {
+func NewDefaultContextCollector(clientManager ghclient.ClientManagerInterface) *DefaultContextCollector {
 	return &DefaultContextCollector{
-		githubClient: githubClient,
+		githubClient: clientManager.GetDefaultClient(),
 	}
 }
 

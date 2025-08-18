@@ -18,22 +18,22 @@ import (
 // 处理自动化触发的事件（Issue分配、标签添加等）
 type AgentHandler struct {
 	*BaseHandler
-	github    *ghclient.Client
-	workspace *workspace.Manager
-	mcpClient mcp.MCPClient
+	clientManager ghclient.ClientManagerInterface
+	workspace     *workspace.Manager
+	mcpClient     mcp.MCPClient
 }
 
 // NewAgentHandler 创建Agent模式处理器
-func NewAgentHandler(github *ghclient.Client, workspace *workspace.Manager, mcpClient mcp.MCPClient) *AgentHandler {
+func NewAgentHandler(clientManager ghclient.ClientManagerInterface, workspace *workspace.Manager, mcpClient mcp.MCPClient) *AgentHandler {
 	return &AgentHandler{
 		BaseHandler: NewBaseHandler(
 			AgentMode,
 			20, // 较低优先级，在Tag模式之后
 			"Handle automated triggers (issue assignment, labels, etc.)",
 		),
-		github:    github,
-		workspace: workspace,
-		mcpClient: mcpClient,
+		clientManager: clientManager,
+		workspace:     workspace,
+		mcpClient:     mcpClient,
 	}
 }
 
@@ -119,22 +119,39 @@ func (ah *AgentHandler) Execute(ctx context.Context, event models.GitHubContext)
 	xl.Infof("AgentHandler executing for event type: %s, action: %s",
 		event.GetEventType(), event.GetEventAction())
 
+	// Extract repository information
+	ghRepo := event.GetRepository()
+	if ghRepo == nil {
+		return fmt.Errorf("no repository information available")
+	}
+
+	repo := &models.Repository{
+		Owner: ghRepo.Owner.GetLogin(),
+		Name:  ghRepo.GetName(),
+	}
+
+	// Get dynamic GitHub client for this repository
+	client, err := ah.clientManager.GetClient(ctx, repo)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client for %s/%s: %w", repo.Owner, repo.Name, err)
+	}
+
 	switch event.GetEventType() {
 	case models.EventIssues:
-		return ah.handleIssuesEvent(ctx, event.(*models.IssuesContext))
+		return ah.handleIssuesEvent(ctx, event.(*models.IssuesContext), client)
 	case models.EventPullRequest:
-		return ah.handlePREvent(ctx, event.(*models.PullRequestContext))
+		return ah.handlePREvent(ctx, event.(*models.PullRequestContext), client)
 	case models.EventWorkflowDispatch:
-		return ah.handleWorkflowDispatch(ctx, event.(*models.WorkflowDispatchContext))
+		return ah.handleWorkflowDispatch(ctx, event.(*models.WorkflowDispatchContext), client)
 	case models.EventSchedule:
-		return ah.handleSchedule(ctx, event.(*models.ScheduleContext))
+		return ah.handleSchedule(ctx, event.(*models.ScheduleContext), client)
 	default:
 		return fmt.Errorf("unsupported event type for AgentHandler: %s", event.GetEventType())
 	}
 }
 
 // handleIssuesEvent 处理Issues事件
-func (ah *AgentHandler) handleIssuesEvent(ctx context.Context, event *models.IssuesContext) error {
+func (ah *AgentHandler) handleIssuesEvent(ctx context.Context, event *models.IssuesContext, client *ghclient.Client) error {
 	xl := xlog.NewWith(ctx)
 
 	switch event.GetEventAction() {
@@ -159,7 +176,7 @@ func (ah *AgentHandler) handleIssuesEvent(ctx context.Context, event *models.Iss
 }
 
 // handlePREvent 处理PR事件
-func (ah *AgentHandler) handlePREvent(ctx context.Context, event *models.PullRequestContext) error {
+func (ah *AgentHandler) handlePREvent(ctx context.Context, event *models.PullRequestContext, client *ghclient.Client) error {
 	xl := xlog.NewWith(ctx)
 
 	switch event.GetEventAction() {
@@ -176,7 +193,7 @@ func (ah *AgentHandler) handlePREvent(ctx context.Context, event *models.PullReq
 }
 
 // handleWorkflowDispatch 处理工作流调度事件
-func (ah *AgentHandler) handleWorkflowDispatch(ctx context.Context, event *models.WorkflowDispatchContext) error {
+func (ah *AgentHandler) handleWorkflowDispatch(ctx context.Context, event *models.WorkflowDispatchContext, client *ghclient.Client) error {
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Processing workflow dispatch event with inputs: %+v", event.Inputs)
 
@@ -187,7 +204,7 @@ func (ah *AgentHandler) handleWorkflowDispatch(ctx context.Context, event *model
 }
 
 // handleSchedule 处理定时任务事件
-func (ah *AgentHandler) handleSchedule(ctx context.Context, event *models.ScheduleContext) error {
+func (ah *AgentHandler) handleSchedule(ctx context.Context, event *models.ScheduleContext, client *ghclient.Client) error {
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Processing schedule event with cron: %s", event.Cron)
 

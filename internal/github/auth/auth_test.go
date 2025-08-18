@@ -157,7 +157,6 @@ func TestGitHubAppAuthenticator(t *testing.T) {
 	})
 }
 
-
 func TestAuthenticatorBuilder(t *testing.T) {
 	t.Run("BuildPATAuthenticator", func(t *testing.T) {
 		cfg := &config.Config{
