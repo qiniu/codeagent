@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -21,6 +22,11 @@ func TestEnhancedAgentIntegration(t *testing.T) {
 	// 跳过测试如果没有必要的环境变量
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
+	}
+
+	// 跳过测试如果没有有效的GitHub token
+	if os.Getenv("GITHUB_TOKEN") == "" {
+		t.Skip("Skipping integration test: GITHUB_TOKEN not set")
 	}
 
 	// 1. 创建测试配置
@@ -63,6 +69,11 @@ func TestEnhancedAgentIssueCommentFlow(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
+	// 跳过测试如果没有有效的GitHub token
+	if os.Getenv("GITHUB_TOKEN") == "" {
+		t.Skip("Skipping integration test: GITHUB_TOKEN not set")
+	}
+
 	// 创建测试Agent
 	cfg := createTestConfig()
 	workspaceManager := workspace.NewManager(cfg)
@@ -93,6 +104,10 @@ func TestEnhancedAgentIssueCommentFlow(t *testing.T) {
 
 // TestMCPToolsIntegration 测试MCP工具集成
 func TestMCPToolsIntegration(t *testing.T) {
+	// 跳过测试如果没有有效的GitHub token
+	if os.Getenv("GITHUB_TOKEN") == "" {
+		t.Skip("Skipping integration test: GITHUB_TOKEN not set")
+	}
 	cfg := createTestConfig()
 	workspaceManager := workspace.NewManager(cfg)
 	enhancedAgent, err := agent.NewEnhancedAgent(cfg, workspaceManager)
@@ -145,6 +160,10 @@ func TestMCPToolsIntegration(t *testing.T) {
 
 // TestProgressCommentIntegration 测试进度评论集成
 func TestProgressCommentIntegration(t *testing.T) {
+	// 跳过测试如果没有有效的GitHub token
+	if os.Getenv("GITHUB_TOKEN") == "" {
+		t.Skip("Skipping integration test: GITHUB_TOKEN not set")
+	}
 	// 这是一个单元测试级别的集成测试，不需要真实网络调用
 	cfg := createTestConfig()
 	workspaceManager := workspace.NewManager(cfg)
@@ -168,9 +187,15 @@ func TestProgressCommentIntegration(t *testing.T) {
 // 辅助函数
 
 func createTestConfig() *config.Config {
+	// 优先使用环境变量中的真实token，如果没有则使用假token
+	token := os.Getenv("GITHUB_TOKEN")
+	if token == "" {
+		token = "fake-token-for-testing"
+	}
+
 	return &config.Config{
 		GitHub: config.GitHubConfig{
-			Token: "fake-token-for-testing",
+			Token: token,
 		},
 		CodeProvider: "claude",
 		UseDocker:    false,

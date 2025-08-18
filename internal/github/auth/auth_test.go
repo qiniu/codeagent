@@ -244,7 +244,7 @@ func TestAuthenticatorBuilder(t *testing.T) {
 		builder := NewAuthenticatorBuilder(cfg)
 		_, err := builder.BuildAuthenticator()
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "GitHub authentication is required")
+		assert.Contains(t, err.Error(), "either GitHub token or GitHub App must be configured")
 	})
 }
 
