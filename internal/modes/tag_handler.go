@@ -25,7 +25,7 @@ import (
 type TagHandler struct {
 	*BaseHandler
 	defaultAIModel string
-	github         *ghclient.Client
+	clientManager  ghclient.ClientManagerInterface
 	workspace      *workspace.Manager
 	mcpClient      mcp.MCPClient
 	sessionManager *code.SessionManager
@@ -33,9 +33,9 @@ type TagHandler struct {
 }
 
 // NewTagHandler creates a Tag mode handler
-func NewTagHandler(defaultAIModel string, github *ghclient.Client, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager) *TagHandler {
-	// Create context manager
-	collector := ctxsys.NewDefaultContextCollector(github)
+func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerInterface, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager) *TagHandler {
+	// Create context manager with dynamic client support
+	collector := ctxsys.NewDefaultContextCollector(clientManager)
 	formatter := ctxsys.NewDefaultContextFormatter(50000) // 50k tokens limit
 	generator := ctxsys.NewDefaultPromptGenerator(formatter)
 	contextManager := &ctxsys.ContextManager{
@@ -51,7 +51,7 @@ func NewTagHandler(defaultAIModel string, github *ghclient.Client, workspace *wo
 			"Handle @codeagent mentions and commands (/code, /continue, /fix)",
 		),
 		defaultAIModel: defaultAIModel,
-		github:         github,
+		clientManager:  clientManager,
 		workspace:      workspace,
 		mcpClient:      mcpClient,
 		sessionManager: sessionManager,
@@ -89,6 +89,23 @@ func (th *TagHandler) Execute(ctx context.Context, event models.GitHubContext) e
 	xl := xlog.NewWith(ctx)
 	xl.Infof("TagHandler executing for event type: %s", event.GetEventType())
 
+	// Extract repository information
+	ghRepo := event.GetRepository()
+	if ghRepo == nil {
+		return fmt.Errorf("no repository information available")
+	}
+
+	repo := &models.Repository{
+		Owner: ghRepo.Owner.GetLogin(),
+		Name:  ghRepo.GetName(),
+	}
+
+	// Get dynamic GitHub client for this repository
+	client, err := th.clientManager.GetClient(ctx, repo)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client for %s/%s: %w", repo.Owner, repo.Name, err)
+	}
+
 	// Extract command information
 	cmdInfo, hasCmd := models.HasCommand(event)
 	if !hasCmd {
@@ -106,11 +123,11 @@ func (th *TagHandler) Execute(ctx context.Context, event models.GitHubContext) e
 	// Dispatch processing based on event type and command type
 	switch event.GetEventType() {
 	case models.EventIssueComment:
-		return th.handleIssueComment(ctx, event.(*models.IssueCommentContext), cmdInfo)
+		return th.handleIssueComment(ctx, event.(*models.IssueCommentContext), cmdInfo, client)
 	case models.EventPullRequestReview:
-		return th.handlePRReview(ctx, event.(*models.PullRequestReviewContext), cmdInfo)
+		return th.handlePRReview(ctx, event.(*models.PullRequestReviewContext), cmdInfo, client)
 	case models.EventPullRequestReviewComment:
-		return th.handlePRReviewComment(ctx, event.(*models.PullRequestReviewCommentContext), cmdInfo)
+		return th.handlePRReviewComment(ctx, event.(*models.PullRequestReviewCommentContext), cmdInfo, client)
 	default:
 		return fmt.Errorf("unsupported event type for TagHandler: %s", event.GetEventType())
 	}
@@ -121,6 +138,7 @@ func (th *TagHandler) handleIssueComment(
 	ctx context.Context,
 	event *models.IssueCommentContext,
 	cmdInfo *models.CommandInfo,
+	client *ghclient.Client,
 ) error {
 	// Convert event to original GitHub event type (compatible with existing agent interface)
 	issueCommentEvent := event.RawEvent.(*github.IssueCommentEvent)
@@ -155,6 +173,7 @@ func (th *TagHandler) handlePRReview(
 	ctx context.Context,
 	event *models.PullRequestReviewContext,
 	cmdInfo *models.CommandInfo,
+	client *ghclient.Client,
 ) error {
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Processing PR review with command: %s", cmdInfo.Command)
@@ -188,6 +207,7 @@ func (th *TagHandler) handlePRReviewComment(
 	ctx context.Context,
 	event *models.PullRequestReviewCommentContext,
 	cmdInfo *models.CommandInfo,
+	client *ghclient.Client,
 ) error {
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Processing PR review comment with command: %s", cmdInfo.Command)
@@ -247,7 +267,13 @@ func (th *TagHandler) buildEnhancedIssuePrompt(ctx context.Context, event *model
 	owner, repoName := th.extractRepoInfo(repoFullName)
 
 	// 获取Issue的所有评论
-	comments, _, err := th.github.GetClient().Issues.ListComments(ctx, owner, repoName, issueNumber, &github.IssueListCommentsOptions{
+	repoInfo := &models.Repository{Owner: owner, Name: repoName}
+	client, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		xl.Warnf("Failed to get GitHub client: %v", err)
+		return "", fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+	comments, _, err := client.GetClient().Issues.ListComments(ctx, owner, repoName, issueNumber, &github.IssueListCommentsOptions{
 		Sort:      github.String("created"),
 		Direction: github.String("asc"),
 	})
@@ -392,7 +418,12 @@ func (th *TagHandler) setupWorkspaceAndBranch(
 
 	// 创建分支并推送
 	xl.Infof("Creating branch: %s", ws.Branch)
-	if err := th.github.CreateBranch(ws); err != nil {
+	repoInfo := &models.Repository{Owner: ws.Org, Name: ws.Repo}
+	ghClient, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+	if err := ghClient.CreateBranch(ws); err != nil {
 		return nil, fmt.Errorf("failed to create branch: %w", err)
 	}
 	xl.Infof("Branch created successfully")
@@ -410,7 +441,12 @@ func (th *TagHandler) createPRAndInitializeProgress(
 
 	// 创建初始PR（在代码生成之前）
 	xl.Infof("Creating initial PR before code generation")
-	pr, err := th.github.CreatePullRequest(ws)
+	repoInfo := &models.Repository{Owner: ws.Org, Name: ws.Repo}
+	ghClient, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+	pr, err := ghClient.CreatePullRequest(ws)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create PR: %w", err)
 	}
@@ -473,7 +509,15 @@ func (th *TagHandler) initializeProgressTracking(
 	xl.Infof("Initializing progress tracking in PR #%d", pr.GetNumber())
 
 	// 创建PR进度评论管理器
-	pcm := interaction.NewProgressCommentManager(th.github, event.GetRepository(), pr.GetNumber())
+	repoInfo := &models.Repository{
+		Owner: event.GetRepository().GetOwner().GetLogin(),
+		Name:  event.GetRepository().GetName(),
+	}
+	ghClient, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+	pcm := interaction.NewProgressCommentManager(ghClient, event.GetRepository(), pr.GetNumber())
 
 	// 定义PR中的任务列表
 	tasks := []*models.Task{
@@ -602,7 +646,12 @@ func (th *TagHandler) commitAndPushChanges(
 	}
 
 	// 提交并推送
-	_, err = th.github.CommitAndPush(ws, executionResult, codeClient)
+	repoInfo := &models.Repository{Owner: ws.Org, Name: ws.Repo}
+	ghClient, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+	_, err = ghClient.CommitAndPush(ws, executionResult, codeClient)
 	if err != nil {
 		return fmt.Errorf("failed to commit and push changes: %w", err)
 	}
@@ -806,7 +855,12 @@ func (th *TagHandler) processPRCommand(
 
 	// 3. 从GitHub API获取完整的PR信息
 	xl.Infof("Fetching PR information from GitHub API")
-	pr, err := th.github.GetPullRequest(repoOwner, repoName, prNumber)
+	repoInfo := &models.Repository{Owner: repoOwner, Name: repoName}
+	ghClient, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+	pr, err := ghClient.GetPullRequest(repoOwner, repoName, prNumber)
 	if err != nil {
 		xl.Errorf("Failed to get PR #%d: %v", prNumber, err)
 		return fmt.Errorf("failed to get PR information: %w", err)
@@ -832,7 +886,7 @@ func (th *TagHandler) processPRCommand(
 
 	// 6. 拉取远端最新代码
 	xl.Infof("Pulling latest changes from remote")
-	if err := th.github.PullLatestChanges(ws, pr); err != nil {
+	if err := ghClient.PullLatestChanges(ws, pr); err != nil {
 		xl.Warnf("Failed to pull latest changes: %v", err)
 		// 不返回错误，继续执行
 	} else {
@@ -853,7 +907,7 @@ func (th *TagHandler) processPRCommand(
 	if err != nil {
 		xl.Warnf("Failed to build enhanced prompt, falling back to simple prompt: %v", err)
 		// Fallback to original method
-		allComments, err := th.github.GetAllPRComments(pr)
+		allComments, err := ghClient.GetAllPRComments(pr)
 		if err != nil {
 			xl.Warnf("Failed to get PR comments for context: %v", err)
 			allComments = &models.PRAllComments{}
@@ -892,7 +946,7 @@ func (th *TagHandler) processPRCommand(
 	}
 
 	xl.Infof("Committing and pushing changes for PR %s", strings.ToLower(mode))
-	commitHash, err := th.github.CommitAndPush(ws, executionResult, codeClient)
+	commitHash, err := ghClient.CommitAndPush(ws, executionResult, codeClient)
 	if err != nil {
 		xl.Errorf("Failed to commit and push changes: %v", err)
 		if mode == "Fix" {
@@ -998,7 +1052,15 @@ func (th *TagHandler) processPRReviewCommand(
 	xl.Infof("Extracted AI model from branch: %s", cmdInfo.AIModel)
 
 	// 3. 获取指定 review 的所有 comments（只获取本次review的评论）
-	reviewComments, err := th.github.GetReviewComments(pr, reviewID)
+	repoInfo := &models.Repository{
+		Owner: pr.GetBase().GetRepo().GetOwner().GetLogin(),
+		Name:  pr.GetBase().GetRepo().GetName(),
+	}
+	ghClient, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+	reviewComments, err := ghClient.GetReviewComments(pr, reviewID)
 	if err != nil {
 		xl.Errorf("Failed to get review comments: %v", err)
 		return err
@@ -1013,7 +1075,7 @@ func (th *TagHandler) processPRReviewCommand(
 	}
 
 	// 5. 拉取远端最新代码
-	if err := th.github.PullLatestChanges(ws, pr); err != nil {
+	if err := ghClient.PullLatestChanges(ws, pr); err != nil {
 		xl.Errorf("Failed to pull latest changes: %v", err)
 		// 不返回错误，继续执行，因为可能是网络问题
 	}
@@ -1092,7 +1154,7 @@ func (th *TagHandler) processPRReviewCommand(
 	executionResult := &models.ExecutionResult{
 		Output: string(output),
 	}
-	commitHash, err := th.github.CommitAndPush(ws, executionResult, codeClient)
+	commitHash, err := ghClient.CommitAndPush(ws, executionResult, codeClient)
 	if err != nil {
 		xl.Errorf("Failed to commit and push for PR batch processing from review: %v", err)
 		return err
@@ -1186,7 +1248,15 @@ func (th *TagHandler) processPRReviewCommentCommand(
 	}
 
 	// 4. 拉取远端最新代码
-	if err := th.github.PullLatestChanges(ws, pr); err != nil {
+	repoInfo := &models.Repository{
+		Owner: pr.GetBase().GetRepo().GetOwner().GetLogin(),
+		Name:  pr.GetBase().GetRepo().GetName(),
+	}
+	ghClient, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+	if err := ghClient.PullLatestChanges(ws, pr); err != nil {
 		xl.Errorf("Failed to pull latest changes: %v", err)
 		// 不返回错误，继续执行，因为可能是网络问题
 	}
@@ -1253,7 +1323,7 @@ func (th *TagHandler) processPRReviewCommentCommand(
 	executionResult := &models.ExecutionResult{
 		Output: string(output),
 	}
-	commitHash, err := th.github.CommitAndPush(ws, executionResult, codeClient)
+	commitHash, err := ghClient.CommitAndPush(ws, executionResult, codeClient)
 	if err != nil {
 		xl.Errorf("Failed to commit and push for PR %s from review comment: %v", strings.ToLower(mode), err)
 		return err
@@ -1277,7 +1347,7 @@ func (th *TagHandler) processPRReviewCommentCommand(
 			commitURL)
 	}
 
-	if err = th.github.ReplyToReviewComment(pr, event.Comment.GetID(), replyBody); err != nil {
+	if err = ghClient.ReplyToReviewComment(pr, event.Comment.GetID(), replyBody); err != nil {
 		xl.Errorf("Failed to reply to review comment: %v", err)
 		// 不返回错误，因为这不是致命的，代码修改已经提交成功
 	} else {

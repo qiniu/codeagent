@@ -16,14 +16,14 @@ import (
 
 // GitHubFilesServer GitHub文件操作MCP服务器
 type GitHubFilesServer struct {
-	client *github.Client
-	info   *models.MCPServerInfo
+	clientManager github.ClientManagerInterface
+	info          *models.MCPServerInfo
 }
 
 // NewGitHubFilesServer 创建GitHub文件操作服务器
-func NewGitHubFilesServer(client *github.Client) *GitHubFilesServer {
+func NewGitHubFilesServer(clientManager github.ClientManagerInterface) *GitHubFilesServer {
 	return &GitHubFilesServer{
-		client: client,
+		clientManager: clientManager,
 		info: &models.MCPServerInfo{
 			Name:        "github-files",
 			Version:     "1.0.0",
@@ -173,17 +173,28 @@ func (s *GitHubFilesServer) HandleToolCall(ctx context.Context, call *models.Too
 	owner := mcpCtx.Repository.GetRepository().Owner.GetLogin()
 	repo := mcpCtx.Repository.GetRepository().GetName()
 
+	// 根据仓库信息获取动态客户端
+	repoInfo := &models.Repository{
+		Owner: owner,
+		Name:  repo,
+	}
+
+	client, err := s.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub client for %s/%s: %w", owner, repo, err)
+	}
+
 	xl.Infof("Executing GitHub files tool: %s on %s/%s", call.Function.Name, owner, repo)
 
 	switch call.Function.Name {
 	case "read_file":
-		return s.readFile(ctx, call, owner, repo)
+		return s.readFile(ctx, call, client, owner, repo)
 	case "write_file":
-		return s.writeFile(ctx, call, owner, repo, mcpCtx)
+		return s.writeFile(ctx, call, client, owner, repo, mcpCtx)
 	case "list_files":
-		return s.listFiles(ctx, call, owner, repo)
+		return s.listFiles(ctx, call, client, owner, repo)
 	case "search_files":
-		return s.searchFiles(ctx, call, owner, repo)
+		return s.searchFiles(ctx, call, client, owner, repo)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", call.Function.Name)
 	}
@@ -204,7 +215,7 @@ func (s *GitHubFilesServer) Shutdown(ctx context.Context) error {
 }
 
 // readFile 读取文件
-func (s *GitHubFilesServer) readFile(ctx context.Context, call *models.ToolCall, owner, repo string) (*models.ToolResult, error) {
+func (s *GitHubFilesServer) readFile(ctx context.Context, call *models.ToolCall, client *github.Client, owner, repo string) (*models.ToolResult, error) {
 	path := call.Function.Arguments["path"].(string)
 	ref := "HEAD"
 	if r, ok := call.Function.Arguments["ref"].(string); ok && r != "" {
@@ -213,7 +224,7 @@ func (s *GitHubFilesServer) readFile(ctx context.Context, call *models.ToolCall,
 
 	// 使用GitHub API获取文件内容
 	opts := &githubapi.RepositoryContentGetOptions{Ref: ref}
-	fileContent, _, _, err := s.client.GetClient().Repositories.GetContents(ctx, owner, repo, path, opts)
+	fileContent, _, _, err := client.GetClient().Repositories.GetContents(ctx, owner, repo, path, opts)
 	if err != nil {
 		return &models.ToolResult{
 			ID:      call.ID,
@@ -258,7 +269,7 @@ func (s *GitHubFilesServer) readFile(ctx context.Context, call *models.ToolCall,
 }
 
 // writeFile 写入文件
-func (s *GitHubFilesServer) writeFile(ctx context.Context, call *models.ToolCall, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
+func (s *GitHubFilesServer) writeFile(ctx context.Context, call *models.ToolCall, client *github.Client, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
 	path := call.Function.Arguments["path"].(string)
 	content := call.Function.Arguments["content"].(string)
 	message := call.Function.Arguments["message"].(string)
@@ -303,7 +314,7 @@ func (s *GitHubFilesServer) writeFile(ctx context.Context, call *models.ToolCall
 
 	// 尝试获取现有文件的SHA（用于更新）
 	var existingSHA *string
-	if fileContent, _, _, err := s.client.GetClient().Repositories.GetContents(ctx, owner, repo, path, nil); err == nil && fileContent != nil {
+	if fileContent, _, _, err := client.GetClient().Repositories.GetContents(ctx, owner, repo, path, nil); err == nil && fileContent != nil {
 		existingSHA = fileContent.SHA
 	}
 
@@ -318,7 +329,7 @@ func (s *GitHubFilesServer) writeFile(ctx context.Context, call *models.ToolCall
 		opts.Branch = &branch
 	}
 
-	result, _, err := s.client.GetClient().Repositories.CreateFile(ctx, owner, repo, path, opts)
+	result, _, err := client.GetClient().Repositories.CreateFile(ctx, owner, repo, path, opts)
 	if err != nil {
 		return &models.ToolResult{
 			ID:      call.ID,
@@ -342,7 +353,7 @@ func (s *GitHubFilesServer) writeFile(ctx context.Context, call *models.ToolCall
 }
 
 // listFiles 列出文件
-func (s *GitHubFilesServer) listFiles(ctx context.Context, call *models.ToolCall, owner, repo string) (*models.ToolResult, error) {
+func (s *GitHubFilesServer) listFiles(ctx context.Context, call *models.ToolCall, client *github.Client, owner, repo string) (*models.ToolResult, error) {
 	path := ""
 	if p, ok := call.Function.Arguments["path"].(string); ok {
 		path = p
@@ -359,7 +370,7 @@ func (s *GitHubFilesServer) listFiles(ctx context.Context, call *models.ToolCall
 	}
 
 	opts := &githubapi.RepositoryContentGetOptions{Ref: ref}
-	_, directoryContent, _, err := s.client.GetClient().Repositories.GetContents(ctx, owner, repo, path, opts)
+	_, directoryContent, _, err := client.GetClient().Repositories.GetContents(ctx, owner, repo, path, opts)
 	if err != nil {
 		return &models.ToolResult{
 			ID:      call.ID,
@@ -398,7 +409,7 @@ func (s *GitHubFilesServer) listFiles(ctx context.Context, call *models.ToolCall
 				},
 			}
 
-			subResult, err := s.listFiles(ctx, subCall, owner, repo)
+			subResult, err := s.listFiles(ctx, subCall, client, owner, repo)
 			if err == nil && subResult.Success {
 				if subFiles, ok := subResult.Content.(map[string]interface{})["files"].([]map[string]interface{}); ok {
 					files = append(files, subFiles...)
@@ -420,7 +431,7 @@ func (s *GitHubFilesServer) listFiles(ctx context.Context, call *models.ToolCall
 }
 
 // searchFiles 搜索文件
-func (s *GitHubFilesServer) searchFiles(ctx context.Context, call *models.ToolCall, owner, repo string) (*models.ToolResult, error) {
+func (s *GitHubFilesServer) searchFiles(ctx context.Context, call *models.ToolCall, client *github.Client, owner, repo string) (*models.ToolResult, error) {
 	query := call.Function.Arguments["query"].(string)
 
 	searchPath := ""
@@ -450,7 +461,7 @@ func (s *GitHubFilesServer) searchFiles(ctx context.Context, call *models.ToolCa
 		ListOptions: githubapi.ListOptions{PerPage: 100},
 	}
 
-	result, _, err := s.client.GetClient().Search.Code(ctx, searchQuery, opts)
+	result, _, err := client.GetClient().Search.Code(ctx, searchQuery, opts)
 	if err != nil {
 		return &models.ToolResult{
 			ID:      call.ID,

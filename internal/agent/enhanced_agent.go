@@ -23,7 +23,7 @@ import (
 type EnhancedAgent struct {
 	// 原有组件
 	config         *config.Config
-	github         *ghclient.Client
+	clientManager  ghclient.ClientManagerInterface
 	workspace      *workspace.Manager
 	sessionManager *code.SessionManager
 
@@ -40,10 +40,10 @@ func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (
 	xl := xlog.New("")
 	xl.Infof("NewEnhancedAgent: %+v", cfg)
 
-	// 1. 初始化GitHub客户端
-	githubClient, err := ghclient.NewClient(cfg)
+	// 1. 初始化GitHub客户端管理器
+	clientManager, err := ghclient.NewClientManager(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
+		return nil, fmt.Errorf("failed to create GitHub client manager: %w", err)
 	}
 
 	// 2. 初始化事件解析器
@@ -53,8 +53,8 @@ func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (
 	mcpManager := mcp.NewManager()
 
 	// 注册内置MCP服务器
-	githubFiles := servers.NewGitHubFilesServer(githubClient)
-	githubComments := servers.NewGitHubCommentsServer(githubClient)
+	githubFiles := servers.NewGitHubFilesServer(clientManager)
+	githubComments := servers.NewGitHubCommentsServer(clientManager)
 
 	if err := mcpManager.RegisterServer("github-files", githubFiles); err != nil {
 		return nil, fmt.Errorf("failed to register github-files server: %w", err)
@@ -74,9 +74,9 @@ func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (
 	modeManager := modes.NewManager()
 
 	// 注册处理器（按优先级顺序）
-	tagHandler := modes.NewTagHandler(cfg.CodeProvider, githubClient, workspaceManager, mcpClient, sessionManager)
-	agentHandler := modes.NewAgentHandler(githubClient, workspaceManager, mcpClient)
-	reviewHandler := modes.NewReviewHandler(githubClient, workspaceManager, mcpClient, sessionManager)
+	tagHandler := modes.NewTagHandler(cfg.CodeProvider, clientManager, workspaceManager, mcpClient, sessionManager)
+	agentHandler := modes.NewAgentHandler(clientManager, workspaceManager, mcpClient)
+	reviewHandler := modes.NewReviewHandler(clientManager, workspaceManager, mcpClient, sessionManager)
 
 	modeManager.RegisterHandler(tagHandler)
 	modeManager.RegisterHandler(agentHandler)
@@ -87,7 +87,7 @@ func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (
 
 	agent := &EnhancedAgent{
 		config:         cfg,
-		github:         githubClient,
+		clientManager:  clientManager,
 		workspace:      workspaceManager,
 		sessionManager: sessionManager,
 		eventParser:    eventParser,

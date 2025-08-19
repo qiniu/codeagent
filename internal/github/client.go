@@ -8,34 +8,14 @@ import (
 	"strings"
 
 	"github.com/qiniu/codeagent/internal/code"
-	"github.com/qiniu/codeagent/internal/config"
 	"github.com/qiniu/codeagent/pkg/models"
 
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/log"
-	"golang.org/x/oauth2"
 )
 
 type Client struct {
 	client *github.Client
-	config *config.Config
-}
-
-func NewClient(cfg *config.Config) (*Client, error) {
-	if cfg.GitHub.Token == "" {
-		return nil, fmt.Errorf("GitHub token is required")
-	}
-
-	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: cfg.GitHub.Token},
-	)
-	tc := oauth2.NewClient(context.Background(), ts)
-	client := github.NewClient(tc)
-
-	return &Client{
-		client: client,
-		config: cfg,
-	}, nil
 }
 
 // CreateBranch creates branch locally and pushes to remote

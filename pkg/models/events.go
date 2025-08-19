@@ -127,6 +127,12 @@ type PushContext struct {
 	After   string               `json:"after"`
 }
 
+// Repository 简单的仓库信息结构体
+type Repository struct {
+	Owner string `json:"owner"` // 仓库所有者（组织或用户）
+	Name  string `json:"name"`  // 仓库名称
+}
+
 // CommandInfo 提取的命令信息
 type CommandInfo struct {
 	Command string `json:"command"`  // /code, /continue, /fix

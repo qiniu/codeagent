@@ -34,9 +34,17 @@ type ServerConfig struct {
 }
 
 type GitHubConfig struct {
-	Token      string `yaml:"token"`
-	WebhookURL string `yaml:"webhook_url"`
-	GHToken    string `yaml:"gh_token"`
+	Token      string          `yaml:"token"`
+	WebhookURL string          `yaml:"webhook_url"`
+	GHToken    string          `yaml:"gh_token"`
+	App        GitHubAppConfig `yaml:"app"`
+}
+
+type GitHubAppConfig struct {
+	AppID          int64  `yaml:"app_id"`
+	PrivateKeyPath string `yaml:"private_key_path"`
+	PrivateKeyEnv  string `yaml:"private_key_env"`
+	PrivateKey     string `yaml:"private_key"`
 }
 
 type WorkspaceConfig struct {
@@ -120,6 +128,21 @@ func (c *Config) loadFromEnv() {
 	}
 	if secret := os.Getenv("WEBHOOK_SECRET"); secret != "" {
 		c.Server.WebhookSecret = secret
+	}
+	// GitHub App configuration from environment
+	if appIDStr := os.Getenv("GITHUB_APP_ID"); appIDStr != "" {
+		if appID, err := strconv.ParseInt(appIDStr, 10, 64); err == nil {
+			c.GitHub.App.AppID = appID
+		}
+	}
+	if privateKeyPath := os.Getenv("GITHUB_APP_PRIVATE_KEY_PATH"); privateKeyPath != "" {
+		c.GitHub.App.PrivateKeyPath = privateKeyPath
+	}
+	if privateKeyEnv := os.Getenv("GITHUB_APP_PRIVATE_KEY_ENV"); privateKeyEnv != "" {
+		c.GitHub.App.PrivateKeyEnv = privateKeyEnv
+	}
+	if privateKey := os.Getenv("GITHUB_APP_PRIVATE_KEY"); privateKey != "" {
+		c.GitHub.App.PrivateKey = privateKey
 	}
 	if portStr := os.Getenv("PORT"); portStr != "" {
 		if port, err := strconv.Atoi(portStr); err == nil {
@@ -206,4 +229,25 @@ func getEnvBoolOrDefault(key string, defaultValue bool) bool {
 		}
 	}
 	return defaultValue
+}
+
+// IsGitHubTokenConfigured returns whether GitHub token is configured
+func (c *Config) IsGitHubTokenConfigured() bool {
+	return c.GitHub.Token != ""
+}
+
+// IsGitHubAppConfigured returns whether GitHub App is configured
+func (c *Config) IsGitHubAppConfigured() bool {
+	return c.GitHub.App.AppID > 0 &&
+		(c.GitHub.App.PrivateKeyPath != "" ||
+			c.GitHub.App.PrivateKeyEnv != "" ||
+			c.GitHub.App.PrivateKey != "")
+}
+
+// ValidateGitHubConfig validates the GitHub configuration
+func (c *Config) ValidateGitHubConfig() error {
+	if !c.IsGitHubTokenConfigured() && !c.IsGitHubAppConfigured() {
+		return fmt.Errorf("either GitHub token or GitHub App must be configured")
+	}
+	return nil
 }

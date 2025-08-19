@@ -47,14 +47,14 @@ func safeExtractInt64(value interface{}, paramName string) (int64, error) {
 
 // GitHubCommentsServer GitHub评论操作MCP服务器
 type GitHubCommentsServer struct {
-	client *github.Client
-	info   *models.MCPServerInfo
+	clientManager github.ClientManagerInterface
+	info          *models.MCPServerInfo
 }
 
 // NewGitHubCommentsServer 创建GitHub评论操作服务器
-func NewGitHubCommentsServer(client *github.Client) *GitHubCommentsServer {
+func NewGitHubCommentsServer(clientManager github.ClientManagerInterface) *GitHubCommentsServer {
 	return &GitHubCommentsServer{
-		client: client,
+		clientManager: clientManager,
 		info: &models.MCPServerInfo{
 			Name:        "github-comments",
 			Version:     "1.0.0",
@@ -228,6 +228,17 @@ func (s *GitHubCommentsServer) HandleToolCall(ctx context.Context, call *models.
 	owner := mcpCtx.Repository.GetRepository().Owner.GetLogin()
 	repo := mcpCtx.Repository.GetRepository().GetName()
 
+	// 根据仓库信息获取动态客户端
+	repoInfo := &models.Repository{
+		Owner: owner,
+		Name:  repo,
+	}
+
+	client, err := s.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub client for %s/%s: %w", owner, repo, err)
+	}
+
 	// 解析工具名称，去掉服务器前缀
 	toolName := call.Function.Name
 	if parts := strings.SplitN(call.Function.Name, "_", 2); len(parts) == 2 {
@@ -238,17 +249,17 @@ func (s *GitHubCommentsServer) HandleToolCall(ctx context.Context, call *models.
 
 	switch toolName {
 	case "create_comment":
-		return s.createComment(ctx, call, owner, repo, mcpCtx)
+		return s.createComment(ctx, call, client, owner, repo, mcpCtx)
 	case "update_comment":
-		return s.updateComment(ctx, call, owner, repo, mcpCtx)
+		return s.updateComment(ctx, call, client, owner, repo, mcpCtx)
 	case "update_pr_description":
-		return s.updatePRDescription(ctx, call, owner, repo, mcpCtx)
+		return s.updatePRDescription(ctx, call, client, owner, repo, mcpCtx)
 	case "list_comments":
-		return s.listComments(ctx, call, owner, repo)
+		return s.listComments(ctx, call, client, owner, repo)
 	case "create_review_comment":
-		return s.createReviewComment(ctx, call, owner, repo, mcpCtx)
+		return s.createReviewComment(ctx, call, client, owner, repo, mcpCtx)
 	case "list_pr_comments":
-		return s.listPRComments(ctx, call, owner, repo)
+		return s.listPRComments(ctx, call, client, owner, repo)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -269,7 +280,7 @@ func (s *GitHubCommentsServer) Shutdown(ctx context.Context) error {
 }
 
 // createComment 创建评论
-func (s *GitHubCommentsServer) createComment(ctx context.Context, call *models.ToolCall, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
+func (s *GitHubCommentsServer) createComment(ctx context.Context, call *models.ToolCall, client *github.Client, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
 	// 安全地提取 issue_number
 	issueNumber, err := safeExtractInt(call.Function.Arguments["issue_number"], "issue_number")
 	if err != nil {
@@ -292,7 +303,7 @@ func (s *GitHubCommentsServer) createComment(ctx context.Context, call *models.T
 		}, nil
 	}
 
-	comment, err := s.client.CreateComment(ctx, owner, repo, issueNumber, body)
+	comment, err := client.CreateComment(ctx, owner, repo, issueNumber, body)
 	if err != nil {
 		return &models.ToolResult{
 			ID:      call.ID,
@@ -319,7 +330,7 @@ func (s *GitHubCommentsServer) createComment(ctx context.Context, call *models.T
 }
 
 // updateComment 更新评论
-func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.ToolCall, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
+func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.ToolCall, client *github.Client, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
 	// 安全地提取 comment_id
 	commentID, err := safeExtractInt64(call.Function.Arguments["comment_id"], "comment_id")
 	if err != nil {
@@ -342,7 +353,7 @@ func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.T
 		}, nil
 	}
 
-	updateErr := s.client.UpdateComment(ctx, owner, repo, commentID, body)
+	updateErr := client.UpdateComment(ctx, owner, repo, commentID, body)
 	if updateErr != nil {
 		return &models.ToolResult{
 			ID:      call.ID,
@@ -365,7 +376,7 @@ func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.T
 }
 
 // listComments 列出评论
-func (s *GitHubCommentsServer) listComments(ctx context.Context, call *models.ToolCall, owner, repo string) (*models.ToolResult, error) {
+func (s *GitHubCommentsServer) listComments(ctx context.Context, call *models.ToolCall, client *github.Client, owner, repo string) (*models.ToolResult, error) {
 	// 安全地提取 issue_number
 	issueNumber, err := safeExtractInt(call.Function.Arguments["issue_number"], "issue_number")
 	if err != nil {
@@ -387,7 +398,7 @@ func (s *GitHubCommentsServer) listComments(ctx context.Context, call *models.To
 		}
 	}
 
-	comments, _, listErr := s.client.GetClient().Issues.ListComments(ctx, owner, repo, issueNumber, opts)
+	comments, _, listErr := client.GetClient().Issues.ListComments(ctx, owner, repo, issueNumber, opts)
 	if listErr != nil {
 		return &models.ToolResult{
 			ID:      call.ID,
@@ -423,7 +434,7 @@ func (s *GitHubCommentsServer) listComments(ctx context.Context, call *models.To
 }
 
 // createReviewComment 创建review评论
-func (s *GitHubCommentsServer) createReviewComment(ctx context.Context, call *models.ToolCall, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
+func (s *GitHubCommentsServer) createReviewComment(ctx context.Context, call *models.ToolCall, client *github.Client, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
 	// 安全地提取 pull_number
 	pullNumber, err := safeExtractInt(call.Function.Arguments["pull_number"], "pull_number")
 	if err != nil {
@@ -467,7 +478,7 @@ func (s *GitHubCommentsServer) createReviewComment(ctx context.Context, call *mo
 		Line:     &line,
 	}
 
-	createdComment, _, err := s.client.GetClient().PullRequests.CreateComment(ctx, owner, repo, pullNumber, comment)
+	createdComment, _, err := client.GetClient().PullRequests.CreateComment(ctx, owner, repo, pullNumber, comment)
 	if err != nil {
 		return &models.ToolResult{
 			ID:      call.ID,
@@ -496,7 +507,7 @@ func (s *GitHubCommentsServer) createReviewComment(ctx context.Context, call *mo
 }
 
 // listPRComments 列出PR的所有评论
-func (s *GitHubCommentsServer) listPRComments(ctx context.Context, call *models.ToolCall, owner, repo string) (*models.ToolResult, error) {
+func (s *GitHubCommentsServer) listPRComments(ctx context.Context, call *models.ToolCall, client *github.Client, owner, repo string) (*models.ToolResult, error) {
 	// 安全地提取 pull_number，支持多种数字类型
 	var pullNumber int
 	switch v := call.Function.Arguments["pull_number"].(type) {
@@ -518,7 +529,7 @@ func (s *GitHubCommentsServer) listPRComments(ctx context.Context, call *models.
 	}
 
 	// 获取PR详情
-	pr, _, err := s.client.GetClient().PullRequests.Get(ctx, owner, repo, pullNumber)
+	pr, _, err := client.GetClient().PullRequests.Get(ctx, owner, repo, pullNumber)
 	if err != nil {
 		return &models.ToolResult{
 			ID:      call.ID,
@@ -529,7 +540,7 @@ func (s *GitHubCommentsServer) listPRComments(ctx context.Context, call *models.
 	}
 
 	// 获取所有评论
-	allComments, err := s.client.GetAllPRComments(pr)
+	allComments, err := client.GetAllPRComments(pr)
 	if err != nil {
 		return &models.ToolResult{
 			ID:      call.ID,
@@ -606,7 +617,7 @@ func (s *GitHubCommentsServer) listPRComments(ctx context.Context, call *models.
 }
 
 // updatePRDescription 更新PR描述
-func (s *GitHubCommentsServer) updatePRDescription(ctx context.Context, call *models.ToolCall, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
+func (s *GitHubCommentsServer) updatePRDescription(ctx context.Context, call *models.ToolCall, client *github.Client, owner, repo string, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
 	xl := xlog.NewWith(ctx)
 
 	// 检查写权限
@@ -637,14 +648,14 @@ func (s *GitHubCommentsServer) updatePRDescription(ctx context.Context, call *mo
 	xl.Infof("Updating PR #%d description in %s/%s", prNumber, owner, repo)
 
 	// 先获取PR对象
-	pr, err := s.client.GetPullRequest(owner, repo, prNumber)
+	pr, err := client.GetPullRequest(owner, repo, prNumber)
 	if err != nil {
 		xl.Errorf("Failed to get PR: %v", err)
 		return nil, fmt.Errorf("failed to get PR: %w", err)
 	}
 
 	// 更新PR描述
-	err = s.client.UpdatePullRequest(pr, body)
+	err = client.UpdatePullRequest(pr, body)
 	if err != nil {
 		xl.Errorf("Failed to update PR description: %v", err)
 		return nil, fmt.Errorf("failed to update PR description: %w", err)

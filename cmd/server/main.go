@@ -49,8 +49,8 @@ func main() {
 	}
 
 	// 验证必需的配置
-	if cfg.GitHub.Token == "" {
-		log.Fatalf("GitHub Token is required. Please set it via --github-token flag or GITHUB_TOKEN environment variable")
+	if err := cfg.ValidateGitHubConfig(); err != nil {
+		log.Fatalf("GitHub configuration validation failed: %v", err)
 	}
 	if cfg.Server.WebhookSecret == "" {
 		log.Fatalf("Webhook Secret is required. Please set it via --webhook-secret flag or WEBHOOK_SECRET environment variable")
