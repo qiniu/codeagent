@@ -20,7 +20,7 @@ func TestEnhancedAgentPRCommands(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
-	
+
 	// 跳过测试如果没有有效的GitHub token
 	if os.Getenv("GITHUB_TOKEN") == "" {
 		t.Skip("Skipping integration test: GITHUB_TOKEN not set")

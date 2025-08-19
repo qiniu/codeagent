@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/qiniu/codeagent/internal/code"
-	"github.com/qiniu/codeagent/internal/config"
-	"github.com/qiniu/codeagent/internal/github/auth"
 	"github.com/qiniu/codeagent/pkg/models"
 
 	"github.com/google/go-github/v58/github"
@@ -18,31 +16,6 @@ import (
 
 type Client struct {
 	client *github.Client
-}
-
-func NewClient(cfg *config.Config) (*Client, error) {
-	// Create authenticator using auth factory
-	builder := auth.NewAuthenticatorBuilder(cfg)
-	authenticator, err := builder.BuildAuthenticator()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create authenticator: %w", err)
-	}
-
-	// Validate access to ensure the authenticator works
-	ctx := context.Background()
-	if err := authenticator.ValidateAccess(ctx); err != nil {
-		return nil, fmt.Errorf("failed to validate GitHub access: %w", err)
-	}
-
-	// Get GitHub client from authenticator
-	client, err := authenticator.GetClient(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create GitHub client: %w", err)
-	}
-
-	return &Client{
-		client: client,
-	}, nil
 }
 
 // CreateBranch creates branch locally and pushes to remote

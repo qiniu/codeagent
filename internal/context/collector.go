@@ -1,24 +1,52 @@
 package context
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	ghclient "github.com/qiniu/codeagent/internal/github"
+	"github.com/qiniu/codeagent/pkg/models"
 
 	"github.com/google/go-github/v58/github"
 )
 
 // DefaultContextCollector 默认上下文收集器实现
 type DefaultContextCollector struct {
-	githubClient *ghclient.Client
+	clientManager ghclient.ClientManagerInterface
 }
 
 // NewDefaultContextCollector 创建默认上下文收集器
 func NewDefaultContextCollector(clientManager ghclient.ClientManagerInterface) *DefaultContextCollector {
 	return &DefaultContextCollector{
-		githubClient: clientManager.GetDefaultClient(),
+		clientManager: clientManager,
+	}
+}
+
+// extractRepoFromPR 从PR中提取repository信息
+func extractRepoFromPR(pr *github.PullRequest) *models.Repository {
+	if pr == nil || pr.GetBase() == nil || pr.GetBase().GetRepo() == nil {
+		return nil
+	}
+
+	repo := pr.GetBase().GetRepo()
+	return &models.Repository{
+		Owner: repo.GetOwner().GetLogin(),
+		Name:  repo.GetName(),
+	}
+}
+
+// extractRepoFromFullName 从"owner/repo"格式字符串提取repository信息
+func extractRepoFromFullName(repoFullName string) *models.Repository {
+	parts := strings.Split(repoFullName, "/")
+	if len(parts) != 2 {
+		return nil
+	}
+
+	return &models.Repository{
+		Owner: parts[0],
+		Name:  parts[1],
 	}
 }
 
@@ -86,6 +114,18 @@ func (c *DefaultContextCollector) CollectBasicContext(eventType string, payload 
 
 // CollectCodeContext 收集代码上下文
 func (c *DefaultContextCollector) CollectCodeContext(pr *github.PullRequest) (*CodeContext, error) {
+	// 提取repository信息
+	repo := extractRepoFromPR(pr)
+	if repo == nil {
+		return nil, fmt.Errorf("failed to extract repository info from PR")
+	}
+
+	// 获取对应的GitHub客户端
+	client, err := c.clientManager.GetClient(context.Background(), repo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
 	codeCtx := &CodeContext{
 		Repository: pr.GetBase().GetRepo().GetFullName(),
 		BaseBranch: pr.GetBase().GetRef(),
@@ -98,7 +138,7 @@ func (c *DefaultContextCollector) CollectCodeContext(pr *github.PullRequest) (*C
 	repoName := pr.GetBase().GetRepo().GetName()
 	prNumber := pr.GetNumber()
 
-	files, _, err := c.githubClient.GetClient().PullRequests.ListFiles(
+	files, _, err := client.GetClient().PullRequests.ListFiles(
 		nil, repoOwner, repoName, prNumber, nil,
 	)
 	if err != nil {
@@ -146,20 +186,25 @@ func (c *DefaultContextCollector) CollectCodeContext(pr *github.PullRequest) (*C
 // CollectGitHubContext 收集GitHub上下文信息
 // 专注于GitHub原生数据收集
 func (c *DefaultContextCollector) CollectGitHubContext(repoFullName string, prNumber int) (*GitHubContext, error) {
+	// 提取repository信息
+	repo := extractRepoFromFullName(repoFullName)
+	if repo == nil {
+		return nil, fmt.Errorf("invalid repository format: %s", repoFullName)
+	}
+
+	// 获取对应的GitHub客户端
+	client, err := c.clientManager.GetClient(context.Background(), repo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
 	ctx := &GitHubContext{
 		Repository: repoFullName,
 		PRNumber:   prNumber,
 	}
 
-	// 解析仓库信息
-	parts := strings.Split(repoFullName, "/")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid repository format: %s", repoFullName)
-	}
-	owner, repo := parts[0], parts[1]
-
 	// 获取PR详情
-	pr, _, err := c.githubClient.GetClient().PullRequests.Get(nil, owner, repo, prNumber)
+	pr, _, err := client.GetClient().PullRequests.Get(nil, repo.Owner, repo.Name, prNumber)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PR: %w", err)
 	}
@@ -178,8 +223,8 @@ func (c *DefaultContextCollector) CollectGitHubContext(repoFullName string, prNu
 	}
 
 	// 获取PR文件变更
-	files, _, err := c.githubClient.GetClient().PullRequests.ListFiles(
-		nil, owner, repo, prNumber, nil,
+	files, _, err := client.GetClient().PullRequests.ListFiles(
+		nil, repo.Owner, repo.Name, prNumber, nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PR files: %w", err)
@@ -201,8 +246,20 @@ func (c *DefaultContextCollector) CollectGitHubContext(repoFullName string, prNu
 
 // CollectCommentContext 收集评论上下文
 func (c *DefaultContextCollector) CollectCommentContext(pr *github.PullRequest, currentCommentID int64) ([]CommentContext, error) {
+	// 提取repository信息
+	repo := extractRepoFromPR(pr)
+	if repo == nil {
+		return nil, fmt.Errorf("failed to extract repository info from PR")
+	}
+
+	// 获取对应的GitHub客户端
+	client, err := c.clientManager.GetClient(context.Background(), repo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
 	// 使用现有的方法获取所有评论
-	allComments, err := c.githubClient.GetAllPRComments(pr)
+	allComments, err := client.GetAllPRComments(pr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all PR comments: %w", err)
 	}

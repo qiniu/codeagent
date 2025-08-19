@@ -7,9 +7,9 @@ github:
   webhook_url: "http://localhost:8888/hook"
   
   # GitHub App 配置
-  app:
-    app_id: 1032243  # GitHub App ID (必填)
-    private_key_path: "/Users/wangcheng/go/src/codeagent/cmd/server/wangtestapp.2025-08-12.private-key.pem"  # GitHub App Private Key 文件路径
+  # app:
+  #   app_id: 1032243  # GitHub App ID
+  #   private_key_path: "/Users/dir/xxxxx.private-key.pem"  # GitHub App Private Key 文件路径
     # 或者通过环境变量指定: private_key_env: "GITHUB_APP_PRIVATE_KEY"
     # 或者直接配置: private_key: "-----BEGIN RSA PRIVATE KEY-----..."
 

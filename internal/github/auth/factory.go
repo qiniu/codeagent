@@ -7,6 +7,7 @@ import (
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/qiniu/codeagent/internal/config"
+	"github.com/qiniu/x/log"
 )
 
 // AuthenticatorBuilder helps build authenticators from configuration
@@ -33,17 +34,24 @@ func (b *AuthenticatorBuilder) BuildAuthenticator() (Authenticator, error) {
 
 	// Prioritize GitHub App over PAT
 	if b.config.IsGitHubAppConfigured() {
+		log.Infof("Attempting to use GitHub App authentication (App ID: %d)", b.config.GitHub.App.AppID)
 		appAuth, err := b.buildAppAuthenticator()
 		if err == nil {
+			log.Infof("✅ Successfully initialized GitHub App authentication (App ID: %d)", b.config.GitHub.App.AppID)
 			return appAuth, nil
 		}
 		// Log the error but continue to PAT fallback
-		fmt.Printf("Warning: GitHub App configuration failed: %v\n", err)
+		log.Warnf("⚠️ GitHub App authentication failed: %v, falling back to PAT", err)
 	}
 
 	// Fallback to PAT if GitHub App is not configured or failed
 	if b.config.IsGitHubTokenConfigured() {
-		return b.buildPATAuthenticator()
+		log.Infof("Using GitHub Personal Access Token (PAT) authentication")
+		auth, err := b.buildPATAuthenticator()
+		if err == nil {
+			log.Infof("✅ Successfully initialized PAT authentication")
+		}
+		return auth, err
 	}
 
 	return nil, fmt.Errorf("no valid GitHub authentication configuration found")
