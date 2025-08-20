@@ -30,8 +30,9 @@ func getGoogleCloudProject(cfg *config.Config, repoName string) string {
 func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	// 解析仓库信息，只获取仓库名，不包含完整URL
 	repoName := extractRepoName(workspace.Repository)
-	// 新的容器命名规则：gemini__组织__仓库__PR号（使用双下划线分隔符）
-	containerName := fmt.Sprintf("gemini__%s__%s__%d", workspace.Org, repoName, workspace.PRNumber)
+
+	// Generate unique container name using shared function
+	containerName := generateContainerName("gemini", workspace.Org, repoName, workspace)
 
 	// 检查是否已经有对应的容器在运行
 	if isContainerRunning(containerName) {
