@@ -67,20 +67,20 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"-w", "/workspace", // 设置工作目录
 	}
 
-	// Mount processed .codeagent directory and agents if available
+	// Mount processed .codeagent directory and merged agents
 	if workspace.ProcessedCodeAgentPath != "" {
 		if _, err := os.Stat(workspace.ProcessedCodeAgentPath); err == nil {
 			// Mount the entire .codeagent directory for other tools that might need it
 			args = append(args, "-v", fmt.Sprintf("%s:/home/codeagent/.codeagent", workspace.ProcessedCodeAgentPath))
 			log.Infof("Mounting processed .codeagent directory: %s -> /home/codeagent/.codeagent", workspace.ProcessedCodeAgentPath)
 
-			// Check if agents directory exists and mount it to Claude's expected location
+			// Mount merged agents directory directly to Claude's expected location
 			agentsPath := filepath.Join(workspace.ProcessedCodeAgentPath, "agents")
-			if _, err := os.Stat(agentsPath); err == nil {
+			if stat, err := os.Stat(agentsPath); err == nil && stat.IsDir() {
 				args = append(args, "-v", fmt.Sprintf("%s:/home/codeagent/.claude/agents", agentsPath))
-				log.Infof("Mounting agents directory for Claude subagents: %s -> /home/codeagent/.claude/agents", agentsPath)
+				log.Infof("Mounting merged agents directory: %s -> /home/codeagent/.claude/agents", agentsPath)
 			} else {
-				log.Infof("No agents directory found in processed .codeagent path")
+				log.Infof("No agents directory found in processed .codeagent path: %s", agentsPath)
 			}
 		} else {
 			log.Warnf("Processed .codeagent directory not found: %s", workspace.ProcessedCodeAgentPath)

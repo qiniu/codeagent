@@ -128,6 +128,11 @@ func NewManager(cfg *config.Config) *Manager {
 	return m
 }
 
+// GetBaseDir returns the base directory for workspaces
+func (m *Manager) GetBaseDir() string {
+	return m.baseDir
+}
+
 // cleanupWorkspace 清理单个工作空间，返回是否清理成功
 func (m *Manager) CleanupWorkspace(ws *models.Workspace) bool {
 	if ws == nil || ws.Path == "" {

@@ -49,7 +49,7 @@ func BenchmarkProcessor_ProcessDirectories(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// Create unique processor for each iteration to avoid conflicts
 		repoName := fmt.Sprintf("benchmark-repo-%d", i)
-		processor := NewContextAwareDirectoryProcessor(globalPath, repoPath, repoName)
+		processor := NewContextAwareDirectoryProcessor(globalPath, repoPath, repoName, tempDir)
 
 		err := processor.ProcessDirectories(githubEvent)
 		if err != nil {
@@ -92,7 +92,7 @@ func BenchmarkProcessor_LargeRepository(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		repoName := fmt.Sprintf("large-repo-%d", i)
-		processor := NewContextAwareDirectoryProcessor(globalPath, repoPath, repoName)
+		processor := NewContextAwareDirectoryProcessor(globalPath, repoPath, repoName, tempDir)
 
 		err := processor.ProcessDirectories(githubEvent)
 		if err != nil {
@@ -140,7 +140,7 @@ func BenchmarkProcessor_ContextInjection(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		repoName := fmt.Sprintf("context-repo-%d", i)
-		processor := NewContextAwareDirectoryProcessor(globalPath, "", repoName)
+		processor := NewContextAwareDirectoryProcessor(globalPath, "", repoName, tempDir)
 
 		err := processor.ProcessDirectories(githubEvent)
 		if err != nil {
