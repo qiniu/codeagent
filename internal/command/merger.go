@@ -19,9 +19,10 @@ type DirectoryMerger struct {
 }
 
 // NewDirectoryMerger creates a new directory merger
-func NewDirectoryMerger(globalPath, repositoryPath, repoName string) *DirectoryMerger {
+func NewDirectoryMerger(globalPath, repositoryPath, repoName, baseDir string) *DirectoryMerger {
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
-	mergedPath := filepath.Join(os.TempDir(), fmt.Sprintf("codeagent-merged-%s-%s", repoName, timestamp))
+	// Use workspace baseDir instead of temp dir to avoid macOS Docker mount issues
+	mergedPath := filepath.Join(baseDir, fmt.Sprintf(".codeagent-merged-%s-%s", repoName, timestamp))
 
 	return &DirectoryMerger{
 		globalPath:     globalPath,

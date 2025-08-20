@@ -17,6 +17,7 @@ type ContextAwareDirectoryProcessor struct {
 	globalConfigPath string
 	repositoryPath   string
 	repoName         string
+	baseDir          string
 	githubEvent      *githubcontext.GitHubEvent
 	contextInjector  *githubcontext.GitHubContextInjector
 
@@ -31,13 +32,14 @@ type ContextAwareDirectoryProcessor struct {
 }
 
 // NewContextAwareDirectoryProcessor creates a new context-aware directory processor
-func NewContextAwareDirectoryProcessor(globalConfigPath, repositoryPath, repoName string) *ContextAwareDirectoryProcessor {
+func NewContextAwareDirectoryProcessor(globalConfigPath, repositoryPath, repoName, baseDir string) *ContextAwareDirectoryProcessor {
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 
 	return &ContextAwareDirectoryProcessor{
 		globalConfigPath: globalConfigPath,
 		repositoryPath:   repositoryPath,
 		repoName:         repoName,
+		baseDir:          baseDir,
 		timestamp:        timestamp,
 		contextInjector:  githubcontext.NewGitHubContextInjector(),
 	}
@@ -118,8 +120,8 @@ func (p *ContextAwareDirectoryProcessor) Cleanup() error {
 
 // mergeDirectories handles the initial merge of global and repository .codeagent directories
 func (p *ContextAwareDirectoryProcessor) mergeDirectories() error {
-	// Create directory merger
-	p.directoryMerger = NewDirectoryMerger(p.globalConfigPath, p.repositoryPath, p.repoName)
+	// Create directory merger with baseDir to avoid macOS Docker mount issues
+	p.directoryMerger = NewDirectoryMerger(p.globalConfigPath, p.repositoryPath, p.repoName, p.baseDir)
 
 	// Perform merge
 	if err := p.directoryMerger.MergeDirectories(); err != nil {
@@ -142,8 +144,8 @@ func (p *ContextAwareDirectoryProcessor) renderWithContext() error {
 		return fmt.Errorf("GitHub event not provided")
 	}
 
-	// Create unique processed directory
-	p.processedPath = filepath.Join(os.TempDir(), fmt.Sprintf("codeagent-processed-%s-%s", p.repoName, p.timestamp))
+	// Create unique processed directory in workspace baseDir to avoid macOS Docker mount issues
+	p.processedPath = filepath.Join(p.baseDir, fmt.Sprintf(".codeagent-processed-%s-%s", p.repoName, p.timestamp))
 
 	if err := os.MkdirAll(p.processedPath, 0755); err != nil {
 		return fmt.Errorf("failed to create processed directory %s: %w", p.processedPath, err)

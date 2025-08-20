@@ -44,6 +44,7 @@ func setupE2ETest(t *testing.T) *E2ETestSuite {
 		suite.globalConfigPath,
 		suite.repoConfigPath,
 		suite.testRepoName,
+		tempDir, // Use tempDir as baseDir for testing
 	)
 
 	return suite
@@ -563,6 +564,7 @@ func TestE2E_ErrorHandling(t *testing.T) {
 			"/non/existent/global/path",
 			filepath.Join(tempDir, "repo"),
 			"test-repo",
+			tempDir,
 		)
 
 		githubEvent := &githubcontext.GitHubEvent{
@@ -584,6 +586,7 @@ func TestE2E_ErrorHandling(t *testing.T) {
 			suite.globalConfigPath,
 			"/non/existent/repo/path",
 			"test-repo",
+			suite.tempDir,
 		)
 
 		githubEvent := &githubcontext.GitHubEvent{
@@ -628,6 +631,7 @@ func TestE2E_ErrorHandling(t *testing.T) {
 			filepath.Join(tempDir, "global"),
 			filepath.Join(tempDir, "repo"),
 			"test-repo",
+			tempDir,
 		)
 
 		// Try to load command before processing
@@ -766,7 +770,7 @@ func TestE2E_ConcurrentProcessing(t *testing.T) {
 			repoPath := filepath.Join(tempDir, "repo")
 			repoName := fmt.Sprintf("concurrent-repo-%d", id)
 
-			processor := NewContextAwareDirectoryProcessor(globalPath, repoPath, repoName)
+			processor := NewContextAwareDirectoryProcessor(globalPath, repoPath, repoName, tempDir)
 
 			githubEvent := &githubcontext.GitHubEvent{
 				Type:       "issues",

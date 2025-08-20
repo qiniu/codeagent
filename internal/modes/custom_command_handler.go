@@ -103,7 +103,7 @@ func (h *CustomCommandHandler) Execute(ctx context.Context, githubCtx models.Git
 	repositoryConfigPath := filepath.Join(workspace.Path, ".codeagent")
 	repoName := strings.ReplaceAll(githubCtx.GetRepository().GetFullName(), "/", "-")
 
-	processor := command.NewContextAwareDirectoryProcessor(h.globalConfigPath, repositoryConfigPath, repoName)
+	processor := command.NewContextAwareDirectoryProcessor(h.globalConfigPath, repositoryConfigPath, repoName, h.workspace.GetBaseDir())
 	// defer processor.Cleanup()
 
 	if err := processor.ProcessDirectories(githubEvent); err != nil {
