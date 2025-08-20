@@ -98,8 +98,20 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"-v", fmt.Sprintf("%s:/home/codeagent/.gemini", geminiConfigPath), // 挂载 gemini 认证信息
 		"-v", fmt.Sprintf("%s:/home/codeagent/.gemini/tmp", sessionPath), // 挂载临时目录
 		"-w", "/workspace", // 设置工作目录
-		cfg.Gemini.ContainerImage, // 使用配置的 Gemini 镜像
 	}
+
+	// Mount processed .codeagent directory if available
+	if workspace.ProcessedCodeAgentPath != "" {
+		if _, err := os.Stat(workspace.ProcessedCodeAgentPath); err == nil {
+			args = append(args, "-v", fmt.Sprintf("%s:/workspace/.codeagent", workspace.ProcessedCodeAgentPath))
+			log.Infof("Mounting processed .codeagent directory: %s -> /workspace/.codeagent", workspace.ProcessedCodeAgentPath)
+		} else {
+			log.Warnf("Processed .codeagent directory not found: %s", workspace.ProcessedCodeAgentPath)
+		}
+	}
+
+	// Add container image
+	args = append(args, cfg.Gemini.ContainerImage)
 
 	// 打印调试信息
 	log.Infof("Docker command: docker %s", strings.Join(args, " "))

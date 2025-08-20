@@ -1,6 +1,7 @@
 package models
 
 import (
+	"log"
 	"strings"
 	"time"
 
@@ -135,7 +136,7 @@ type Repository struct {
 
 // CommandInfo 提取的命令信息
 type CommandInfo struct {
-	Command string `json:"command"`  // /code, /continue, /fix
+	Command string `json:"command"`  // 任意斜杠命令，如 /analyze, /deploy, /test
 	AIModel string `json:"ai_model"` // claude, gemini
 	Args    string `json:"args"`     // 命令参数
 	RawText string `json:"raw_text"` // 原始文本
@@ -174,7 +175,7 @@ func HasCommand(ctx GitHubContext) (*CommandInfo, bool) {
 	default:
 		return nil, false
 	}
-
+	log.Println("content", content)
 	return parseCommand(content)
 }
 
@@ -182,24 +183,21 @@ func HasCommand(ctx GitHubContext) (*CommandInfo, bool) {
 func parseCommand(content string) (*CommandInfo, bool) {
 	content = strings.TrimSpace(content)
 
-	var command string
-	var remaining string
-
-	// 检测命令类型
-	if strings.HasPrefix(content, CommandCode) {
-		command = CommandCode
-		remaining = strings.TrimSpace(strings.TrimPrefix(content, CommandCode))
-	} else if strings.HasPrefix(content, CommandContinue) {
-		command = CommandContinue
-		remaining = strings.TrimSpace(strings.TrimPrefix(content, CommandContinue))
-	} else if strings.HasPrefix(content, CommandFix) {
-		command = CommandFix
-		remaining = strings.TrimSpace(strings.TrimPrefix(content, CommandFix))
-	} else {
+	// 检查是否以斜杠开头
+	if !strings.HasPrefix(content, "/") {
 		return nil, false
 	}
 
-	// 解析AI模型
+	// 提取命令名（第一个空格之前的部分，去掉斜杠）
+	parts := strings.SplitN(content[1:], " ", 2)
+	command := "/" + parts[0] // 重新添加斜杠前缀
+
+	var remaining string
+	if len(parts) > 1 {
+		remaining = strings.TrimSpace(parts[1])
+	}
+
+	// 解析AI模型和参数
 	var aiModel string
 	var args string
 

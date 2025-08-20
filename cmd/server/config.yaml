@@ -19,14 +19,10 @@ workspace:
 
 claude:
   # api_key: 通过 --claude-api-key 参数或 CLAUDE_API_KEY 环境变量设置
-  container_image: "goplusorg/codeagent:v0.4"
+  container_image: "goplusorg/codeagent:v0.5"
   timeout: "30m"
   interactive: false
 
-docker:
-  socket: "unix:///var/run/docker.sock"
-  network: "bridge"
-
 gemini:
-  container_image: "goplusorg/codeagent:v0.4"
+  container_image: "goplusorg/codeagent:v0.5"
   timeout: "30m"

@@ -67,6 +67,26 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"-w", "/workspace", // 设置工作目录
 	}
 
+	// Mount processed .codeagent directory and agents if available
+	if workspace.ProcessedCodeAgentPath != "" {
+		if _, err := os.Stat(workspace.ProcessedCodeAgentPath); err == nil {
+			// Mount the entire .codeagent directory for other tools that might need it
+			args = append(args, "-v", fmt.Sprintf("%s:/home/codeagent/.codeagent", workspace.ProcessedCodeAgentPath))
+			log.Infof("Mounting processed .codeagent directory: %s -> /home/codeagent/.codeagent", workspace.ProcessedCodeAgentPath)
+
+			// Check if agents directory exists and mount it to Claude's expected location
+			agentsPath := filepath.Join(workspace.ProcessedCodeAgentPath, "agents")
+			if _, err := os.Stat(agentsPath); err == nil {
+				args = append(args, "-v", fmt.Sprintf("%s:/home/codeagent/.claude/agents", agentsPath))
+				log.Infof("Mounting agents directory for Claude subagents: %s -> /home/codeagent/.claude/agents", agentsPath)
+			} else {
+				log.Infof("No agents directory found in processed .codeagent path")
+			}
+		} else {
+			log.Warnf("Processed .codeagent directory not found: %s", workspace.ProcessedCodeAgentPath)
+		}
+	}
+
 	// 添加 Claude API 相关环境变量
 	if cfg.Claude.AuthToken != "" {
 		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=%s", cfg.Claude.AuthToken))
@@ -76,6 +96,10 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	if cfg.Claude.BaseURL != "" {
 		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_BASE_URL=%s", cfg.Claude.BaseURL))
 	}
+	if cfg.GitHub.GHToken != "" {
+		args = append(args, "-e", fmt.Sprintf("GH_TOKEN=%s", cfg.GitHub.GHToken))
+	}
+
 	if cfg.GitHub.GHToken != "" {
 		args = append(args, "-e", fmt.Sprintf("GH_TOKEN=%s", cfg.GitHub.GHToken))
 	}
