@@ -211,7 +211,7 @@ func loadFromEnv() *Config {
 			Network: getEnvOrDefault("DOCKER_NETWORK", "bridge"),
 		},
 		Commands: CommandsConfig{
-			GlobalPath: getEnvOrDefault("GLOBAL_COMMANDS_PATH", "/opt/codeagent/.codeagent"),
+			GlobalPath: os.Getenv("GLOBAL_COMMANDS_PATH"),
 		},
 		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
 		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", true),
