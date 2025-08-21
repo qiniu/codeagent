@@ -25,6 +25,22 @@ func isContainerRunning(containerName string) bool {
 	return strings.TrimSpace(string(output)) == containerName
 }
 
+// findRunningContainerForWorkspace 查找工作空间对应的运行中容器
+func findRunningContainerForWorkspace(provider, org, repoName string, workspace *models.Workspace) string {
+	naming := NewContainerNaming()
+	possibleNames := naming.GenerateAllPossibleNames(provider, workspace)
+	
+	// 检查哪些容器正在运行
+	for _, containerName := range possibleNames {
+		if isContainerRunning(containerName) {
+			log.Infof("Found running container: %s", containerName)
+			return containerName
+		}
+	}
+	
+	return ""
+}
+
 // extractRepoName 从仓库URL中提取仓库名
 func extractRepoName(repoURL string) string {
 	// 处理 GitHub URL: https://github.com/owner/repo.git
@@ -183,34 +199,19 @@ func ParseStructuredOutput(output string) (summary, changes, testPlan string) {
 		strings.Join(testPlanLines, "\n")
 }
 
+
 // generateContainerName 根据工作空间类型生成唯一的容器名
 func generateContainerName(provider, org, repoName string, workspace *models.Workspace) string {
-	if workspace.PRNumber > 0 {
-		// For PRs: provider__org__repo__pr__number
-		return fmt.Sprintf("%s__%s__%s__pr__%d", provider, org, repoName, workspace.PRNumber)
-	} else if workspace.Issue != nil {
-		// For Issues: provider__org__repo__issue__number__timestamp
-		timestamp := workspace.CreatedAt.Unix()
-		return fmt.Sprintf("%s__%s__%s__issue__%d__%d", provider, org, repoName, workspace.Issue.GetNumber(), timestamp)
-	} else {
-		// Fallback: use timestamp for uniqueness
-		timestamp := workspace.CreatedAt.Unix()
-		return fmt.Sprintf("%s__%s__%s__workspace__%d", provider, org, repoName, timestamp)
-	}
+	naming := NewContainerNaming()
+	spec := naming.SpecFromWorkspace(provider, workspace, ContainerTypeStandard)
+	spec.Repo = repoName // 使用提取的repo名而不是workspace.Repo
+	return naming.GenerateContainerName(spec)
 }
 
 // generateConfigDirName 根据工作空间类型生成唯一的配置目录名
 func generateConfigDirName(provider, org, repoName string, workspace *models.Workspace) string {
-	if workspace.PRNumber > 0 {
-		// For PRs: .provider-org-repo-pr-number
-		return fmt.Sprintf(".%s-%s-%s-pr-%d", provider, org, repoName, workspace.PRNumber)
-	} else if workspace.Issue != nil {
-		// For Issues: .provider-org-repo-issue-number-timestamp
-		timestamp := workspace.CreatedAt.Unix()
-		return fmt.Sprintf(".%s-%s-%s-issue-%d-%d", provider, org, repoName, workspace.Issue.GetNumber(), timestamp)
-	} else {
-		// Fallback: use timestamp for uniqueness
-		timestamp := workspace.CreatedAt.Unix()
-		return fmt.Sprintf(".%s-%s-%s-workspace-%d", provider, org, repoName, timestamp)
-	}
+	naming := NewContainerNaming()
+	spec := naming.SpecFromWorkspace(provider, workspace, ContainerTypeStandard)
+	spec.Repo = repoName // 使用提取的repo名而不是workspace.Repo
+	return naming.GenerateConfigDirName(spec)
 }

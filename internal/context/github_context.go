@@ -31,6 +31,10 @@ func (e *TemplateError) Error() string {
 	return fmt.Sprintf("template %s error: %s", e.Type, e.Cause.Error())
 }
 
+// CommentDetail represents a GitHub comment with metadata for template rendering
+// Use map-like structure for flexible template access
+type CommentDetail map[string]interface{}
+
 // GitHubContextInjector provides intelligent template engine for GitHub context injection
 type GitHubContextInjector struct {
 	templateEngine *template.Template
@@ -60,10 +64,10 @@ type GitHubTemplateData struct {
 	GITHUB_CHANGED_FILES []string
 
 	// Comment and interaction variables
-	GITHUB_TRIGGER_COMMENT string   // NEW: The command comment that triggered this execution
-	GITHUB_ISSUE_COMMENTS  []string // Enhanced: Structured comment list
-	GITHUB_PR_COMMENTS     []string // Enhanced: Structured comment list
-	GITHUB_REVIEW_COMMENTS []string // NEW: Code review comments
+	GITHUB_TRIGGER_COMMENT string          // NEW: The command comment that triggered this execution
+	GITHUB_ISSUE_COMMENTS  []CommentDetail // Enhanced: Structured comment list with metadata
+	GITHUB_PR_COMMENTS     []string        // Enhanced: Structured comment list
+	GITHUB_REVIEW_COMMENTS []string        // NEW: Code review comments
 
 	// Review Comment variables (high-precision line-level context)
 	GITHUB_REVIEW_FILE_PATH    string
@@ -83,6 +87,9 @@ type GitHubTemplateData struct {
 	GITHUB_REPO_OWNER   string // NEW: Repository owner
 	GITHUB_REPO_NAME    string // NEW: Repository name
 	GITHUB_ACTOR        string // NEW: User who triggered the event
+	
+	// Custom instruction support
+	CUSTOM_INSTRUCTION  string // User's custom analysis instruction
 }
 
 // GitHubEvent represents unified GitHub event data
@@ -96,11 +103,12 @@ type GitHubEvent struct {
 	IssueComment *github.IssueComment
 	ChangedFiles []string
 	// Enhanced fields for complete context
-	Action         string   // GitHub event action
-	TriggerComment string   // The comment that triggered this event
-	IssueComments  []string // Issue comment history
-	PRComments     []string // PR comment history
-	ReviewComments []string // Review comment history
+	Action            string          // GitHub event action
+	TriggerComment    string          // The comment that triggered this event
+	IssueComments     []CommentDetail // Issue comment history with metadata
+	PRComments        []string        // PR comment history
+	ReviewComments    []string        // Review comment history
+	CustomInstruction string          // User's custom analysis instruction
 }
 
 // getTemplateFunctions returns the comprehensive set of template functions for GitHub context processing
@@ -268,6 +276,21 @@ func (g *GitHubContextInjector) InjectContextWithLogging(ctx context.Context, co
 
 	// Log template data for debugging
 	g.logTemplateData(data, xl)
+	
+	// Debug: Log template variables that might be missing
+	xl.Infof("Template data debug:")
+	xl.Infof("  GITHUB_REPOSITORY: '%s'", data.GITHUB_REPOSITORY)
+	xl.Infof("  GITHUB_ISSUE_NUMBER: %d", data.GITHUB_ISSUE_NUMBER)
+	xl.Infof("  GITHUB_ISSUE_TITLE: '%s'", data.GITHUB_ISSUE_TITLE)
+	xl.Infof("  GITHUB_ISSUE_AUTHOR: '%s'", data.GITHUB_ISSUE_AUTHOR)
+	bodyPreview := data.GITHUB_ISSUE_BODY
+	if len(bodyPreview) > 100 {
+		bodyPreview = bodyPreview[:100] + "..."
+	}
+	xl.Infof("  GITHUB_ISSUE_BODY: '%s' (length: %d)", bodyPreview, len(data.GITHUB_ISSUE_BODY))
+	xl.Infof("  GITHUB_ISSUE_LABELS: %v", data.GITHUB_ISSUE_LABELS)
+	xl.Infof("  CUSTOM_INSTRUCTION: '%s'", data.CUSTOM_INSTRUCTION)
+	xl.Infof("  GITHUB_ISSUE_COMMENTS count: %d", len(data.GITHUB_ISSUE_COMMENTS))
 
 	// Check if this contains $ variables (simple replacement) vs {{ }} variables (template syntax)
 	containsDollarVars := strings.Contains(commandContent, "$GITHUB_")
@@ -316,6 +339,7 @@ func (g *GitHubContextInjector) buildTemplateData(event *GitHubEvent) *GitHubTem
 		GITHUB_EVENT_ACTION:    event.Action,
 		GITHUB_TRIGGER_COMMENT: event.TriggerComment,
 		GITHUB_ACTOR:           event.TriggerUser,
+		CUSTOM_INSTRUCTION:     event.CustomInstruction,
 	}
 
 	// Extract repository metadata
@@ -354,6 +378,7 @@ func (g *GitHubContextInjector) buildTemplateDataWithValidation(event *GitHubEve
 		GITHUB_EVENT_ACTION:    event.Action,
 		GITHUB_TRIGGER_COMMENT: event.TriggerComment,
 		GITHUB_ACTOR:           event.TriggerUser, // Same as trigger user in most cases
+		CUSTOM_INSTRUCTION:     event.CustomInstruction,
 	}
 
 	// Extract repository metadata
@@ -669,6 +694,7 @@ func (g *GitHubContextInjector) simpleVariableReplacement(content string, data *
 		"$GITHUB_BASE_BRANCH": data.GITHUB_BASE_BRANCH,
 		// Comment variables
 		"$GITHUB_TRIGGER_COMMENT": data.GITHUB_TRIGGER_COMMENT,
+		"$CUSTOM_INSTRUCTION":     data.CUSTOM_INSTRUCTION,
 		// Review variables
 		"$GITHUB_REVIEW_FILE_PATH":    data.GITHUB_REVIEW_FILE_PATH,
 		"$GITHUB_REVIEW_LINE_RANGE":   data.GITHUB_REVIEW_LINE_RANGE,
@@ -691,7 +717,7 @@ func (data *GitHubTemplateData) SetFileContent(content string) {
 }
 
 // SetComments allows external components to inject comment history
-func (data *GitHubTemplateData) SetComments(issueComments, prComments []string) {
+func (data *GitHubTemplateData) SetComments(issueComments []CommentDetail, prComments []string) {
 	data.GITHUB_ISSUE_COMMENTS = issueComments
 	data.GITHUB_PR_COMMENTS = prComments
 }
@@ -818,7 +844,7 @@ func (g *GitHubContextInjector) collectChangedFiles(ctx context.Context, pr *git
 }
 
 // collectCommentHistory fetches comment history from GitHub API
-func (g *GitHubContextInjector) collectCommentHistory(ctx context.Context, event *GitHubEvent, ghClient *ghclient.Client) (issueComments, prComments, reviewComments []string, err error) {
+func (g *GitHubContextInjector) collectCommentHistory(ctx context.Context, event *GitHubEvent, ghClient *ghclient.Client) (issueComments []CommentDetail, prComments, reviewComments []string, err error) {
 	if event == nil {
 		return nil, nil, nil, fmt.Errorf("event is nil")
 	}
@@ -832,7 +858,7 @@ func (g *GitHubContextInjector) collectCommentHistory(ctx context.Context, event
 		return nil, nil, nil, fmt.Errorf("invalid repository information: %s", event.Repository)
 	}
 
-	issueComments = []string{}
+	issueComments = []CommentDetail{}
 	prComments = []string{}
 	reviewComments = []string{}
 
@@ -849,10 +875,18 @@ func (g *GitHubContextInjector) collectCommentHistory(ctx context.Context, event
 				// Log error but don't fail completely
 				// Note: In production, this should use proper context logging
 			} else {
-				issueComments = make([]string, len(issueCommentList))
+				issueComments = make([]CommentDetail, len(issueCommentList))
 				for i, comment := range issueCommentList {
 					if comment != nil {
-						issueComments[i] = comment.GetBody()
+						issueComments[i] = CommentDetail{
+							"author":     comment.GetUser().GetLogin(),
+							"body":       comment.GetBody(),
+							"created_at": comment.GetCreatedAt().Format("2006-01-02 15:04:05"),
+							// Also provide capitalized versions for consistency
+							"Author":    comment.GetUser().GetLogin(),
+							"Body":      comment.GetBody(),
+							"CreatedAt": comment.GetCreatedAt().Format("2006-01-02 15:04:05"),
+						}
 					}
 				}
 			}

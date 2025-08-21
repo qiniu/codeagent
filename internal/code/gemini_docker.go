@@ -42,6 +42,15 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		}, nil
 	}
 
+	// Also check if any compatible container is already running (for recovery after restart)
+	existingContainer := findRunningContainerForWorkspace("gemini", workspace.Org, repoName, workspace)
+	if existingContainer != "" {
+		log.Infof("Found compatible running container: %s, reusing it", existingContainer)
+		return &geminiDocker{
+			containerName: existingContainer,
+		}, nil
+	}
+
 	// 确保路径存在
 	workspacePath, err := filepath.Abs(workspace.Path)
 	if err != nil {
