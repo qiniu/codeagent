@@ -21,8 +21,9 @@ type claudeCode struct {
 func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	// Parse repository information, only get repository name, not including complete URL
 	repoName := extractRepoName(workspace.Repository)
-	// New container naming rule: claude__organization__repository__PR_number (using double underscore separator)
-	containerName := fmt.Sprintf("claude__%s__%s__%d", workspace.Org, repoName, workspace.PRNumber)
+
+	// Generate unique container name using shared function
+	containerName := generateContainerName("claude", workspace.Org, repoName, workspace)
 
 	// Check if corresponding container is already running
 	if isContainerRunning(containerName) {
@@ -184,7 +185,9 @@ func (c *claudeCode) Close() error {
 
 func createIsolatedClaudeConfig(workspace *models.Workspace, cfg *config.Config) (string, error) {
 	repoName := extractRepoName(workspace.Repository)
-	configDirName := fmt.Sprintf(".claude-%s-%s-%d", workspace.Org, repoName, workspace.PRNumber)
+
+	// Generate unique config directory name using shared function
+	configDirName := generateConfigDirName("claude", workspace.Org, repoName, workspace)
 
 	var isolatedConfigDir string
 	if home := os.Getenv("HOME"); home != "" {

@@ -182,3 +182,35 @@ func ParseStructuredOutput(output string) (summary, changes, testPlan string) {
 		strings.Join(changesLines, "\n"),
 		strings.Join(testPlanLines, "\n")
 }
+
+// generateContainerName 根据工作空间类型生成唯一的容器名
+func generateContainerName(provider, org, repoName string, workspace *models.Workspace) string {
+	if workspace.PRNumber > 0 {
+		// For PRs: provider__org__repo__pr__number
+		return fmt.Sprintf("%s__%s__%s__pr__%d", provider, org, repoName, workspace.PRNumber)
+	} else if workspace.Issue != nil {
+		// For Issues: provider__org__repo__issue__number__timestamp
+		timestamp := workspace.CreatedAt.Unix()
+		return fmt.Sprintf("%s__%s__%s__issue__%d__%d", provider, org, repoName, workspace.Issue.GetNumber(), timestamp)
+	} else {
+		// Fallback: use timestamp for uniqueness
+		timestamp := workspace.CreatedAt.Unix()
+		return fmt.Sprintf("%s__%s__%s__workspace__%d", provider, org, repoName, timestamp)
+	}
+}
+
+// generateConfigDirName 根据工作空间类型生成唯一的配置目录名
+func generateConfigDirName(provider, org, repoName string, workspace *models.Workspace) string {
+	if workspace.PRNumber > 0 {
+		// For PRs: .provider-org-repo-pr-number
+		return fmt.Sprintf(".%s-%s-%s-pr-%d", provider, org, repoName, workspace.PRNumber)
+	} else if workspace.Issue != nil {
+		// For Issues: .provider-org-repo-issue-number-timestamp
+		timestamp := workspace.CreatedAt.Unix()
+		return fmt.Sprintf(".%s-%s-%s-issue-%d-%d", provider, org, repoName, workspace.Issue.GetNumber(), timestamp)
+	} else {
+		// Fallback: use timestamp for uniqueness
+		timestamp := workspace.CreatedAt.Unix()
+		return fmt.Sprintf(".%s-%s-%s-workspace-%d", provider, org, repoName, timestamp)
+	}
+}
