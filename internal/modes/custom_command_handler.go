@@ -169,11 +169,12 @@ func (h *CustomCommandHandler) buildGitHubEvent(ctx context.Context, githubCtx m
 	xl := xlog.NewWith(ctx)
 
 	githubEvent := &githubcontext.GitHubEvent{
-		Type:           string(githubCtx.GetEventType()),
-		Repository:     githubCtx.GetRepository().GetFullName(),
-		TriggerUser:    githubCtx.GetSender().GetLogin(),
-		Action:         githubCtx.GetEventAction(),
-		TriggerComment: instruction, // The instruction is typically the trigger comment
+		Type:              string(githubCtx.GetEventType()),
+		Repository:        githubCtx.GetRepository().GetFullName(),
+		TriggerUser:       githubCtx.GetSender().GetLogin(),
+		Action:            githubCtx.GetEventAction(),
+		TriggerComment:    instruction, // The instruction is typically the trigger comment
+		CustomInstruction: instruction, // Pass the custom instruction for template processing
 	}
 
 	switch ctx := githubCtx.(type) {
@@ -185,7 +186,7 @@ func (h *CustomCommandHandler) buildGitHubEvent(ctx context.Context, githubCtx m
 		issueComments, err := h.collectIssueCommentHistory(context.Background(), ctx)
 		if err != nil {
 			xl.Warnf("Failed to collect issue comment history: %v", err)
-			githubEvent.IssueComments = []string{} // Empty list as fallback
+			githubEvent.IssueComments = []githubcontext.CommentDetail{} // Empty list as fallback
 		} else {
 			githubEvent.IssueComments = issueComments
 		}
@@ -392,16 +393,16 @@ func (h *CustomCommandHandler) collectPRChangedFiles(ctx context.Context, pr *gi
 }
 
 // collectIssueCommentHistory collects comment history from an Issue
-func (h *CustomCommandHandler) collectIssueCommentHistory(ctx context.Context, issueCtx *models.IssueCommentContext) ([]string, error) {
+func (h *CustomCommandHandler) collectIssueCommentHistory(ctx context.Context, issueCtx *models.IssueCommentContext) ([]githubcontext.CommentDetail, error) {
 	xl := xlog.NewWith(ctx)
 
 	if issueCtx == nil || issueCtx.Issue == nil {
-		return []string{}, fmt.Errorf("issue context or issue is nil")
+		return []githubcontext.CommentDetail{}, fmt.Errorf("issue context or issue is nil")
 	}
 
 	repo := issueCtx.GetRepository()
 	if repo == nil {
-		return []string{}, fmt.Errorf("repository information is missing")
+		return []githubcontext.CommentDetail{}, fmt.Errorf("repository information is missing")
 	}
 
 	owner := repo.GetOwner().GetLogin()
@@ -420,7 +421,7 @@ func (h *CustomCommandHandler) collectIssueCommentHistory(ctx context.Context, i
 	client, err := h.clientManager.GetClient(ctx, repoInfo)
 	if err != nil {
 		xl.Errorf("Failed to get GitHub client: %v", err)
-		return []string{}, fmt.Errorf("failed to get GitHub client: %w", err)
+		return []githubcontext.CommentDetail{}, fmt.Errorf("failed to get GitHub client: %w", err)
 	}
 
 	// Use GitHub API to get issue comments
@@ -431,13 +432,21 @@ func (h *CustomCommandHandler) collectIssueCommentHistory(ctx context.Context, i
 	})
 	if err != nil {
 		xl.Errorf("Failed to fetch issue comments from GitHub API: %v", err)
-		return []string{}, fmt.Errorf("failed to fetch issue comments: %w", err)
+		return []githubcontext.CommentDetail{}, fmt.Errorf("failed to fetch issue comments: %w", err)
 	}
 
-	// Extract comment bodies
-	comments := make([]string, len(issueComments))
+	// Extract comment details including metadata
+	comments := make([]githubcontext.CommentDetail, len(issueComments))
 	for i, comment := range issueComments {
-		comments[i] = comment.GetBody()
+		comments[i] = githubcontext.CommentDetail{
+			"author":     comment.GetUser().GetLogin(),
+			"body":       comment.GetBody(),
+			"created_at": comment.GetCreatedAt().Format("2006-01-02 15:04:05"),
+			// Also provide capitalized versions for consistency
+			"Author":    comment.GetUser().GetLogin(),
+			"Body":      comment.GetBody(),
+			"CreatedAt": comment.GetCreatedAt().Format("2006-01-02 15:04:05"),
+		}
 	}
 
 	return comments, nil

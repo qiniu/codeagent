@@ -43,14 +43,26 @@ type InteractiveSession struct {
 func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 	// 解析仓库信息，只获取仓库名，不包含完整URL
 	repoName := extractRepoName(workspace.Repository)
-	// 新的容器命名规则：claude__interactive__组织__仓库__PR号（使用双下划线分隔符）
-	containerName := fmt.Sprintf("claude__interactive__%s__%s__%d", workspace.Org, repoName, workspace.PRNumber)
+	
+	// 使用统一的容器命名系统
+	naming := NewContainerNaming()
+	spec := naming.SpecFromWorkspace("claude", workspace, ContainerTypeInteractive)
+	spec.Repo = repoName
+	containerName := naming.GenerateContainerName(spec)
 
 	// 检查是否已经有对应的容器在运行
 	if isContainerRunning(containerName) {
 		log.Infof("Found existing interactive container: %s, reusing it", containerName)
-		// 连接到现有容器
 		return connectToExistingContainer(containerName, workspace)
+	}
+
+	// 检查是否有其他兼容的交互式容器正在运行（程序重启后恢复）
+	possibleNames := naming.GenerateAllPossibleNames("claude", workspace)
+	for _, name := range possibleNames {
+		if strings.Contains(name, "interactive") && isContainerRunning(name) {
+			log.Infof("Found compatible running interactive container: %s, reusing it", name)
+			return connectToExistingContainer(name, workspace)
+		}
 	}
 
 	// 确保路径存在

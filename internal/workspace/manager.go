@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/qiniu/codeagent/internal/code"
 	"github.com/qiniu/codeagent/internal/config"
 	"github.com/qiniu/codeagent/pkg/models"
 
@@ -842,37 +843,20 @@ func (m *Manager) cleanupRelatedContainers(ws *models.Workspace) bool {
 		return false
 	}
 
-	// 基于工作空间的AI模型和PR信息构建容器名称
 	var containerNames []string
+	
+	// 根据AI模型生成所有可能的容器名称
+	providers := []string{ws.AIModel}
+	if ws.AIModel == "" {
+		// 如果AI模型未知，尝试所有可能的提供者
+		providers = []string{"claude", "gemini"}
+	}
 
-	// 根据AI模型类型构建对应的容器名称
-	switch ws.AIModel {
-	case "claude":
-		// 新的命名格式
-		containerNames = append(containerNames, fmt.Sprintf("claude__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber))
-		// 旧的命名格式（向后兼容）
-		containerNames = append(containerNames, fmt.Sprintf("claude-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber))
-
-		// 检查是否有interactive容器
-		containerNames = append(containerNames, fmt.Sprintf("claude__interactive__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber))
-		containerNames = append(containerNames, fmt.Sprintf("claude-interactive-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber))
-
-	case "gemini":
-		// 新的命名格式
-		containerNames = append(containerNames, fmt.Sprintf("gemini__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber))
-		// 旧的命名格式（向后兼容）
-		containerNames = append(containerNames, fmt.Sprintf("gemini-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber))
-
-	default:
-		// 如果AI模型未知，尝试所有可能的模式
-		containerNames = append(containerNames,
-			fmt.Sprintf("claude__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
-			fmt.Sprintf("gemini__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
-			fmt.Sprintf("claude__interactive__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
-			fmt.Sprintf("claude-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
-			fmt.Sprintf("gemini-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
-			fmt.Sprintf("claude-interactive-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
-		)
+	for _, provider := range providers {
+		// 使用统一的命名系统获取所有可能的容器名
+		naming := code.NewContainerNaming()
+		names := naming.GenerateAllPossibleNames(provider, ws)
+		containerNames = append(containerNames, names...)
 	}
 
 	removedCount := 0
