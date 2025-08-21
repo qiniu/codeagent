@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/qiniu/codeagent/internal/config"
 	"github.com/qiniu/codeagent/pkg/models"
@@ -16,6 +17,7 @@ import (
 // claudeCode Docker implementation
 type claudeCode struct {
 	containerName string
+	config        *config.Config
 }
 
 func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
@@ -30,6 +32,7 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		log.Infof("Found existing container: %s, reusing it", containerName)
 		return &claudeCode{
 			containerName: containerName,
+			config:        cfg,
 		}, nil
 	}
 
@@ -136,10 +139,43 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 
 	return &claudeCode{
 		containerName: containerName,
+		config:        cfg,
 	}, nil
 }
 
 func (c *claudeCode) Prompt(message string) (*Response, error) {
+	// Determine whether to use file-based approach based on configuration and message length
+	shouldUseFileMode := c.shouldUseFileBasedPrompt(message)
+	
+	if shouldUseFileMode {
+		if c.config.Claude.UsePipeMode {
+			return c.promptWithPipe(message)
+		}
+		return c.promptWithFile(message)
+	}
+	
+	// Fall back to original command-line approach
+	return c.promptWithCommandLine(message)
+}
+
+// shouldUseFileBasedPrompt determines whether to use file-based prompt passing
+func (c *claudeCode) shouldUseFileBasedPrompt(message string) bool {
+	// If file mode is explicitly disabled, use command line
+	if !c.config.Claude.UsePipeMode && c.config.Claude.PromptLengthThreshold <= 0 {
+		return false
+	}
+	
+	// If message exceeds threshold, use file mode
+	if len(message) > c.config.Claude.PromptLengthThreshold {
+		return true
+	}
+	
+	// If pipe mode is enabled, prefer it for all messages
+	return c.config.Claude.UsePipeMode
+}
+
+// promptWithCommandLine uses the original command-line approach
+func (c *claudeCode) promptWithCommandLine(message string) (*Response, error) {
 	args := []string{
 		"exec",
 		c.containerName,
@@ -151,7 +187,7 @@ func (c *claudeCode) Prompt(message string) (*Response, error) {
 	}
 
 	// 打印调试信息
-	log.Infof("Executing claude command: docker %s", strings.Join(args, " "))
+	log.Infof("Executing claude command (command-line mode): docker %s", strings.Join(args, " "))
 
 	cmd := exec.Command("docker", args...)
 
@@ -176,6 +212,134 @@ func (c *claudeCode) Prompt(message string) (*Response, error) {
 	// 不等待命令完成，让调用方处理输出流
 	// 错误处理将在调用方读取时进行
 	return &Response{Out: stdout}, nil
+}
+
+// promptWithFile implements file-based prompt passing
+func (c *claudeCode) promptWithFile(message string) (*Response, error) {
+	// Create temporary file on host using timestamp for uniqueness
+	timestamp := time.Now().UnixNano()
+	promptFile := fmt.Sprintf("/tmp/claude-prompt-%d.txt", timestamp)
+	if err := os.WriteFile(promptFile, []byte(message), 0644); err != nil {
+		return nil, fmt.Errorf("failed to create prompt file: %w", err)
+	}
+	defer os.Remove(promptFile)
+
+	// Copy file to container
+	containerPromptPath := "/tmp/claude-prompt.txt"
+	if err := c.copyFileToContainer(promptFile, containerPromptPath); err != nil {
+		return nil, fmt.Errorf("failed to copy file to container: %w", err)
+	}
+
+	// Build claude command with file input and output format
+	claudeCmd := c.buildClaudeCommand(containerPromptPath)
+	
+	args := []string{
+		"exec",
+		c.containerName,
+		"sh", "-c",
+		claudeCmd,
+	}
+
+	log.Infof("Executing claude command (file mode): docker %s", strings.Join(args, " "))
+
+	cmd := exec.Command("docker", args...)
+
+	// 捕获stderr用于调试
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Errorf("Failed to start claude command: %v", err)
+		log.Errorf("Stderr: %s", stderr.String())
+		return nil, err
+	}
+
+	// 启动命令
+	if err := cmd.Start(); err != nil {
+		log.Errorf("Failed to start claude command: %v", err)
+		log.Errorf("Stderr: %s", stderr.String())
+		return nil, fmt.Errorf("failed to execute claude: %w", err)
+	}
+
+	return &Response{Out: stdout}, nil
+}
+
+// promptWithPipe implements named pipe-based prompt passing
+func (c *claudeCode) promptWithPipe(message string) (*Response, error) {
+	pipePath := "/tmp/claude-pipe"
+	
+	// Build shell command that creates pipe, writes message, and executes claude
+	claudeCmd := c.buildClaudeCommand(pipePath)
+	shellCmd := fmt.Sprintf(`
+		mkfifo %s 2>/dev/null || true
+		cat > %s << 'PROMPT_EOF' &
+%s
+PROMPT_EOF
+		%s
+		rm -f %s
+	`, pipePath, pipePath, message, claudeCmd, pipePath)
+
+	args := []string{
+		"exec",
+		c.containerName,
+		"sh", "-c",
+		shellCmd,
+	}
+
+	log.Infof("Executing claude command (pipe mode): docker exec %s sh -c '...'", c.containerName)
+
+	cmd := exec.Command("docker", args...)
+
+	// 捕获stderr用于调试
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Errorf("Failed to start claude command: %v", err)
+		log.Errorf("Stderr: %s", stderr.String())
+		return nil, err
+	}
+
+	// 启动命令
+	if err := cmd.Start(); err != nil {
+		log.Errorf("Failed to start claude command: %v", err)
+		log.Errorf("Stderr: %s", stderr.String())
+		return nil, fmt.Errorf("failed to execute claude: %w", err)
+	}
+
+	return &Response{Out: stdout}, nil
+}
+
+// buildClaudeCommand builds the claude command with appropriate flags and output format
+func (c *claudeCode) buildClaudeCommand(inputPath string) string {
+	cmd := "claude --dangerously-skip-permissions -c -p"
+	
+	// Add output format if specified
+	if c.config.Claude.OutputFormat != "" && c.config.Claude.OutputFormat != "text" {
+		cmd += fmt.Sprintf(" --output-format %s", c.config.Claude.OutputFormat)
+	}
+	
+	// Add input redirection
+	cmd += fmt.Sprintf(" < %s", inputPath)
+	
+	return cmd
+}
+
+// copyFileToContainer copies a file from host to container
+func (c *claudeCode) copyFileToContainer(hostPath, containerPath string) error {
+	cmd := exec.Command("docker", "cp", hostPath, fmt.Sprintf("%s:%s", c.containerName, containerPath))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	
+	if err := cmd.Run(); err != nil {
+		log.Errorf("Failed to copy file to container: %v", err)
+		log.Errorf("Docker cp stderr: %s", stderr.String())
+		return fmt.Errorf("docker cp failed: %w", err)
+	}
+	
+	return nil
 }
 
 func (c *claudeCode) Close() error {

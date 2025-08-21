@@ -56,12 +56,15 @@ type WorkspaceConfig struct {
 }
 
 type ClaudeConfig struct {
-	APIKey         string        `yaml:"api_key"`
-	AuthToken      string        `yaml:"auth_token"`
-	BaseURL        string        `yaml:"base_url"`
-	ContainerImage string        `yaml:"container_image"`
-	Timeout        time.Duration `yaml:"timeout"`
-	Interactive    bool          `yaml:"interactive"`
+	APIKey                  string        `yaml:"api_key"`
+	AuthToken               string        `yaml:"auth_token"`
+	BaseURL                 string        `yaml:"base_url"`
+	ContainerImage          string        `yaml:"container_image"`
+	Timeout                 time.Duration `yaml:"timeout"`
+	Interactive             bool          `yaml:"interactive"`
+	OutputFormat            string        `yaml:"output_format"`             // text, json, stream-json
+	UsePipeMode             bool          `yaml:"use_pipe_mode"`             // whether to use pipe mode
+	PromptLengthThreshold   int           `yaml:"prompt_length_threshold"`   // auto selection threshold in bytes
 }
 
 type DockerConfig struct {
@@ -124,6 +127,19 @@ func (c *Config) loadFromEnv() {
 	}
 	if authToken := os.Getenv("ANTHROPIC_AUTH_TOKEN"); authToken != "" {
 		c.Claude.AuthToken = authToken
+	}
+	if outputFormat := os.Getenv("CLAUDE_OUTPUT_FORMAT"); outputFormat != "" {
+		c.Claude.OutputFormat = outputFormat
+	}
+	if usePipeModeStr := os.Getenv("CLAUDE_USE_PIPE_MODE"); usePipeModeStr != "" {
+		if usePipeMode, err := strconv.ParseBool(usePipeModeStr); err == nil {
+			c.Claude.UsePipeMode = usePipeMode
+		}
+	}
+	if promptLengthThresholdStr := os.Getenv("CLAUDE_PROMPT_LENGTH_THRESHOLD"); promptLengthThresholdStr != "" {
+		if promptLengthThreshold, err := strconv.Atoi(promptLengthThresholdStr); err == nil {
+			c.Claude.PromptLengthThreshold = promptLengthThreshold
+		}
 	}
 	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
 		c.Gemini.APIKey = apiKey
@@ -193,12 +209,15 @@ func loadFromEnv() *Config {
 			CleanupAfter: 24 * time.Hour,
 		},
 		Claude: ClaudeConfig{
-			APIKey:         os.Getenv("ANTHROPIC_API_KEY"),
-			AuthToken:      os.Getenv("ANTHROPIC_AUTH_TOKEN"),
-			BaseURL:        os.Getenv("ANTHROPIC_BASE_URL"),
-			ContainerImage: getEnvOrDefault("CLAUDE_IMAGE", "anthropic/claude-code:latest"),
-			Timeout:        30 * time.Minute,
-			Interactive:    getEnvBoolOrDefault("CLAUDE_INTERACTIVE", false),
+			APIKey:                os.Getenv("ANTHROPIC_API_KEY"),
+			AuthToken:             os.Getenv("ANTHROPIC_AUTH_TOKEN"),
+			BaseURL:               os.Getenv("ANTHROPIC_BASE_URL"),
+			ContainerImage:        getEnvOrDefault("CLAUDE_IMAGE", "anthropic/claude-code:latest"),
+			Timeout:               30 * time.Minute,
+			Interactive:           getEnvBoolOrDefault("CLAUDE_INTERACTIVE", false),
+			OutputFormat:          getEnvOrDefault("CLAUDE_OUTPUT_FORMAT", "stream-json"),
+			UsePipeMode:           getEnvBoolOrDefault("CLAUDE_USE_PIPE_MODE", true),
+			PromptLengthThreshold: getEnvIntOrDefault("CLAUDE_PROMPT_LENGTH_THRESHOLD", 64*1024), // 64KB default
 		},
 		Gemini: GeminiConfig{
 			APIKey:             os.Getenv("GEMINI_API_KEY"),
@@ -260,6 +279,15 @@ func getEnvBoolOrDefault(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
 		if b, err := strconv.ParseBool(value); err == nil {
 			return b
+		}
+	}
+	return defaultValue
+}
+
+func getEnvIntOrDefault(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if i, err := strconv.Atoi(value); err == nil {
+			return i
 		}
 	}
 	return defaultValue
