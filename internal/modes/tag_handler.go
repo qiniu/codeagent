@@ -162,6 +162,9 @@ func (th *TagHandler) handleIssueComment(
 		switch cmdInfo.Command {
 		case models.CommandCode:
 			return th.processIssueCodeCommand(ctx, event, cmdInfo)
+		case models.CommandClaude:
+			// @qiniu-ci 作为通用指令处理器，仅回复评论
+			return th.processIssueCommentReply(ctx, event, cmdInfo)
 		default:
 			return fmt.Errorf("unsupported command for Issue comment: %s", cmdInfo.Command)
 		}
@@ -320,6 +323,84 @@ func (th *TagHandler) processIssueCodeCommand(
 
 	// 执行Issue代码处理流程
 	return th.executeIssueCodeProcessing(ctx, event, cmdInfo)
+}
+
+// processIssueCommentReply 处理Issue的@qiniu-ci指令，仅回复评论
+func (th *TagHandler) processIssueCommentReply(
+	ctx context.Context,
+	event *models.IssueCommentContext,
+	cmdInfo *models.CommandInfo,
+) error {
+	xl := xlog.NewWith(ctx)
+
+	issueNumber := event.Issue.GetNumber()
+	issueTitle := event.Issue.GetTitle()
+
+	xl.Infof("Starting issue comment reply: issue=#%d, title=%s, AI model=%s, instruction=%s",
+		issueNumber, issueTitle, cmdInfo.AIModel, cmdInfo.Args)
+
+	// 初始化code client用于AI对话，创建真实的工作空间以便AI可以访问代码
+	xl.Infof("Initializing AI client for comment reply")
+
+	// 创建临时工作空间用于代码访问（但不创建PR）
+	// 构造Issue HTML URL
+	htmlURL := fmt.Sprintf("https://github.com/%s/%s/issues/%d",
+		event.Repository.GetOwner().GetLogin(),
+		event.Repository.GetName(),
+		event.Issue.GetNumber())
+
+	tempIssue := &github.Issue{
+		Number:  github.Int(event.Issue.GetNumber()),
+		Title:   github.String("temp-reply-" + event.Issue.GetTitle()),
+		Body:    event.Issue.Body,
+		HTMLURL: github.String(htmlURL),
+	}
+
+	tempWS := th.workspace.CreateWorkspaceFromIssueWithAI(tempIssue, cmdInfo.AIModel)
+	if tempWS == nil {
+		return fmt.Errorf("failed to create temporary workspace for comment reply")
+	}
+
+	// 设置仓库信息
+	tempWS.Org = event.Repository.GetOwner().GetLogin()
+	tempWS.Repo = event.Repository.GetName()
+
+	xl.Infof("Created temporary workspace for comment reply: %s", tempWS.Path)
+
+	codeClient, err := th.sessionManager.GetSession(tempWS)
+	if err != nil {
+		return fmt.Errorf("failed to get code client: %w", err)
+	}
+
+	// 构建增强提示词（参考/code命令的逻辑）
+	prompt, err := th.buildEnhancedCommentReplyPrompt(ctx, event, cmdInfo)
+	if err != nil {
+		xl.Warnf("Failed to build enhanced prompt, falling back to simple prompt: %v", err)
+		prompt = th.buildCommentReplyPrompt(ctx, event, cmdInfo)
+	}
+
+	xl.Infof("Executing AI query for comment reply")
+	resp, err := th.promptWithRetry(ctx, codeClient, prompt, 3)
+	if err != nil {
+		return fmt.Errorf("failed to get AI response: %w", err)
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		return fmt.Errorf("failed to read AI response: %w", err)
+	}
+
+	responseText := string(output)
+	xl.Infof("AI response generated, length: %d", len(responseText))
+
+	// 使用MCP工具回复评论
+	err = th.replyToIssueComment(ctx, event, responseText)
+	if err != nil {
+		return fmt.Errorf("failed to reply to issue comment: %w", err)
+	}
+
+	xl.Infof("Successfully replied to issue comment")
+	return nil
 }
 
 // executeIssueCodeProcessing 执行Issue代码处理的主要流程
@@ -1580,4 +1661,132 @@ func (th *TagHandler) truncateText(text string, maxLength int) string {
 	}
 
 	return text[:maxLength]
+}
+
+// buildEnhancedCommentReplyPrompt 构建增强的评论回复提示词，参考/code命令的逻辑
+func (th *TagHandler) buildEnhancedCommentReplyPrompt(ctx context.Context, event *models.IssueCommentContext, cmdInfo *models.CommandInfo) (string, error) {
+	xl := xlog.NewWith(ctx)
+
+	// 收集Issue的完整上下文
+	issue := event.Issue
+	repo := event.Repository
+	repoFullName := repo.GetFullName()
+
+	// 创建增强上下文
+	ctxType := ctxsys.ContextTypeIssue
+	enhancedCtx := &ctxsys.EnhancedContext{
+		Type:      ctxType,
+		Priority:  ctxsys.PriorityHigh,
+		Timestamp: time.Now(),
+		Subject:   event,
+		Metadata: map[string]interface{}{
+			"issue_number": issue.GetNumber(),
+			"issue_title":  issue.GetTitle(),
+			"issue_body":   issue.GetBody(),
+			"repository":   repoFullName,
+			"sender":       event.Sender.GetLogin(),
+		},
+	}
+
+	// 收集Issue的评论上下文
+	issueNumber := issue.GetNumber()
+	owner, repoName := th.extractRepoInfo(repoFullName)
+
+	// 获取Issue的所有评论
+	repoInfo := &models.Repository{Owner: owner, Name: repoName}
+	client, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		xl.Warnf("Failed to get GitHub client: %v", err)
+		return "", fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+	comments, _, err := client.GetClient().Issues.ListComments(ctx, owner, repoName, issueNumber, &github.IssueListCommentsOptions{
+		Sort:      github.String("created"),
+		Direction: github.String("asc"),
+	})
+	if err != nil {
+		xl.Warnf("Failed to get issue comments: %v", err)
+	} else {
+		// 转换评论格式
+		for _, comment := range comments {
+			if comment.GetID() != event.Comment.GetID() { // 排除当前评论
+				enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
+					ID:        comment.GetID(),
+					Type:      "comment",
+					Author:    comment.GetUser().GetLogin(),
+					Body:      comment.GetBody(),
+					CreatedAt: comment.GetCreatedAt().Time,
+					UpdatedAt: comment.GetUpdatedAt().Time,
+				})
+			}
+		}
+	}
+
+	// 使用增强的提示词生成器，但用于回复而不是代码生成
+	prompt, err := th.contextManager.Generator.GeneratePrompt(enhancedCtx, "Reply", cmdInfo.Args)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate enhanced prompt: %w", err)
+	}
+
+	return prompt, nil
+}
+
+// buildCommentReplyPrompt 构建简单的评论回复提示词（备用）
+func (th *TagHandler) buildCommentReplyPrompt(
+	ctx context.Context,
+	event *models.IssueCommentContext,
+	cmdInfo *models.CommandInfo,
+) string {
+	issue := event.Issue
+
+	return fmt.Sprintf(`你是一个AI编程助手。用户在GitHub Issue评论中向你提出了问题或请求。
+
+Issue信息：
+标题：%s
+描述：%s
+
+用户指令：%s
+
+请根据Issue的上下文和用户指令，提供有用的回复。你可以查看仓库代码来提供更准确的建议。如果需要分析代码问题，请使用可用的工具来读取和分析代码文件。
+
+请用中文回复，保持友好和专业的语调。`,
+		issue.GetTitle(),
+		issue.GetBody(),
+		cmdInfo.Args)
+}
+
+// replyToIssueComment 使用MCP工具回复Issue评论
+func (th *TagHandler) replyToIssueComment(
+	ctx context.Context,
+	event *models.IssueCommentContext,
+	responseText string,
+) error {
+	xl := xlog.NewWith(ctx)
+
+	// 创建MCP上下文
+	mcpCtx := &models.MCPContext{
+		Repository:  event,
+		Permissions: []string{"github:read", "github:write"},
+		Constraints: []string{},
+	}
+
+	// 使用MCP工具添加评论
+	commentCall := &models.ToolCall{
+		ID: "reply_issue_" + fmt.Sprintf("%d", event.Issue.GetNumber()),
+		Function: models.ToolFunction{
+			Name: "github-comments_create_comment",
+			Arguments: map[string]interface{}{
+				"issue_number": event.Issue.GetNumber(),
+				"body":         responseText,
+			},
+		},
+	}
+
+	_, err := th.mcpClient.ExecuteToolCalls(ctx, []*models.ToolCall{commentCall}, mcpCtx)
+	if err != nil {
+		xl.Errorf("Failed to reply via MCP: %v", err)
+		return err
+	}
+
+	xl.Infof("Successfully replied to issue comment via MCP")
+	return nil
 }

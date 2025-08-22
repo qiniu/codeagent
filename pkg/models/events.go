@@ -1,7 +1,6 @@
 package models
 
 import (
-	"log"
 	"strings"
 	"time"
 
@@ -147,6 +146,7 @@ const (
 	CommandCode     = "/code"
 	CommandContinue = "/continue"
 	CommandFix      = "/fix"
+	CommandClaude   = "@qiniu-ci"
 )
 
 // AI模型类型
@@ -172,11 +172,21 @@ func HasCommand(ctx GitHubContext) (*CommandInfo, bool) {
 		if c.Comment != nil {
 			content = c.Comment.GetBody()
 		}
+	case *IssuesContext:
+		// 支持Issue中的@qiniu-ci命令
+		if c.Issue != nil {
+			content = c.Issue.GetBody()
+		}
 	default:
 		return nil, false
 	}
-	log.Println("content", content)
-	return parseCommand(content)
+	// First try to parse as slash command
+	if cmdInfo, hasCmd := parseCommand(content); hasCmd {
+		return cmdInfo, true
+	}
+
+	// Then try to parse as @claude mention
+	return parseMention(content)
 }
 
 // parseCommand 解析命令字符串
@@ -214,6 +224,47 @@ func parseCommand(content string) (*CommandInfo, bool) {
 
 	return &CommandInfo{
 		Command: command,
+		AIModel: aiModel,
+		Args:    args,
+		RawText: content,
+	}, true
+}
+
+// parseMention 解析@qiniu-ci提及
+func parseMention(content string) (*CommandInfo, bool) {
+	content = strings.TrimSpace(content)
+
+	// 检查是否包含@qiniu-ci
+	if !strings.Contains(content, CommandClaude) {
+		return nil, false
+	}
+
+	// 找到@qiniu-ci的位置
+	mentionIndex := strings.Index(content, CommandClaude)
+	if mentionIndex == -1 {
+		return nil, false
+	}
+
+	// 提取@qiniu-ci之后的内容作为参数
+	afterMention := strings.TrimSpace(content[mentionIndex+len(CommandClaude):])
+
+	// 解析AI模型和参数（类似于parseCommand的逻辑）
+	var aiModel string
+	var args string
+
+	if strings.HasPrefix(afterMention, "-claude") {
+		aiModel = AIModelClaude
+		args = strings.TrimSpace(strings.TrimPrefix(afterMention, "-claude"))
+	} else if strings.HasPrefix(afterMention, "-gemini") {
+		aiModel = AIModelGemini
+		args = strings.TrimSpace(strings.TrimPrefix(afterMention, "-gemini"))
+	} else {
+		aiModel = ""
+		args = afterMention
+	}
+
+	return &CommandInfo{
+		Command: CommandClaude,
 		AIModel: aiModel,
 		Args:    args,
 		RawText: content,
