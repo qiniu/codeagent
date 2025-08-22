@@ -189,7 +189,7 @@ func generateContainerName(provider, org, repoName string, workspace *models.Wor
 		// For PRs: provider__org__repo__pr__number
 		return fmt.Sprintf("%s__%s__%s__pr__%d", provider, org, repoName, workspace.PRNumber)
 	} else if workspace.Issue != nil {
-		// For Issues: provider__org__repo__issue__number (removed timestamp to match PR format)
+		// For Issues: provider__org__repo__issue__number
 		return fmt.Sprintf("%s__%s__%s__issue__%d", provider, org, repoName, workspace.Issue.GetNumber())
 	} else {
 		// Fallback: use timestamp for uniqueness
@@ -204,7 +204,7 @@ func generateConfigDirName(provider, org, repoName string, workspace *models.Wor
 		// For PRs: .provider-org-repo-pr-number
 		return fmt.Sprintf(".%s-%s-%s-pr-%d", provider, org, repoName, workspace.PRNumber)
 	} else if workspace.Issue != nil {
-		// For Issues: .provider-org-repo-issue-number (removed timestamp to match PR format)
+		// For Issues: .provider-org-repo-issue-number
 		return fmt.Sprintf(".%s-%s-%s-issue-%d", provider, org, repoName, workspace.Issue.GetNumber())
 	} else {
 		// Fallback: use timestamp for uniqueness
