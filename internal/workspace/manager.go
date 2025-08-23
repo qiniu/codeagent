@@ -535,6 +535,13 @@ func (m *Manager) CreateWorkspaceFromIssueWithAI(issue *github.Issue, aiModel st
 		return nil
 	}
 
+	// Convert worktree to standalone repository for container compatibility
+	if err := m.ConvertWorktreeToStandaloneRepo(worktree.Worktree); err != nil {
+		log.Warnf("Failed to convert worktree to standalone repository: %v", err)
+		// Don't fail the entire operation, just log the warning
+		// The worktree will still work for non-containerized operations
+	}
+
 	// 创建工作空间对象
 	ws := &models.Workspace{
 		Org:     org,
@@ -582,6 +589,12 @@ func (m *Manager) MoveIssueToPR(ws *models.Workspace, prNumber int) error {
 
 	// 更新工作空间路径
 	ws.Path = newWorktreePath
+
+	// Convert moved worktree to standalone repository for container compatibility
+	if err := m.ConvertWorktreeToStandaloneRepo(ws.Path); err != nil {
+		log.Warnf("Failed to convert moved worktree to standalone repository: %v", err)
+		// Don't fail the entire operation, just log the warning
+	}
 
 	// 移动之后，注册worktree到内存中
 	worktree := &WorktreeInfo{
@@ -665,6 +678,13 @@ func (m *Manager) CreateWorkspaceFromPRWithAI(pr *github.PullRequest, aiModel st
 	if err != nil {
 		log.Errorf("Failed to create worktree for PR #%d: %v", pr.GetNumber(), err)
 		return nil
+	}
+
+	// Convert worktree to standalone repository for container compatibility
+	if err := m.ConvertWorktreeToStandaloneRepo(worktree.Worktree); err != nil {
+		log.Warnf("Failed to convert worktree to standalone repository: %v", err)
+		// Don't fail the entire operation, just log the warning
+		// The worktree will still work for non-containerized operations
 	}
 
 	// 注册worktree 到内存中
@@ -910,4 +930,222 @@ func (m *Manager) removeContainerIfExists(containerName string) bool {
 	}
 
 	return true
+}
+
+// ConvertWorktreeToStandaloneRepo converts a git worktree to a standalone git repository
+// This fixes the issue where git commands fail in containers because the parent .git directory is not mounted
+func (m *Manager) ConvertWorktreeToStandaloneRepo(worktreePath string) error {
+	log.Infof("Converting worktree to standalone repository: %s", worktreePath)
+
+	// Check if the .git file exists (indicating this is a worktree)
+	gitFilePath := filepath.Join(worktreePath, ".git")
+	gitFileInfo, err := os.Stat(gitFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to stat .git file: %w", err)
+	}
+
+	// If .git is already a directory (not a file), it's already a standalone repository
+	if gitFileInfo.IsDir() {
+		log.Infof("Directory %s is already a standalone git repository", worktreePath)
+		return nil
+	}
+
+	// Read the .git file to find the actual git directory
+	gitFileContent, err := os.ReadFile(gitFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to read .git file: %w", err)
+	}
+
+	// Parse gitdir path from the file content
+	gitFileStr := strings.TrimSpace(string(gitFileContent))
+	if !strings.HasPrefix(gitFileStr, "gitdir: ") {
+		return fmt.Errorf("invalid .git file format: %s", gitFileStr)
+	}
+
+	gitDirPath := strings.TrimPrefix(gitFileStr, "gitdir: ")
+	
+	// Convert relative path to absolute path
+	if !filepath.IsAbs(gitDirPath) {
+		gitDirPath = filepath.Join(worktreePath, gitDirPath)
+	}
+
+	// Clean the path
+	gitDirPath = filepath.Clean(gitDirPath)
+	
+	log.Infof("Found worktree git directory: %s", gitDirPath)
+
+	// Verify the git directory exists
+	if _, err := os.Stat(gitDirPath); os.IsNotExist(err) {
+		return fmt.Errorf("git directory does not exist: %s", gitDirPath)
+	}
+
+	// Create a backup of the original .git file
+	gitFileBackup := gitFilePath + ".backup"
+	if err := os.Rename(gitFilePath, gitFileBackup); err != nil {
+		return fmt.Errorf("failed to backup .git file: %w", err)
+	}
+
+	// Create new .git directory
+	newGitDir := filepath.Join(worktreePath, ".git")
+	if err := os.MkdirAll(newGitDir, 0755); err != nil {
+		// Restore backup on failure
+		os.Rename(gitFileBackup, gitFilePath)
+		return fmt.Errorf("failed to create .git directory: %w", err)
+	}
+
+	// Copy essential git files and directories
+	essentialItems := []string{
+		"HEAD",
+		"refs",
+		"objects",
+		"config",
+		"index",
+		"logs",
+		"hooks",
+		"info",
+	}
+
+	// Get the main repository path (parent of worktree git directory)
+	mainRepoGitPath := filepath.Dir(filepath.Dir(gitDirPath))
+	log.Infof("Main repository git path: %s", mainRepoGitPath)
+
+	for _, item := range essentialItems {
+		srcPath := filepath.Join(mainRepoGitPath, item)
+		dstPath := filepath.Join(newGitDir, item)
+
+		// Skip if source doesn't exist (some files are optional)
+		if _, err := os.Stat(srcPath); os.IsNotExist(err) {
+			log.Debugf("Skipping non-existent git item: %s", item)
+			continue
+		}
+
+		// Copy the item
+		if err := m.copyGitItem(srcPath, dstPath); err != nil {
+			log.Warnf("Failed to copy git item %s: %v", item, err)
+			// Continue with other items, don't fail completely
+		} else {
+			log.Debugf("Copied git item: %s", item)
+		}
+	}
+
+	// Copy worktree-specific files from the worktree git directory
+	worktreeSpecificItems := []string{
+		"HEAD",
+		"index",
+		"logs/HEAD",
+	}
+
+	for _, item := range worktreeSpecificItems {
+		srcPath := filepath.Join(gitDirPath, item)
+		dstPath := filepath.Join(newGitDir, item)
+
+		// Skip if source doesn't exist
+		if _, err := os.Stat(srcPath); os.IsNotExist(err) {
+			log.Debugf("Skipping non-existent worktree item: %s", item)
+			continue
+		}
+
+		// Ensure parent directory exists
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+			log.Warnf("Failed to create directory for %s: %v", item, err)
+			continue
+		}
+
+		// Copy the item
+		if err := m.copyGitItem(srcPath, dstPath); err != nil {
+			log.Warnf("Failed to copy worktree item %s: %v", item, err)
+		} else {
+			log.Debugf("Copied worktree item: %s", item)
+		}
+	}
+
+	// Verify the conversion worked by testing a git command
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = worktreePath
+	if _, err := cmd.Output(); err != nil {
+		log.Errorf("Git command test failed after conversion: %v", err)
+		// Restore the original .git file
+		os.RemoveAll(newGitDir)
+		os.Rename(gitFileBackup, gitFilePath)
+		return fmt.Errorf("conversion verification failed: %w", err)
+	}
+
+	// Remove the backup file on success
+	os.Remove(gitFileBackup)
+
+	log.Infof("Successfully converted worktree to standalone repository: %s", worktreePath)
+	return nil
+}
+
+// copyGitItem copies a file or directory from src to dst
+func (m *Manager) copyGitItem(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if srcInfo.IsDir() {
+		// Copy directory recursively
+		return m.copyDir(src, dst)
+	} else {
+		// Copy file
+		return m.copyFile(src, dst)
+	}
+}
+
+// copyFile copies a single file from src to dst
+func (m *Manager) copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = destFile.ReadFrom(sourceFile)
+	return err
+}
+
+// copyDir copies a directory recursively from src to dst
+func (m *Manager) copyDir(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			if err := m.copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := m.copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
