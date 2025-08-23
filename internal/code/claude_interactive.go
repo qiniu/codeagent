@@ -83,6 +83,12 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 		return nil, fmt.Errorf("workspace path does not exist: %s", workspacePath)
 	}
 
+	// 获取父仓库路径（用于 git worktree 支持）
+	parentRepoPath, err := getParentRepoPath(workspacePath)
+	if err != nil {
+		log.Warnf("Failed to get parent repository path: %v", err)
+	}
+
 	// 构建 Docker 命令 - 使用简单的管道模式而不是 PTY
 	args := []string{
 		"run",
@@ -94,6 +100,22 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 		"-v", fmt.Sprintf("%s:/home/codeagent/.claude", claudeConfigPath), // 挂载 claude 认证信息
 		"-w", "/workspace", // 设置工作目录
 		"-e", "TERM=xterm-256color", // 设置终端类型
+	}
+
+	// 如果是 git worktree，需要额外挂载父仓库目录
+	if parentRepoPath != "" && parentRepoPath != workspacePath {
+		// 计算相对路径，保持与worktree中.git文件指向的路径一致
+		relPath, err := filepath.Rel(workspacePath, parentRepoPath)
+		if err != nil {
+			log.Warnf("Failed to calculate relative path from %s to %s: %v", workspacePath, parentRepoPath, err)
+		} else {
+			// 挂载父仓库到容器中的相对位置，确保git命令可以找到.git目录
+			containerParentPath := filepath.Join("/workspace", relPath)
+			// 规范化路径，避免包含 ".." 的复杂路径
+			containerParentPath = filepath.Clean(containerParentPath)
+			args = append(args, "-v", fmt.Sprintf("%s:%s", parentRepoPath, containerParentPath))
+			log.Infof("Mounting parent repository for git worktree: %s -> %s", parentRepoPath, containerParentPath)
+		}
 	}
 
 	// 添加 Claude API 相关环境变量
@@ -438,3 +460,4 @@ func (c *claudeInteractive) Close() error {
 
 	return nil
 }
+

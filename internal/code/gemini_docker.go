@@ -87,6 +87,12 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		return nil, fmt.Errorf("session path does not exist: %s", sessionPath)
 	}
 
+	// 获取父仓库路径（用于 git worktree 支持）
+	parentRepoPath, err := getParentRepoPath(workspacePath)
+	if err != nil {
+		log.Warnf("Failed to get parent repository path: %v", err)
+	}
+
 	// 构建 Docker 命令
 	args := []string{
 		"run",
@@ -99,6 +105,22 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"-v", fmt.Sprintf("%s:/home/codeagent/.gemini", geminiConfigPath), // 挂载 gemini 认证信息
 		"-v", fmt.Sprintf("%s:/home/codeagent/.gemini/tmp", sessionPath), // 挂载临时目录
 		"-w", "/workspace", // 设置工作目录
+	}
+
+	// 如果是 git worktree，需要额外挂载父仓库目录
+	if parentRepoPath != "" && parentRepoPath != workspacePath {
+		// 计算相对路径，保持与worktree中.git文件指向的路径一致
+		relPath, err := filepath.Rel(workspacePath, parentRepoPath)
+		if err != nil {
+			log.Warnf("Failed to calculate relative path from %s to %s: %v", workspacePath, parentRepoPath, err)
+		} else {
+			// 挂载父仓库到容器中的相对位置，确保git命令可以找到.git目录
+			containerParentPath := filepath.Join("/workspace", relPath)
+			// 规范化路径，避免包含 ".." 的复杂路径
+			containerParentPath = filepath.Clean(containerParentPath)
+			args = append(args, "-v", fmt.Sprintf("%s:%s", parentRepoPath, containerParentPath))
+			log.Infof("Mounting parent repository for git worktree: %s -> %s", parentRepoPath, containerParentPath)
+		}
 	}
 
 	// Mount processed .codeagent directory if available
@@ -178,3 +200,4 @@ func (g *geminiDocker) Close() error {
 	stopCmd := exec.Command("docker", "rm", "-f", g.containerName)
 	return stopCmd.Run()
 }
+
