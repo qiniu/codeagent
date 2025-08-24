@@ -148,17 +148,17 @@ func (m *Manager) CleanupWorkspace(ws *models.Workspace) bool {
 	return m.cleanupWorkspaceWithWorktree(ws)
 }
 
-// cleanupWorkspaceWithWorktree 清理 worktree 工作空间，返回是否清理成功
+// cleanupWorkspaceWithWorktree 清理工作空间，返回是否清理成功
 func (m *Manager) cleanupWorkspaceWithWorktree(ws *models.Workspace) bool {
 	// 从工作空间路径提取编号
-	worktreeDir := filepath.Base(ws.Path)
+	workspaceDir := filepath.Base(ws.Path)
 	var entityNumber int
 
 	// 根据目录类型提取编号
-	if strings.Contains(worktreeDir, "__pr__") {
-		entityNumber = m.extractPRNumberFromPRDir(worktreeDir)
-	} else if strings.Contains(worktreeDir, "__issue__") {
-		entityNumber = m.extractIssueNumberFromIssueDir(worktreeDir)
+	if strings.Contains(workspaceDir, "__pr__") {
+		entityNumber = m.extractPRNumberFromPRDir(workspaceDir)
+	} else if strings.Contains(workspaceDir, "__issue__") {
+		entityNumber = m.extractIssueNumberFromIssueDir(workspaceDir)
 	}
 
 	if entityNumber == 0 {
@@ -178,7 +178,17 @@ func (m *Manager) cleanupWorkspaceWithWorktree(ws *models.Workspace) bool {
 
 	if repoManager == nil {
 		log.Warnf("Repo manager not found for %s", orgRepoPath)
-		// 即使没有 repoManager，也要尝试删除 session 目录
+		// 即使没有 repoManager，也要尝试删除工作空间和 session 目录
+		workspaceRemoved := false
+		if ws.Path != "" {
+			if err := os.RemoveAll(ws.Path); err != nil {
+				log.Errorf("Failed to remove workspace directory %s: %v", ws.Path, err)
+			} else {
+				workspaceRemoved = true
+				log.Infof("Removed workspace directory: %s", ws.Path)
+			}
+		}
+
 		if ws.SessionPath != "" {
 			if err := os.RemoveAll(ws.SessionPath); err != nil {
 				log.Errorf("Failed to remove session directory %s: %v", ws.SessionPath, err)
@@ -186,16 +196,16 @@ func (m *Manager) cleanupWorkspaceWithWorktree(ws *models.Workspace) bool {
 				log.Infof("Removed session directory: %s", ws.SessionPath)
 			}
 		}
-		return false
+		return workspaceRemoved
 	}
 
-	// 移除 worktree
-	worktreeRemoved := false
+	// 移除工作空间
+	workspaceRemoved := false
 	if err := repoManager.RemoveWorktreeWithAI(entityNumber, ws.AIModel); err != nil {
-		log.Errorf("Failed to remove worktree for entity #%d with AI model %s: %v", entityNumber, ws.AIModel, err)
+		log.Errorf("Failed to remove workspace for entity #%d with AI model %s: %v", entityNumber, ws.AIModel, err)
 	} else {
-		worktreeRemoved = true
-		log.Infof("Successfully removed worktree for entity #%d with AI model %s", entityNumber, ws.AIModel)
+		workspaceRemoved = true
+		log.Infof("Successfully removed workspace for entity #%d with AI model %s", entityNumber, ws.AIModel)
 	}
 
 	// 删除 session 目录
@@ -215,8 +225,8 @@ func (m *Manager) cleanupWorkspaceWithWorktree(ws *models.Workspace) bool {
 		log.Warnf("Failed to cleanup containers for workspace %s", ws.Path)
 	}
 
-	// 只有 worktree 和 session 都清理成功才返回 true
-	return worktreeRemoved && sessionRemoved
+	// 只有工作空间和 session 都清理成功才返回 true
+	return workspaceRemoved && sessionRemoved
 }
 
 // PrepareFromEvent 从完整的 IssueCommentEvent 准备工作空间
@@ -551,44 +561,48 @@ func (m *Manager) CreateWorkspaceFromIssueWithAI(issue *github.Issue, aiModel st
 	return ws
 }
 
-// MoveIssueToPR 使用 git worktree move 将 Issue 工作空间移动到 PR 工作空间
+// MoveIssueToPR 将 Issue 工作空间重命名为 PR 工作空间
 func (m *Manager) MoveIssueToPR(ws *models.Workspace, prNumber int) error {
 	// 构建新的命名: aimodel__repo__issue__number__timestamp -> aimodel__repo__pr__number__timestamp
 	oldPrefix := fmt.Sprintf("%s__%s__issue__%d__", ws.AIModel, ws.Repo, ws.Issue.GetNumber())
 	issueSuffix := strings.TrimPrefix(filepath.Base(ws.Path), oldPrefix)
-	newWorktreeName := fmt.Sprintf("%s__%s__pr__%d__%s", ws.AIModel, ws.Repo, prNumber, issueSuffix)
+	newWorkspaceName := fmt.Sprintf("%s__%s__pr__%d__%s", ws.AIModel, ws.Repo, prNumber, issueSuffix)
 
-	newWorktreePath := filepath.Join(filepath.Dir(ws.Path), newWorktreeName)
-	log.Infof("try to move workspace from %s to %s", ws.Path, newWorktreePath)
+	newWorkspacePath := filepath.Join(filepath.Dir(ws.Path), newWorkspaceName)
+	log.Infof("try to move workspace from %s to %s", ws.Path, newWorkspacePath)
 
-	// 获取仓库管理器
-	orgRepoPath := fmt.Sprintf("%s/%s", ws.Org, ws.Repo)
-	repoManager := m.repoManagers[orgRepoPath]
-	if repoManager == nil {
-		return fmt.Errorf("repo manager not found for %s", orgRepoPath)
+	// 检查目标路径是否已存在
+	if _, err := os.Stat(newWorkspacePath); err == nil {
+		log.Infof("Target workspace path already exists: %s, removing it first", newWorkspacePath)
+		if err := os.RemoveAll(newWorkspacePath); err != nil {
+			return fmt.Errorf("failed to remove existing target workspace: %w", err)
+		}
 	}
 
-	// 执行 git worktree move 命令
-	cmd := exec.Command("git", "worktree", "move", ws.Path, newWorktreePath)
-	cmd.Dir = repoManager.GetRepoPath() // 在 Git 仓库根目录下执行
-
-	output, err := cmd.CombinedOutput()
+	// 直接重命名目录
+	err := os.Rename(ws.Path, newWorkspacePath)
 	if err != nil {
-		log.Errorf("Failed to move worktree: %v, output: %s", err, string(output))
-		return fmt.Errorf("failed to move worktree: %w, output: %s", err, string(output))
+		log.Errorf("Failed to rename workspace directory: %v", err)
+		return fmt.Errorf("failed to rename workspace directory: %w", err)
 	}
 
-	log.Infof("Successfully moved worktree: %s -> %s", ws.Path, newWorktreeName)
+	log.Infof("Successfully moved workspace: %s -> %s", ws.Path, newWorkspaceName)
 
 	// 更新工作空间路径
-	ws.Path = newWorktreePath
+	ws.Path = newWorkspacePath
+	ws.PRNumber = prNumber
 
-	// 移动之后，注册worktree到内存中
-	worktree := &WorktreeInfo{
-		Worktree: ws.Path,
-		Branch:   ws.Branch,
+	// 获取仓库管理器并注册工作空间到内存中
+	orgRepoPath := fmt.Sprintf("%s/%s", ws.Org, ws.Repo)
+	repoManager := m.repoManagers[orgRepoPath]
+	if repoManager != nil {
+		workspace := &WorktreeInfo{
+			Worktree: ws.Path,
+			Branch:   ws.Branch,
+		}
+		repoManager.RegisterWorktreeWithAI(prNumber, ws.AIModel, workspace)
 	}
-	repoManager.RegisterWorktreeWithAI(prNumber, ws.AIModel, worktree)
+
 	return nil
 }
 

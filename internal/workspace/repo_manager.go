@@ -126,139 +126,116 @@ func (r *RepoManager) RemoveWorktree(prNumber int) error {
 	return r.RemoveWorktreeWithAI(prNumber, "")
 }
 
-// RemoveWorktreeWithAI 移除指定 PR 和 AI 模型的 worktree
+// RemoveWorktreeWithAI 移除指定 PR 和 AI 模型的工作空间
 func (r *RepoManager) RemoveWorktreeWithAI(prNumber int, aiModel string) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
 	key := generateWorktreeKey(aiModel, prNumber)
-	worktree := r.worktrees[key]
-	if worktree == nil {
-		log.Infof("Worktree for PR #%d with AI model %s not found in memory, skipping removal", prNumber, aiModel)
+	workspace := r.worktrees[key]
+	if workspace == nil {
+		log.Infof("Workspace for PR #%d with AI model %s not found in memory, skipping removal", prNumber, aiModel)
 		return nil // 已经不存在
 	}
 
-	// 检查 worktree 目录是否存在
-	if _, err := os.Stat(worktree.Worktree); os.IsNotExist(err) {
-		log.Infof("Worktree directory %s does not exist, removing from memory only", worktree.Worktree)
+	// 检查工作空间目录是否存在
+	if _, err := os.Stat(workspace.Worktree); os.IsNotExist(err) {
+		log.Infof("Workspace directory %s does not exist, removing from memory only", workspace.Worktree)
 		// 目录不存在，只从内存中移除
 		delete(r.worktrees, key)
 		return nil
 	}
 
-	// 删除 worktree
-	cmd := exec.Command("git", "worktree", "remove", "--force", worktree.Worktree)
-	cmd.Dir = r.repoPath
-	output, err := cmd.CombinedOutput()
+	// 直接删除工作空间目录
+	log.Infof("Removing workspace directory: %s", workspace.Worktree)
+	err := os.RemoveAll(workspace.Worktree)
 	if err != nil {
-		log.Errorf("Failed to remove worktree: %v, output: %s", err, string(output))
+		log.Errorf("Failed to remove workspace directory: %v", err)
 		// 即使删除失败，也从映射中移除，避免内存状态不一致
-		log.Warnf("Removing worktree from memory despite removal failure")
+		log.Warnf("Removing workspace from memory despite removal failure")
 	} else {
-		log.Infof("Successfully removed worktree: %s", worktree.Worktree)
-	}
-
-	// 删除相关的本地分支（如果存在）
-	if worktree.Branch != "" {
-		log.Infof("Attempting to delete local branch: %s", worktree.Branch)
-		branchCmd := exec.Command("git", "branch", "-D", worktree.Branch)
-		branchCmd.Dir = r.repoPath
-		branchOutput, err := branchCmd.CombinedOutput()
-		if err != nil {
-			log.Warnf("Failed to delete local branch %s: %v, output: %s", worktree.Branch, err, string(branchOutput))
-			// 分支删除失败不是致命错误，可能是分支不存在或正在使用
-		} else {
-			log.Infof("Successfully deleted local branch: %s", worktree.Branch)
-		}
+		log.Infof("Successfully removed workspace: %s", workspace.Worktree)
 	}
 
 	// 从映射中移除
 	delete(r.worktrees, key)
 
-	log.Infof("Removed worktree for PR #%d with AI model %s from memory", prNumber, aiModel)
+	log.Infof("Removed workspace for PR #%d with AI model %s from memory", prNumber, aiModel)
 	return nil
 }
 
-// ListWorktrees 列出所有 worktree
+// ListWorktrees 列出所有工作空间
 func (r *RepoManager) ListWorktrees() ([]*WorktreeInfo, error) {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
 
-	// 获取 Git worktree 列表
-	cmd := exec.Command("git", "worktree", "list", "--porcelain")
-	cmd.Dir = r.repoPath
-	output, err := cmd.Output()
+	var workspaces []*WorktreeInfo
+
+	// 扫描与仓库同级的目录，寻找工作空间
+	orgDir := filepath.Dir(r.repoPath)
+	entries, err := os.ReadDir(orgDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list worktrees: %w", err)
+		return nil, fmt.Errorf("failed to read org directory: %w", err)
 	}
 
-	return r.parseWorktreeList(string(output))
-}
-
-// parseWorktreeList 解析 worktree 列表输出
-func (r *RepoManager) parseWorktreeList(output string) ([]*WorktreeInfo, error) {
-	var worktrees []*WorktreeInfo
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-
-	log.Infof("Parsing worktree list output: %s", output)
-
-	// 过滤掉空行
-	var filteredLines []string
-	for _, line := range lines {
-		if strings.TrimSpace(line) != "" {
-			filteredLines = append(filteredLines, line)
-		}
-	}
-
-	for i := 0; i < len(filteredLines); i += 3 {
-		if i+2 >= len(filteredLines) {
-			break
-		}
-
-		// 解析 worktree 路径（第一行）
-		pathLine := strings.TrimSpace(filteredLines[i])
-		if !strings.HasPrefix(pathLine, "worktree ") {
-			log.Warnf("Invalid worktree line: %s", pathLine)
+	for _, entry := range entries {
+		if !entry.IsDir() {
 			continue
 		}
-		path := strings.TrimPrefix(pathLine, "worktree ")
 
-		// 跳过 HEAD 行（第二行）
-		headLine := strings.TrimSpace(filteredLines[i+1])
-		if !strings.HasPrefix(headLine, "HEAD ") {
-			log.Warnf("Invalid HEAD line: %s", headLine)
+		workspacePath := filepath.Join(orgDir, entry.Name())
+
+		// 跳过主仓库目录
+		if workspacePath == r.repoPath {
 			continue
 		}
-		head := strings.TrimPrefix(headLine, "HEAD ")
 
-		// 解析分支信息（第三行）
-		branchLine := strings.TrimSpace(filteredLines[i+2])
-		var branch string
-		if !strings.HasPrefix(branchLine, "branch ") {
-			log.Warnf("Invalid branch line: %s", branchLine)
+		// 检查是否是一个有效的 Git 仓库
+		gitDir := filepath.Join(workspacePath, ".git")
+		if _, err := os.Stat(gitDir); os.IsNotExist(err) {
 			continue
 		}
-		branch = strings.TrimPrefix(branchLine, "branch ")
 
-		worktree := &WorktreeInfo{
-			Worktree: path,
-			Head:     head,
+		// 获取当前分支
+		branchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+		branchCmd.Dir = workspacePath
+		branchOutput, err := branchCmd.Output()
+		if err != nil {
+			log.Warnf("Failed to get branch for workspace %s: %v", workspacePath, err)
+			continue
+		}
+		branch := strings.TrimSpace(string(branchOutput))
+
+		// 获取当前 commit
+		commitCmd := exec.Command("git", "rev-parse", "HEAD")
+		commitCmd.Dir = workspacePath
+		commitOutput, err := commitCmd.Output()
+		if err != nil {
+			log.Warnf("Failed to get commit for workspace %s: %v", workspacePath, err)
+			continue
+		}
+		commit := strings.TrimSpace(string(commitOutput))
+
+		workspace := &WorktreeInfo{
+			Worktree: workspacePath,
+			Head:     commit,
 			Branch:   branch,
 		}
-		log.Infof("Found worktree: %s, head: %s, branch: %s", path, head, branch)
-		worktrees = append(worktrees, worktree)
+
+		workspaces = append(workspaces, workspace)
+		log.Infof("Found workspace: %s, branch: %s, commit: %s", workspacePath, branch, commit)
 	}
 
-	log.Infof("Parsed %d worktrees", len(worktrees))
-	return worktrees, nil
+	log.Infof("Found %d workspaces", len(workspaces))
+	return workspaces, nil
 }
 
-// CreateWorktreeWithName 使用指定名称创建 worktree
+// CreateWorktreeWithName 使用指定名称创建工作空间（通过 git clone）
 func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string, createNewBranch bool) (*WorktreeInfo, error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	log.Infof("Creating worktree with name: %s, branch: %s, createNewBranch: %v", worktreeName, branch, createNewBranch)
+	log.Infof("Creating workspace with name: %s, branch: %s, createNewBranch: %v", worktreeName, branch, createNewBranch)
 
 	// 确保仓库已初始化
 	if !r.isInitialized() {
@@ -270,37 +247,65 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 		// 仓库已存在，确保主仓库代码是最新的
 		if err := r.updateMainRepository(); err != nil {
 			log.Warnf("Failed to update main repository: %v", err)
-			// 不因为更新失败而阻止worktree创建，但记录警告
+			// 不因为更新失败而阻止workspace创建，但记录警告
 		}
 	}
 
-	// 创建 worktree 路径（与仓库目录同级）
+	// 创建工作空间路径（与仓库目录同级）
 	orgDir := filepath.Dir(r.repoPath)
-	worktreePath := filepath.Join(orgDir, worktreeName)
-	log.Infof("Worktree path: %s", worktreePath)
+	workspacePath := filepath.Join(orgDir, worktreeName)
+	log.Infof("Workspace path: %s", workspacePath)
 
-	// // 检查是否存在现有的 worktree 使用相同分支
-	// if err := r.handleExistingWorktree(branch, worktreePath); err != nil {
-	// 	if err.Error() == "worktree_exists_at_target_path" {
-	// 		// 工作树已存在于目标路径，直接返回现有的信息
-	// 		log.Infof("Reusing existing worktree at: %s", worktreePath)
-	// 		return &WorktreeInfo{
-	// 			Worktree: worktreePath,
-	// 			Branch:   branch,
-	// 		}, nil
-	// 	}
-	// 	log.Errorf("Failed to handle existing worktree: %v", err)
-	// 	return nil, err
-	// }
+	// 检查目标路径是否已存在
+	if _, err := os.Stat(workspacePath); err == nil {
+		log.Infof("Workspace already exists at: %s, removing old one", workspacePath)
+		if err := os.RemoveAll(workspacePath); err != nil {
+			return nil, fmt.Errorf("failed to remove existing workspace: %w", err)
+		}
+	}
 
-	// 创建 worktree
-	var cmd *exec.Cmd
+	// 使用 git clone 创建工作空间
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// 从本地仓库克隆到工作空间
+	cloneCmd := exec.CommandContext(ctx, "git", "clone", r.repoPath, workspacePath)
+	log.Infof("Executing clone command: %s", strings.Join(cloneCmd.Args, " "))
+	cloneOutput, err := cloneCmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("git clone timed out after 5 minutes: %w", err)
+		}
+		return nil, fmt.Errorf("failed to clone repository: %w, output: %s", err, string(cloneOutput))
+	}
+	log.Infof("Clone output: %s", string(cloneOutput))
+
+	// 配置 Git 安全目录
+	cmd := exec.Command("git", "config", "--local", "--add", "safe.directory", workspacePath)
+	cmd.Dir = workspacePath
+	configOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warnf("Failed to configure safe directory: %v\nCommand output: %s", err, string(configOutput))
+	} else {
+		log.Infof("Successfully configured safe directory: %s", workspacePath)
+	}
+
+	// 配置 rebase 为默认拉取策略
+	cmd = exec.Command("git", "config", "--local", "pull.rebase", "true")
+	cmd.Dir = workspacePath
+	rebaseConfigOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Warnf("Failed to configure pull.rebase: %v\nCommand output: %s", err, string(rebaseConfigOutput))
+	}
+
+	// 处理分支切换
 	if createNewBranch {
-		// 创建新分支的 worktree
-		// 首先检查默认分支是什么
-		log.Infof("Checking default branch for new branch creation")
+		// 创建并切换到新分支
+		log.Infof("Creating and checking out new branch: %s", branch)
+
+		// 首先检查默认分支
 		defaultBranchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-		defaultBranchCmd.Dir = r.repoPath
+		defaultBranchCmd.Dir = workspacePath
 		defaultBranchOutput, err := defaultBranchCmd.Output()
 		if err != nil {
 			log.Errorf("Failed to get default branch, using 'main': %v", err)
@@ -311,33 +316,54 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 			defaultBranch = "main"
 		}
 
-		log.Infof("Creating new branch worktree: git worktree add -b %s %s %s", branch, worktreePath, defaultBranch)
-		cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, defaultBranch)
+		// 创建新分支
+		branchCmd := exec.Command("git", "checkout", "-b", branch, defaultBranch)
+		branchCmd.Dir = workspacePath
+		branchOutput, err := branchCmd.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create new branch %s: %w, output: %s", branch, err, string(branchOutput))
+		}
+		log.Infof("Created new branch: %s", branch)
 	} else {
-		// 创建现有分支的 worktree
-		// 首先检查本地分支是否已经存在
-		log.Infof("Checking if local branch exists: %s", branch)
+		// 切换到现有分支
+		log.Infof("Checking out existing branch: %s", branch)
+
+		// 首先检查本地是否存在该分支
 		localBranchCmd := exec.Command("git", "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", branch))
-		localBranchCmd.Dir = r.repoPath
+		localBranchCmd.Dir = workspacePath
 		localBranchExists := localBranchCmd.Run() == nil
 
 		if localBranchExists {
-			log.Infof("Local branch %s already exists, creating worktree without -b flag", branch)
-			// 本地分支已存在，直接创建 worktree 而不使用 -b 标志
-			cmd = exec.Command("git", "worktree", "add", worktreePath, branch)
-		} else {
-			// 本地分支不存在，检查远程分支是否存在
-			log.Infof("Local branch does not exist, checking if remote branch exists: origin/%s", branch)
-			checkCmd := exec.Command("git", "ls-remote", "--heads", "origin", branch)
-			checkCmd.Dir = r.repoPath
-			checkOutput, err := checkCmd.CombinedOutput()
+			// 本地分支存在，直接切换
+			checkoutCmd := exec.Command("git", "checkout", branch)
+			checkoutCmd.Dir = workspacePath
+			checkoutOutput, err := checkoutCmd.CombinedOutput()
 			if err != nil {
-				log.Errorf("Failed to check remote branch: %v, output: %s", err, string(checkOutput))
-			} else if strings.TrimSpace(string(checkOutput)) == "" {
-				log.Errorf("Remote branch origin/%s does not exist, will create new branch", branch)
-				// 如果远程分支不存在，创建新分支
+				return nil, fmt.Errorf("failed to checkout local branch %s: %w, output: %s", branch, err, string(checkoutOutput))
+			}
+		} else {
+			// 检查远程分支是否存在
+			remoteBranchCmd := exec.Command("git", "ls-remote", "--heads", "origin", branch)
+			remoteBranchCmd.Dir = workspacePath
+			remoteBranchOutput, err := remoteBranchCmd.CombinedOutput()
+			if err != nil {
+				log.Errorf("Failed to check remote branch: %v, output: %s", err, string(remoteBranchOutput))
+			}
+
+			if strings.TrimSpace(string(remoteBranchOutput)) != "" {
+				// 远程分支存在，创建本地跟踪分支
+				trackCmd := exec.Command("git", "checkout", "-b", branch, fmt.Sprintf("origin/%s", branch))
+				trackCmd.Dir = workspacePath
+				trackOutput, err := trackCmd.CombinedOutput()
+				if err != nil {
+					return nil, fmt.Errorf("failed to checkout remote branch %s: %w, output: %s", branch, err, string(trackOutput))
+				}
+				log.Infof("Created local tracking branch for origin/%s", branch)
+			} else {
+				// 远程分支不存在，创建新分支
+				log.Warnf("Remote branch origin/%s does not exist, creating new branch", branch)
 				defaultBranchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-				defaultBranchCmd.Dir = r.repoPath
+				defaultBranchCmd.Dir = workspacePath
 				defaultBranchOutput, err := defaultBranchCmd.Output()
 				if err != nil {
 					log.Warnf("Failed to get default branch, using 'main': %v", err)
@@ -347,49 +373,26 @@ func (r *RepoManager) CreateWorktreeWithName(worktreeName string, branch string,
 				if defaultBranch == "" {
 					defaultBranch = "main"
 				}
-				cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, defaultBranch)
-			} else {
-				log.Infof("Remote branch exists, creating worktree: git worktree add -b %s %s origin/%s", branch, worktreePath, branch)
-				cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, fmt.Sprintf("origin/%s", branch))
+
+				newBranchCmd := exec.Command("git", "checkout", "-b", branch, defaultBranch)
+				newBranchCmd.Dir = workspacePath
+				newBranchOutput, err := newBranchCmd.CombinedOutput()
+				if err != nil {
+					return nil, fmt.Errorf("failed to create new branch %s from %s: %w, output: %s", branch, defaultBranch, err, string(newBranchOutput))
+				}
+				log.Infof("Created new branch %s from %s", branch, defaultBranch)
 			}
 		}
 	}
 
-	if cmd == nil {
-		// 如果还没有设置命令，使用默认的创建新分支方式
-		log.Infof("Using default new branch creation: git worktree add -b %s %s main", branch, worktreePath)
-		cmd = exec.Command("git", "worktree", "add", "-b", branch, worktreePath, "main")
-	}
-
-	cmd.Dir = r.repoPath
-
-	log.Infof("Executing command: %s", strings.Join(cmd.Args, " "))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Errorf("Failed to create worktree: %v, output: %s", err, string(output))
-		return nil, fmt.Errorf("failed to create worktree: %w, output: %s", err, string(output))
-	}
-
-	// 配置 Git 安全目录
-	cmd = exec.Command("git", "config", "--local", "--add", "safe.directory", worktreePath)
-	cmd.Dir = worktreePath // 在 worktree 目录下配置安全目录
-	configOutput, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Warnf("Failed to configure safe directory: %v\nCommand output: %s", err, string(configOutput))
-	} else {
-		log.Infof("Successfully configured safe directory: %s", worktreePath)
-	}
-
-	log.Infof("Worktree creation output: %s", string(output))
-
-	// 创建 worktree 信息
-	worktree := &WorktreeInfo{
-		Worktree: worktreePath,
+	// 创建工作空间信息
+	workspace := &WorktreeInfo{
+		Worktree: workspacePath,
 		Branch:   branch,
 	}
 
-	log.Infof("Successfully created worktree: %s", worktreePath)
-	return worktree, nil
+	log.Infof("Successfully created workspace: %s on branch %s", workspacePath, branch)
+	return workspace, nil
 }
 
 // RegisterWorktree 注册单个 worktree 到内存（向后兼容，默认无AI模型）
@@ -508,171 +511,104 @@ func (r *RepoManager) EnsureMainRepositoryUpToDate() error {
 	return r.updateMainRepository()
 }
 
-// handleExistingWorktree 处理已存在的 worktree 冲突
-func (r *RepoManager) handleExistingWorktree(branch string, targetPath string) error {
-	log.Infof("Checking for existing worktrees using branch: %s", branch)
-
-	// 获取当前所有 worktree
-	cmd := exec.Command("git", "worktree", "list", "--porcelain")
-	cmd.Dir = r.repoPath
-	output, err := cmd.Output()
-	if err != nil {
-		log.Warnf("Failed to list worktrees: %v", err)
-		return nil // 不阻止创建，继续执行
-	}
-
-	worktrees, err := r.parseWorktreeList(string(output))
-	if err != nil {
-		log.Warnf("Failed to parse worktree list: %v", err)
-		return nil // 不阻止创建，继续执行
-	}
-
-	// 检查是否有 worktree 正在使用相同的分支
-	for _, wt := range worktrees {
-		if strings.Contains(wt.Branch, branch) || strings.Contains(branch, strings.TrimPrefix(wt.Branch, "refs/heads/")) {
-			log.Warnf("Found existing worktree using branch %s at path: %s", branch, wt.Worktree)
-
-			// 如果目标路径和现有路径不同，需要清理现有的 worktree
-			if wt.Worktree != targetPath {
-				log.Infof("Removing conflicting worktree: %s", wt.Worktree)
-
-				// 强制删除现有的 worktree
-				removeCmd := exec.Command("git", "worktree", "remove", "--force", wt.Worktree)
-				removeCmd.Dir = r.repoPath
-				removeOutput, removeErr := removeCmd.CombinedOutput()
-				if removeErr != nil {
-					log.Errorf("Failed to remove existing worktree %s: %v, output: %s",
-						wt.Worktree, removeErr, string(removeOutput))
-
-					// 尝试手动删除目录
-					if err := r.forceRemoveDirectory(wt.Worktree); err != nil {
-						log.Errorf("Failed to manually remove directory %s: %v", wt.Worktree, err)
-						return fmt.Errorf("failed to clean up conflicting worktree: %w", err)
-					}
-				} else {
-					log.Infof("Successfully removed conflicting worktree: %s", wt.Worktree)
-				}
-
-				// 尝试删除相关的本地分支（如果存在且不是主分支）
-				branchName := strings.TrimPrefix(wt.Branch, "refs/heads/")
-				if branchName != "main" && branchName != "master" && branchName != "" {
-					log.Infof("Attempting to delete local branch: %s", branchName)
-					branchCmd := exec.Command("git", "branch", "-D", branchName)
-					branchCmd.Dir = r.repoPath
-					branchOutput, err := branchCmd.CombinedOutput()
-					if err != nil {
-						log.Warnf("Failed to delete local branch %s: %v, output: %s",
-							branchName, err, string(branchOutput))
-					} else {
-						log.Infof("Successfully deleted local branch: %s", branchName)
-					}
-				}
-			} else {
-				// 目标路径相同，检查是否可以复用
-				if _, err := os.Stat(wt.Worktree); err == nil {
-					log.Infof("Worktree already exists at target path, will reuse: %s", wt.Worktree)
-					return fmt.Errorf("worktree_exists_at_target_path")
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-// forceRemoveDirectory 强制删除目录
-func (r *RepoManager) forceRemoveDirectory(dirPath string) error {
-	log.Infof("Force removing directory: %s", dirPath)
-
-	// 检查目录是否存在
-	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		log.Infof("Directory does not exist: %s", dirPath)
-		return nil
-	}
-
-	// 尝试删除目录
-	if err := os.RemoveAll(dirPath); err != nil {
-		log.Errorf("Failed to remove directory %s: %v", dirPath, err)
-		return err
-	}
-
-	log.Infof("Successfully removed directory: %s", dirPath)
-	return nil
-}
-
-// RestoreWorktrees 扫描磁盘上的 worktree 并注册到内存
+// RestoreWorktrees 扫描磁盘上的工作空间并注册到内存
 func (r *RepoManager) RestoreWorktrees() error {
-	worktrees, err := r.ListWorktrees()
+	workspaces, err := r.ListWorktrees()
 	if err != nil {
 		return err
 	}
-	for _, wt := range worktrees {
-		// 只处理含 -pr- 的 worktree 目录
-		base := filepath.Base(wt.Worktree)
-		if strings.Contains(base, "-pr-") {
-			log.Infof("Parsing worktree directory name: %s", base)
+	for _, ws := range workspaces {
+		// 处理工作空间目录名，提取PR信息
+		base := filepath.Base(ws.Worktree)
 
-			// 解析目录名格式：{aiModel}-{repo-name-with-dashes}-pr-{prNumber}-{timestamp}
-			// 使用 -pr- 作为分隔符来准确分割
-			prIndex := strings.Index(base, "-pr-")
-			if prIndex == -1 {
-				log.Warnf("Invalid worktree name format (no -pr- found): %s", base)
+		// 检查是否包含 __pr__ (新格式) 或 -pr- (旧格式)
+		if strings.Contains(base, "__pr__") {
+			log.Infof("Parsing workspace directory name (new format): %s", base)
+
+			// 新格式：{aiModel}__{repo}__pr__{prNumber}__{timestamp}
+			parts := strings.Split(base, "__pr__")
+			if len(parts) != 2 {
+				log.Warnf("Invalid workspace name format (new): %s", base)
 				continue
 			}
 
-			// 提取前缀部分（AI模型和仓库名）
-			prefix := base[:prIndex]
+			// 提取PR编号
+			suffixParts := strings.Split(parts[1], "__")
+			if len(suffixParts) < 1 {
+				log.Warnf("Invalid workspace name format (no PR number): %s", base)
+				continue
+			}
+
+			prNumber, err := strconv.Atoi(suffixParts[0])
+			if err != nil {
+				log.Warnf("Invalid PR number in workspace name: %s, error: %v", base, err)
+				continue
+			}
+
+			// 提取AI模型
+			prefixParts := strings.Split(parts[0], "__")
+			var aiModel string
+			if len(prefixParts) >= 2 {
+				aiModel = prefixParts[0]
+				if aiModel == "gemini" || aiModel == "claude" {
+					r.RegisterWorktreeWithAI(prNumber, aiModel, ws)
+					log.Infof("Restored workspace for PR #%d with AI model %s: %s", prNumber, aiModel, ws.Worktree)
+				} else {
+					// 向后兼容处理
+					r.RegisterWorktree(prNumber, ws)
+					log.Infof("Restored workspace for PR #%d (unknown AI model): %s", prNumber, ws.Worktree)
+				}
+			} else {
+				r.RegisterWorktree(prNumber, ws)
+				log.Infof("Restored workspace for PR #%d (no AI model): %s", prNumber, ws.Worktree)
+			}
+		} else if strings.Contains(base, "-pr-") {
+			log.Infof("Parsing workspace directory name (old format): %s", base)
+
+			// 旧格式：{aiModel}-{repo}-pr-{prNumber}-{timestamp}
+			prIndex := strings.Index(base, "-pr-")
+			if prIndex == -1 {
+				log.Warnf("Invalid workspace name format (old, no -pr- found): %s", base)
+				continue
+			}
 
 			// 提取后缀部分（PR编号和时间戳）
 			suffix := base[prIndex+4:] // 跳过 "-pr-"
 			suffixParts := strings.Split(suffix, "-")
-			if len(suffixParts) < 2 {
-				log.Warnf("Invalid worktree name format (insufficient suffix parts): %s", base)
+			if len(suffixParts) < 1 {
+				log.Warnf("Invalid workspace name format (old, insufficient suffix parts): %s", base)
 				continue
 			}
 
 			// 解析PR编号
 			prNumber, err := strconv.Atoi(suffixParts[0])
 			if err != nil {
-				log.Warnf("Invalid PR number in worktree name: %s, error: %v", base, err)
+				log.Warnf("Invalid PR number in workspace name: %s, error: %v", base, err)
 				continue
 			}
 
 			// 提取AI模型（从前缀的第一部分）
+			prefix := base[:prIndex]
 			prefixParts := strings.Split(prefix, "-")
-			if len(prefixParts) < 2 {
-				log.Warnf("Invalid worktree name format (insufficient prefix parts): %s", base)
-				continue
-			}
-
-			aiModel := prefixParts[0]
-			repoName := strings.Join(prefixParts[1:], "-")
-
-			log.Infof("Parsed worktree: aiModel=%s, repo=%s, prNumber=%d", aiModel, repoName, prNumber)
-
-			// 验证AI模型是否有效
-			if aiModel == "gemini" || aiModel == "claude" {
-				r.RegisterWorktreeWithAI(prNumber, aiModel, wt)
-				log.Infof("Restored worktree for PR #%d with AI model %s: %s", prNumber, aiModel, wt.Worktree)
-			} else {
-				// 如果第一部分不是有效的AI模型，可能是旧格式或者其他格式
-				// 尝试向后兼容处理
-				log.Warnf("Unknown AI model '%s' in worktree name: %s", aiModel, base)
-
-				// 检查是否是旧格式（没有AI模型前缀）
-				if strings.Contains(base, "issue-") {
-					// 可能是Issue工作空间，跳过
-					log.Infof("Skipping Issue worktree: %s", base)
-					continue
+			if len(prefixParts) >= 1 {
+				aiModel := prefixParts[0]
+				if aiModel == "gemini" || aiModel == "claude" {
+					r.RegisterWorktreeWithAI(prNumber, aiModel, ws)
+					log.Infof("Restored workspace for PR #%d with AI model %s: %s", prNumber, aiModel, ws.Worktree)
+				} else {
+					// 向后兼容处理
+					r.RegisterWorktree(prNumber, ws)
+					log.Infof("Restored workspace for PR #%d (unknown AI model): %s", prNumber, ws.Worktree)
 				}
-
-				// 使用默认方式注册
-				r.RegisterWorktree(prNumber, wt)
-				log.Infof("Restored worktree for PR #%d (unknown AI model): %s", prNumber, wt.Worktree)
+			} else {
+				r.RegisterWorktree(prNumber, ws)
+				log.Infof("Restored workspace for PR #%d (no AI model): %s", prNumber, ws.Worktree)
 			}
-		} else if strings.Contains(base, "issue-") {
-			// 处理Issue工作空间（可选，用于调试）
-			log.Infof("Found Issue worktree (not registering): %s", base)
+		} else if strings.Contains(base, "__issue__") || strings.Contains(base, "issue-") {
+			// Issue 工作空间，暂时跳过
+			log.Infof("Found Issue workspace (not registering): %s", base)
+		} else {
+			log.Debugf("Skipping non-workspace directory: %s", base)
 		}
 	}
 	return nil
