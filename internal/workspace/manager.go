@@ -104,10 +104,8 @@ type Manager struct {
 
 	// key: aimodel/org/repo/pr-number
 	workspaces map[string]*models.Workspace
-	// key: org/repo
-	repoManagers map[string]*RepoManager
-	mutex        sync.RWMutex
-	config       *config.Config
+	mutex      sync.RWMutex
+	config *config.Config
 
 	// 目录格式管理器
 	dirFormatter *dirFormatter
@@ -117,7 +115,6 @@ func NewManager(cfg *config.Config) *Manager {
 	m := &Manager{
 		baseDir:      cfg.Workspace.BaseDir,
 		workspaces:   make(map[string]*models.Workspace),
-		repoManagers: make(map[string]*RepoManager),
 		config:       cfg,
 		dirFormatter: newDirFormatter(),
 	}
@@ -133,6 +130,110 @@ func (m *Manager) GetBaseDir() string {
 	return m.baseDir
 }
 
+// cloneRepository creates a new git clone for a workspace
+func (m *Manager) cloneRepository(repoURL, clonePath, branch string, createNewBranch bool) error {
+	log.Infof("Cloning repository: %s to %s, branch: %s, createNewBranch: %v", repoURL, clonePath, branch, createNewBranch)
+
+	// Create parent directory if needed
+	if err := os.MkdirAll(filepath.Dir(clonePath), 0755); err != nil {
+		return fmt.Errorf("failed to create parent directory: %w", err)
+	}
+
+	// Clone the repository with shallow depth for efficiency
+	var cmd *exec.Cmd
+	if createNewBranch {
+		// Clone the default branch first, then create new branch
+		cmd = exec.Command("git", "clone", "--depth", "1", repoURL, clonePath)
+	} else {
+		// Try to clone specific branch directly
+		cmd = exec.Command("git", "clone", "--depth", "1", "--branch", branch, repoURL, clonePath)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if !createNewBranch {
+			// If direct branch clone failed, try cloning default branch first
+			log.Warnf("Failed to clone specific branch %s directly, cloning default branch: %v", branch, err)
+			cmd = exec.Command("git", "clone", "--depth", "1", repoURL, clonePath)
+			output, err = cmd.CombinedOutput()
+		}
+		if err != nil {
+			return fmt.Errorf("failed to clone repository: %w, output: %s", err, string(output))
+		}
+	}
+
+	// Configure Git safe directory
+	cmd = exec.Command("git", "config", "--local", "--add", "safe.directory", clonePath)
+	cmd.Dir = clonePath
+	if configOutput, err := cmd.CombinedOutput(); err != nil {
+		log.Warnf("Failed to configure safe directory: %v\nCommand output: %s", err, string(configOutput))
+	}
+
+	// Configure rebase as default pull strategy
+	cmd = exec.Command("git", "config", "--local", "pull.rebase", "true")
+	cmd.Dir = clonePath
+	if rebaseConfigOutput, err := cmd.CombinedOutput(); err != nil {
+		log.Warnf("Failed to configure pull.rebase: %v\nCommand output: %s", err, string(rebaseConfigOutput))
+	}
+
+	if createNewBranch {
+		// Create and switch to new branch
+		cmd = exec.Command("git", "checkout", "-b", branch)
+		cmd.Dir = clonePath
+		if branchOutput, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to create new branch %s: %w, output: %s", branch, err, string(branchOutput))
+		}
+		log.Infof("Created new branch: %s", branch)
+	} else if branch != "" {
+		// Verify we're on the correct branch or switch to it
+		cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+		cmd.Dir = clonePath
+		currentBranchOutput, err := cmd.Output()
+		if err != nil {
+			log.Warnf("Failed to check current branch: %v", err)
+		} else {
+			currentBranch := strings.TrimSpace(string(currentBranchOutput))
+			if currentBranch != branch {
+				// Try to switch to the target branch
+				cmd = exec.Command("git", "checkout", branch)
+				cmd.Dir = clonePath
+				if switchOutput, err := cmd.CombinedOutput(); err != nil {
+					// Branch might not exist locally, try creating tracking branch
+					cmd = exec.Command("git", "checkout", "-b", branch, fmt.Sprintf("origin/%s", branch))
+					cmd.Dir = clonePath
+					if trackOutput, err := cmd.CombinedOutput(); err != nil {
+						log.Warnf("Failed to switch to branch %s: %v, output: %s", branch, err, string(trackOutput))
+					} else {
+						log.Infof("Created tracking branch: %s", branch)
+					}
+				} else {
+					log.Infof("Switched to existing branch: %s", branch)
+				}
+			}
+		}
+	}
+
+	log.Infof("Successfully cloned repository to: %s", clonePath)
+	return nil
+}
+
+// cleanupClonedRepository removes a cloned repository directory
+func (m *Manager) cleanupClonedRepository(clonePath string) error {
+	if clonePath == "" {
+		return nil
+	}
+
+	log.Infof("Cleaning up cloned repository: %s", clonePath)
+
+	// Remove the entire directory
+	if err := os.RemoveAll(clonePath); err != nil {
+		return fmt.Errorf("failed to remove cloned repository directory: %w", err)
+	}
+
+	log.Infof("Successfully removed cloned repository: %s", clonePath)
+	return nil
+}
+
 // cleanupWorkspace 清理单个工作空间，返回是否清理成功
 func (m *Manager) CleanupWorkspace(ws *models.Workspace) bool {
 	if ws == nil || ws.Path == "" {
@@ -144,62 +245,26 @@ func (m *Manager) CleanupWorkspace(ws *models.Workspace) bool {
 	delete(m.workspaces, keyWithAI(fmt.Sprintf("%s/%s", ws.Org, ws.Repo), ws.PRNumber, ws.AIModel))
 	m.mutex.Unlock()
 
-	// 清理物理工作空间
-	return m.cleanupWorkspaceWithWorktree(ws)
+	// 清理物理工作空间 - 使用新的克隆清理方法
+	return m.cleanupWorkspaceWithClone(ws)
 }
 
-// cleanupWorkspaceWithWorktree 清理 worktree 工作空间，返回是否清理成功
-func (m *Manager) cleanupWorkspaceWithWorktree(ws *models.Workspace) bool {
-	// 从工作空间路径提取编号
-	worktreeDir := filepath.Base(ws.Path)
-	var entityNumber int
+// cleanupWorkspaceWithClone 清理基于克隆的工作空间，返回是否清理成功
+func (m *Manager) cleanupWorkspaceWithClone(ws *models.Workspace) bool {
+	cloneRemoved := false
+	sessionRemoved := false
 
-	// 根据目录类型提取编号
-	if strings.Contains(worktreeDir, "__pr__") {
-		entityNumber = m.extractPRNumberFromPRDir(worktreeDir)
-	} else if strings.Contains(worktreeDir, "__issue__") {
-		entityNumber = m.extractIssueNumberFromIssueDir(worktreeDir)
-	}
-
-	if entityNumber == 0 {
-		log.Warnf("Could not extract entity number from workspace path: %s", ws.Path)
-		return false
-	}
-
-	// 获取仓库管理器（不持锁，避免死锁）
-	orgRepoPath := fmt.Sprintf("%s/%s", ws.Org, ws.Repo)
-	var repoManager *RepoManager
-
-	m.mutex.RLock()
-	if rm, exists := m.repoManagers[orgRepoPath]; exists {
-		repoManager = rm
-	}
-	m.mutex.RUnlock()
-
-	if repoManager == nil {
-		log.Warnf("Repo manager not found for %s", orgRepoPath)
-		// 即使没有 repoManager，也要尝试删除 session 目录
-		if ws.SessionPath != "" {
-			if err := os.RemoveAll(ws.SessionPath); err != nil {
-				log.Errorf("Failed to remove session directory %s: %v", ws.SessionPath, err)
-			} else {
-				log.Infof("Removed session directory: %s", ws.SessionPath)
-			}
+	// 删除克隆的仓库目录
+	if ws.Path != "" {
+		if err := m.cleanupClonedRepository(ws.Path); err != nil {
+			log.Errorf("Failed to remove cloned repository %s: %v", ws.Path, err)
+		} else {
+			cloneRemoved = true
+			log.Infof("Successfully removed cloned repository: %s", ws.Path)
 		}
-		return false
-	}
-
-	// 移除 worktree
-	worktreeRemoved := false
-	if err := repoManager.RemoveWorktreeWithAI(entityNumber, ws.AIModel); err != nil {
-		log.Errorf("Failed to remove worktree for entity #%d with AI model %s: %v", entityNumber, ws.AIModel, err)
-	} else {
-		worktreeRemoved = true
-		log.Infof("Successfully removed worktree for entity #%d with AI model %s", entityNumber, ws.AIModel)
 	}
 
 	// 删除 session 目录
-	sessionRemoved := false
 	if ws.SessionPath != "" {
 		if err := os.RemoveAll(ws.SessionPath); err != nil {
 			log.Errorf("Failed to remove session directory %s: %v", ws.SessionPath, err)
@@ -215,8 +280,8 @@ func (m *Manager) cleanupWorkspaceWithWorktree(ws *models.Workspace) bool {
 		log.Warnf("Failed to cleanup containers for workspace %s", ws.Path)
 	}
 
-	// 只有 worktree 和 session 都清理成功才返回 true
-	return worktreeRemoved && sessionRemoved
+	// 只有克隆和 session 都清理成功才返回 true
+	return cloneRemoved && sessionRemoved
 }
 
 // PrepareFromEvent 从完整的 IssueCommentEvent 准备工作空间
@@ -230,7 +295,7 @@ func (m *Manager) PrepareFromEvent(event *github.IssueCommentEvent) models.Works
 	}
 }
 
-// recoverExistingWorkspaces 扫描目录名恢复现有工作空间
+// recoverExistingWorkspaces 扫描目录名恢复现有克隆的工作空间
 func (m *Manager) recoverExistingWorkspaces() {
 	log.Infof("Starting to recover existing workspaces by scanning directory names from %s", m.baseDir)
 
@@ -271,6 +336,12 @@ func (m *Manager) recoverExistingWorkspaces() {
 				continue
 			}
 
+			// 检查是否是有效的 git 仓库（克隆的工作空间应该包含完整的 .git 目录）
+			if _, err := os.Stat(filepath.Join(dirPath, ".git")); os.IsNotExist(err) {
+				log.Warnf("Directory %s does not contain .git, skipping", dirPath)
+				continue
+			}
+
 			// 使用目录格式管理器解析目录名
 			prFormat, err := m.ParsePRDirName(dirName)
 			if err != nil {
@@ -280,39 +351,20 @@ func (m *Manager) recoverExistingWorkspaces() {
 
 			aiModel := prFormat.AIModel
 			repoName := prFormat.Repo
-
 			prNumber := prFormat.PRNumber
 
-			// 找到对应的仓库目录
-			repoPath := filepath.Join(orgPath, repoName)
-			if _, err := os.Stat(filepath.Join(repoPath, ".git")); err == nil {
-				// 获取远程仓库 URL
-				remoteURL, err := m.getRemoteURL(repoPath)
-				if err != nil {
-					log.Warnf("Failed to get remote URL for %s: %v", repoPath, err)
-					continue
-				}
+			// 获取远程仓库 URL
+			remoteURL, err := m.getRemoteURL(dirPath)
+			if err != nil {
+				log.Warnf("Failed to get remote URL for %s: %v", dirPath, err)
+				continue
+			}
 
-				// 创建仓库管理器
-				orgRepoPath := fmt.Sprintf("%s/%s", org, repoName)
-				m.mutex.Lock()
-				if m.repoManagers[orgRepoPath] == nil {
-					repoManager := NewRepoManager(repoPath, remoteURL)
-					// 恢复 worktrees
-					if err := repoManager.RestoreWorktrees(); err != nil {
-						log.Warnf("Failed to restore worktrees for %s: %v", orgRepoPath, err)
-					}
-					m.repoManagers[orgRepoPath] = repoManager
-					log.Infof("Created repo manager for %s", orgRepoPath)
-				}
-				m.mutex.Unlock()
-
-				// 恢复 PR 工作空间
-				if err := m.recoverPRWorkspace(org, repoName, dirPath, remoteURL, prNumber, aiModel); err != nil {
-					log.Errorf("Failed to recover PR workspace %s: %v", dirName, err)
-				} else {
-					recoveredCount++
-				}
+			// 恢复 PR 工作空间
+			if err := m.recoverPRWorkspaceFromClone(org, repoName, dirPath, remoteURL, prNumber, aiModel); err != nil {
+				log.Errorf("Failed to recover PR workspace %s: %v", dirName, err)
+			} else {
+				recoveredCount++
 			}
 		}
 	}
@@ -320,18 +372,18 @@ func (m *Manager) recoverExistingWorkspaces() {
 	log.Infof("Workspace recovery completed. Recovered %d workspaces", recoveredCount)
 }
 
-// recoverPRWorkspace 恢复单个 PR 工作空间
-func (m *Manager) recoverPRWorkspace(org, repo, worktreePath, remoteURL string, prNumber int, aiModel string) error {
-	// 从 worktree 路径提取 PR 信息
-	worktreeDir := filepath.Base(worktreePath)
+// recoverPRWorkspaceFromClone 恢复基于克隆的单个 PR 工作空间
+func (m *Manager) recoverPRWorkspaceFromClone(org, repo, clonePath, remoteURL string, prNumber int, aiModel string) error {
+	// 从克隆路径提取 PR 信息
+	cloneDir := filepath.Base(clonePath)
 	var timestamp string
 
 	if aiModel != "" {
 		// 有AI模型的情况: aimodel__repo__pr__number__timestamp
-		timestamp = strings.TrimPrefix(worktreeDir, aiModel+"__"+repo+"__pr__"+strconv.Itoa(prNumber)+"__")
+		timestamp = strings.TrimPrefix(cloneDir, aiModel+"__"+repo+"__pr__"+strconv.Itoa(prNumber)+"__")
 	} else {
 		// 没有AI模型的情况: repo__pr__number__timestamp
-		timestamp = strings.TrimPrefix(worktreeDir, repo+"__pr__"+strconv.Itoa(prNumber)+"__")
+		timestamp = strings.TrimPrefix(cloneDir, repo+"__pr__"+strconv.Itoa(prNumber)+"__")
 	}
 
 	// 将 timestamp 字符串转换为时间
@@ -343,7 +395,7 @@ func (m *Manager) recoverPRWorkspace(org, repo, worktreePath, remoteURL string, 
 		return fmt.Errorf("failed to parse timestamp %s", timestamp)
 	}
 
-	// 创建对应的 session 目录（与 repo 同级）
+	// 创建对应的 session 目录（与克隆目录同级）
 	// session目录格式：{aiModel}-{repo}-session-{prNumber}-{timestamp}
 	timestampInt, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil {
@@ -352,15 +404,27 @@ func (m *Manager) recoverPRWorkspace(org, repo, worktreePath, remoteURL string, 
 	}
 	sessionPath := m.createSessionPathWithTimestamp(m.baseDir, aiModel, repo, prNumber, timestampInt)
 
+	// 获取当前分支信息
+	var currentBranch string
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = clonePath
+	if branchOutput, err := cmd.Output(); err != nil {
+		log.Warnf("Failed to get current branch for %s: %v", clonePath, err)
+		currentBranch = ""
+	} else {
+		currentBranch = strings.TrimSpace(string(branchOutput))
+	}
+
 	// 恢复工作空间对象
 	ws := &models.Workspace{
 		Org:         org,
 		Repo:        repo,
 		AIModel:     aiModel,
-		Path:        worktreePath,
+		Path:        clonePath,
 		PRNumber:    prNumber,
 		SessionPath: sessionPath,
 		Repository:  remoteURL,
+		Branch:      currentBranch,
 		CreatedAt:   createdAt,
 	}
 
@@ -371,7 +435,7 @@ func (m *Manager) recoverPRWorkspace(org, repo, worktreePath, remoteURL string, 
 	m.workspaces[prKey] = ws
 	m.mutex.Unlock()
 
-	log.Infof("Recovered PR workspace: %v", ws)
+	log.Infof("Recovered PR workspace from clone: %v", ws)
 	return nil
 }
 
@@ -386,24 +450,6 @@ func (m *Manager) getRemoteURL(repoPath string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// getOrCreateRepoManager 获取或创建仓库管理器
-func (m *Manager) getOrCreateRepoManager(org, repo string) *RepoManager {
-	orgRepo := fmt.Sprintf("%s/%s", org, repo)
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	// 检查是否已存在
-	if repoManager, exists := m.repoManagers[orgRepo]; exists {
-		return repoManager
-	}
-
-	// 创建新的仓库管理器
-	repoPath := filepath.Join(m.baseDir, orgRepo)
-	repoManager := NewRepoManager(repoPath, fmt.Sprintf("https://github.com/%s/%s.git", org, repo))
-	m.repoManagers[orgRepo] = repoManager
-
-	return repoManager
-}
 
 // extractOrgRepoPath 从仓库 URL 中提取 org/repo 路径
 func (m *Manager) extractOrgRepoPath(repoURL string) string {
@@ -472,24 +518,7 @@ func (m *Manager) GetWorkspaceCount() int {
 	return len(m.workspaces)
 }
 
-// GetRepoManagerCount 获取仓库管理器数量
-func (m *Manager) GetRepoManagerCount() int {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	return len(m.repoManagers)
-}
 
-// GetWorktreeCount 获取总 worktree 数量
-func (m *Manager) GetWorktreeCount() int {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-
-	total := 0
-	for _, repoManager := range m.repoManagers {
-		total += repoManager.GetWorktreeCount()
-	}
-	return total
-}
 
 func (m *Manager) CreateSessionPath(underPath, aiModel, repo string, prNumber int, suffix string) (string, error) {
 	// session目录格式：{aiModel}-{repo}-session-{prNumber}-{timestamp}
@@ -502,9 +531,9 @@ func (m *Manager) CreateSessionPath(underPath, aiModel, repo string, prNumber in
 	return sessionPath, nil
 }
 
-// CreateWorkspaceFromIssueWithAI 从 Issue 创建工作空间，支持指定AI模型
+// CreateWorkspaceFromIssueWithAI 从 Issue 创建工作空间，支持指定AI模型（使用git clone方式）
 func (m *Manager) CreateWorkspaceFromIssueWithAI(issue *github.Issue, aiModel string) *models.Workspace {
-	log.Infof("Creating workspace from Issue #%d with AI model: %s", issue.GetNumber(), aiModel)
+	log.Infof("Creating workspace from Issue #%d with AI model: %s (using git clone)", issue.GetNumber(), aiModel)
 
 	// 从 Issue 的 HTML URL 中提取仓库信息
 	repoURL, org, repo, err := m.extractRepoURLFromIssueURL(issue.GetHTMLURL())
@@ -522,16 +551,13 @@ func (m *Manager) CreateWorkspaceFromIssueWithAI(issue *github.Issue, aiModel st
 		branchName = fmt.Sprintf("%s/issue-%d-%d", BranchPrefix, issue.GetNumber(), timestamp)
 	}
 
-	// 生成 Issue 工作空间目录名（与 repo 同级），包含AI模型信息
+	// 生成 Issue 工作空间目录名（与其他工作空间同级）
 	issueDir := m.GenerateIssueDirName(aiModel, repo, issue.GetNumber(), timestamp)
+	clonePath := filepath.Join(m.baseDir, org, issueDir)
 
-	// 获取或创建仓库管理器
-	repoManager := m.getOrCreateRepoManager(org, repo)
-
-	// 创建 worktree
-	worktree, err := repoManager.CreateWorktreeWithName(issueDir, branchName, true)
-	if err != nil {
-		log.Errorf("Failed to create worktree for Issue #%d: %v", issue.GetNumber(), err)
+	// 克隆仓库并创建新分支
+	if err := m.cloneRepository(repoURL, clonePath, branchName, true); err != nil {
+		log.Errorf("Failed to clone repository for Issue #%d: %v", issue.GetNumber(), err)
 		return nil
 	}
 
@@ -540,55 +566,41 @@ func (m *Manager) CreateWorkspaceFromIssueWithAI(issue *github.Issue, aiModel st
 		Org:     org,
 		Repo:    repo,
 		AIModel: aiModel,
-		Path:    worktree.Worktree,
+		Path:    clonePath,
 		// 本阶段没有 session 目录
 		SessionPath: "",
 		Repository:  repoURL,
-		Branch:      worktree.Branch,
+		Branch:      branchName,
 		CreatedAt:   time.Now(),
 		Issue:       issue,
 	}
+
+	log.Infof("Successfully created workspace from Issue #%d using git clone: %s", issue.GetNumber(), clonePath)
 	return ws
 }
 
-// MoveIssueToPR 使用 git worktree move 将 Issue 工作空间移动到 PR 工作空间
+// MoveIssueToPR 将 Issue 工作空间重命名为 PR 工作空间（使用目录重命名）
 func (m *Manager) MoveIssueToPR(ws *models.Workspace, prNumber int) error {
 	// 构建新的命名: aimodel__repo__issue__number__timestamp -> aimodel__repo__pr__number__timestamp
 	oldPrefix := fmt.Sprintf("%s__%s__issue__%d__", ws.AIModel, ws.Repo, ws.Issue.GetNumber())
 	issueSuffix := strings.TrimPrefix(filepath.Base(ws.Path), oldPrefix)
-	newWorktreeName := fmt.Sprintf("%s__%s__pr__%d__%s", ws.AIModel, ws.Repo, prNumber, issueSuffix)
+	newCloneName := fmt.Sprintf("%s__%s__pr__%d__%s", ws.AIModel, ws.Repo, prNumber, issueSuffix)
 
-	newWorktreePath := filepath.Join(filepath.Dir(ws.Path), newWorktreeName)
-	log.Infof("try to move workspace from %s to %s", ws.Path, newWorktreePath)
+	newClonePath := filepath.Join(filepath.Dir(ws.Path), newCloneName)
+	log.Infof("Moving workspace from %s to %s", ws.Path, newClonePath)
 
-	// 获取仓库管理器
-	orgRepoPath := fmt.Sprintf("%s/%s", ws.Org, ws.Repo)
-	repoManager := m.repoManagers[orgRepoPath]
-	if repoManager == nil {
-		return fmt.Errorf("repo manager not found for %s", orgRepoPath)
+	// 重命名目录（简单的文件系统操作）
+	if err := os.Rename(ws.Path, newClonePath); err != nil {
+		log.Errorf("Failed to rename workspace directory: %v", err)
+		return fmt.Errorf("failed to rename workspace directory: %w", err)
 	}
 
-	// 执行 git worktree move 命令
-	cmd := exec.Command("git", "worktree", "move", ws.Path, newWorktreePath)
-	cmd.Dir = repoManager.GetRepoPath() // 在 Git 仓库根目录下执行
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Errorf("Failed to move worktree: %v, output: %s", err, string(output))
-		return fmt.Errorf("failed to move worktree: %w, output: %s", err, string(output))
-	}
-
-	log.Infof("Successfully moved worktree: %s -> %s", ws.Path, newWorktreeName)
+	log.Infof("Successfully moved workspace: %s -> %s", ws.Path, newClonePath)
 
 	// 更新工作空间路径
-	ws.Path = newWorktreePath
+	ws.Path = newClonePath
+	ws.PRNumber = prNumber
 
-	// 移动之后，注册worktree到内存中
-	worktree := &WorktreeInfo{
-		Worktree: ws.Path,
-		Branch:   ws.Branch,
-	}
-	repoManager.RegisterWorktreeWithAI(prNumber, ws.AIModel, worktree)
 	return nil
 }
 
@@ -636,9 +648,9 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest) *models.Workspac
 	return m.CreateWorkspaceFromPRWithAI(pr, "")
 }
 
-// CreateWorkspaceFromPRWithAI 从 PR 创建工作空间，支持指定AI模型
+// CreateWorkspaceFromPRWithAI 从 PR 创建工作空间，支持指定AI模型（使用git clone方式）
 func (m *Manager) CreateWorkspaceFromPRWithAI(pr *github.PullRequest, aiModel string) *models.Workspace {
-	log.Infof("Creating workspace from PR #%d with AI model: %s", pr.GetNumber(), aiModel)
+	log.Infof("Creating workspace from PR #%d with AI model: %s (using git clone)", pr.GetNumber(), aiModel)
 
 	// 获取仓库 URL
 	repoURL := pr.GetBase().GetRepo().GetCloneURL()
@@ -650,31 +662,24 @@ func (m *Manager) CreateWorkspaceFromPRWithAI(pr *github.PullRequest, aiModel st
 	// 获取 PR 分支
 	prBranch := pr.GetHead().GetRef()
 
-	// 生成 PR 工作空间目录名（与 repo 同级），包含AI模型信息
+	// 生成 PR 工作空间目录名，包含AI模型信息
 	timestamp := time.Now().Unix()
 	repo := pr.GetBase().GetRepo().GetName()
 	prDir := m.GeneratePRDirName(aiModel, repo, pr.GetNumber(), timestamp)
 
 	org := pr.GetBase().GetRepo().GetOwner().GetLogin()
+	clonePath := filepath.Join(m.baseDir, org, prDir)
 
-	// 获取或创建仓库管理器
-	repoManager := m.getOrCreateRepoManager(org, repo)
-
-	// 创建 worktree（不创建新分支，切换到现有分支）
-	worktree, err := repoManager.CreateWorktreeWithName(prDir, prBranch, false)
-	if err != nil {
-		log.Errorf("Failed to create worktree for PR #%d: %v", pr.GetNumber(), err)
+	// 克隆仓库到指定分支（不创建新分支，切换到现有分支）
+	if err := m.cloneRepository(repoURL, clonePath, prBranch, false); err != nil {
+		log.Errorf("Failed to clone repository for PR #%d: %v", pr.GetNumber(), err)
 		return nil
 	}
 
-	// 注册worktree 到内存中
-	repoManager.RegisterWorktreeWithAI(pr.GetNumber(), aiModel, worktree)
-
 	// 创建 session 目录
 	// 从PR目录名中提取suffix，支持新的目录格式：{aiModel}-{repo}-pr-{prNumber}-{timestamp}
-	prDirName := filepath.Base(worktree.Worktree)
-	suffix := m.ExtractSuffixFromPRDir(aiModel, repo, pr.GetNumber(), prDirName)
-	sessionPath, err := m.CreateSessionPath(filepath.Dir(repoManager.GetRepoPath()), aiModel, repo, pr.GetNumber(), suffix)
+	suffix := m.ExtractSuffixFromPRDir(aiModel, repo, pr.GetNumber(), prDir)
+	sessionPath, err := m.CreateSessionPath(filepath.Join(m.baseDir, org), aiModel, repo, pr.GetNumber(), suffix)
 	if err != nil {
 		log.Errorf("Failed to create session directory: %v", err)
 		return nil
@@ -686,10 +691,10 @@ func (m *Manager) CreateWorkspaceFromPRWithAI(pr *github.PullRequest, aiModel st
 		Repo:        repo,
 		AIModel:     aiModel,
 		PRNumber:    pr.GetNumber(),
-		Path:        worktree.Worktree,
+		Path:        clonePath,
 		SessionPath: sessionPath,
 		Repository:  repoURL,
-		Branch:      worktree.Branch,
+		Branch:      prBranch,
 		PullRequest: pr,
 		CreatedAt:   time.Now(),
 	}
@@ -700,7 +705,7 @@ func (m *Manager) CreateWorkspaceFromPRWithAI(pr *github.PullRequest, aiModel st
 	m.workspaces[prKey] = ws
 	m.mutex.Unlock()
 
-	log.Infof("Created workspace from PR #%d: %s", pr.GetNumber(), ws.Path)
+	log.Infof("Created workspace from PR #%d using git clone: %s", pr.GetNumber(), ws.Path)
 	return ws
 }
 
