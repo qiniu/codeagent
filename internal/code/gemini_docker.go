@@ -87,6 +87,12 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		return nil, fmt.Errorf("session path does not exist: %s", sessionPath)
 	}
 
+	// 获取父仓库路径（用于 git worktree 支持）
+	parentRepoPath, err := getParentRepoPath(workspacePath)
+	if err != nil {
+		log.Warnf("Failed to get parent repository path: %v", err)
+	}
+
 	// 构建 Docker 命令
 	args := []string{
 		"run",
@@ -99,6 +105,37 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"-v", fmt.Sprintf("%s:/home/codeagent/.gemini", geminiConfigPath), // 挂载 gemini 认证信息
 		"-v", fmt.Sprintf("%s:/home/codeagent/.gemini/tmp", sessionPath), // 挂载临时目录
 		"-w", "/workspace", // 设置工作目录
+	}
+
+	// 如果是 git worktree，需要额外挂载父仓库目录
+	if parentRepoPath != "" && parentRepoPath != workspacePath {
+		// 使用安全的固定路径挂载策略
+		containerParentPath := "/parent_repo"
+		mountOptions := fmt.Sprintf("%s:%s:ro", parentRepoPath, containerParentPath)
+		args = append(args, "-v", mountOptions)
+		args = append(args, "-e", fmt.Sprintf("PARENT_REPO_PATH=%s", containerParentPath))
+		log.Infof("Mounting parent repository (read-only) for git worktree: %s -> %s", parentRepoPath, containerParentPath)
+		
+		// 创建git worktree初始化脚本
+		if workspace.SessionPath != "" {
+			initScript := `#!/bin/bash
+set -e
+if [ -n "$PARENT_REPO_PATH" ] && [ -f /workspace/.git ]; then
+    GITDIR=$(cat /workspace/.git | sed 's/gitdir: //')
+    if [[ "$GITDIR" == *"../"* ]]; then
+        echo "gitdir: $PARENT_REPO_PATH/.git/worktrees/$(basename $GITDIR)" > /workspace/.git
+    fi
+fi
+exec "$@"
+`
+			initScriptPath := filepath.Join(workspace.SessionPath, "gemini_git_worktree_init.sh")
+			if err := os.WriteFile(initScriptPath, []byte(initScript), 0755); err != nil {
+				log.Warnf("Failed to create gemini git worktree init script: %v", err)
+			} else {
+				args = append(args, "-v", fmt.Sprintf("%s:/docker-entrypoint.sh:ro", initScriptPath))
+				log.Infof("Added gemini git worktree initialization script")
+			}
+		}
 	}
 
 	// Mount processed .codeagent directory if available
@@ -178,3 +215,4 @@ func (g *geminiDocker) Close() error {
 	stopCmd := exec.Command("docker", "rm", "-f", g.containerName)
 	return stopCmd.Run()
 }
+

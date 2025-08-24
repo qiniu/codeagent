@@ -57,6 +57,12 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		return nil, fmt.Errorf("workspace path does not exist: %s", workspacePath)
 	}
 
+	// 获取父仓库路径（用于 git worktree 支持）
+	parentRepoPath, err := getParentRepoPath(workspacePath)
+	if err != nil {
+		log.Warnf("Failed to get parent repository path: %v", err)
+	}
+
 	// 构建 Docker 命令
 	args := []string{
 		"run",
@@ -66,6 +72,46 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		"-v", fmt.Sprintf("%s:/workspace", workspacePath), // 挂载工作空间
 		"-v", fmt.Sprintf("%s:/home/codeagent/.claude", claudeConfigPath), // 挂载 claude 认证信息
 		"-w", "/workspace", // 设置工作目录
+	}
+
+	// 如果是 git worktree，需要额外挂载父仓库目录
+	if parentRepoPath != "" && parentRepoPath != workspacePath {
+		// 使用更安全的挂载策略：挂载到固定的父目录位置
+		// 这避免了复杂的相对路径计算和潜在的路径遍历问题
+		containerParentPath := "/parent_repo"
+		
+		// 添加只读挂载以提高安全性（父仓库通常不需要写入）
+		mountOptions := fmt.Sprintf("%s:%s:ro", parentRepoPath, containerParentPath)
+		args = append(args, "-v", mountOptions)
+		log.Infof("Mounting parent repository (read-only) for git worktree: %s -> %s", parentRepoPath, containerParentPath)
+		
+		// 创建符号链接环境变量，让容器内的脚本知道父仓库位置
+		args = append(args, "-e", fmt.Sprintf("PARENT_REPO_PATH=%s", containerParentPath))
+		
+		// 在容器启动后创建必要的符号链接的init脚本
+		initScript := `#!/bin/bash
+set -e
+# 检查是否需要创建符号链接来修复git worktree路径
+if [ -n "$PARENT_REPO_PATH" ] && [ -f /workspace/.git ]; then
+    GITDIR=$(cat /workspace/.git | sed 's/gitdir: //')
+    if [[ "$GITDIR" == *"../"* ]]; then
+        # 重写.git文件以指向容器内的正确位置
+        echo "gitdir: $PARENT_REPO_PATH/.git/worktrees/$(basename $GITDIR)" > /workspace/.git
+    fi
+fi
+exec "$@"
+`
+		
+		// 使用临时文件创建init脚本（更安全的做法）
+		if workspace.SessionPath != "" {
+			initScriptPath := filepath.Join(workspace.SessionPath, "git_worktree_init.sh")
+			if err := os.WriteFile(initScriptPath, []byte(initScript), 0755); err != nil {
+				log.Warnf("Failed to create git worktree init script: %v", err)
+			} else {
+				args = append(args, "-v", fmt.Sprintf("%s:/docker-entrypoint.sh:ro", initScriptPath))
+				log.Infof("Added git worktree initialization script")
+			}
+		}
 	}
 
 	// Mount processed .codeagent directory and merged agents
@@ -241,3 +287,4 @@ func copyHostClaudeConfig(isolatedConfigDir string) error {
 	log.Infof("Successfully copied host Claude config to isolated directory")
 	return nil
 }
+

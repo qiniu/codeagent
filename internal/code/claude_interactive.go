@@ -83,6 +83,12 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 		return nil, fmt.Errorf("workspace path does not exist: %s", workspacePath)
 	}
 
+	// 获取父仓库路径（用于 git worktree 支持）
+	parentRepoPath, err := getParentRepoPath(workspacePath)
+	if err != nil {
+		log.Warnf("Failed to get parent repository path: %v", err)
+	}
+
 	// 构建 Docker 命令 - 使用简单的管道模式而不是 PTY
 	args := []string{
 		"run",
@@ -94,6 +100,37 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 		"-v", fmt.Sprintf("%s:/home/codeagent/.claude", claudeConfigPath), // 挂载 claude 认证信息
 		"-w", "/workspace", // 设置工作目录
 		"-e", "TERM=xterm-256color", // 设置终端类型
+	}
+
+	// 如果是 git worktree，需要额外挂载父仓库目录
+	if parentRepoPath != "" && parentRepoPath != workspacePath {
+		// 使用安全的固定路径挂载策略
+		containerParentPath := "/parent_repo"
+		mountOptions := fmt.Sprintf("%s:%s:ro", parentRepoPath, containerParentPath)
+		args = append(args, "-v", mountOptions)
+		args = append(args, "-e", fmt.Sprintf("PARENT_REPO_PATH=%s", containerParentPath))
+		log.Infof("Mounting parent repository (read-only) for git worktree: %s -> %s", parentRepoPath, containerParentPath)
+		
+		// 创建git worktree初始化脚本（对于交互式容器）
+		if workspace.SessionPath != "" {
+			initScript := `#!/bin/bash
+set -e
+if [ -n "$PARENT_REPO_PATH" ] && [ -f /workspace/.git ]; then
+    GITDIR=$(cat /workspace/.git | sed 's/gitdir: //')
+    if [[ "$GITDIR" == *"../"* ]]; then
+        echo "gitdir: $PARENT_REPO_PATH/.git/worktrees/$(basename $GITDIR)" > /workspace/.git
+    fi
+fi
+exec "$@"
+`
+			initScriptPath := filepath.Join(workspace.SessionPath, "claude_interactive_git_worktree_init.sh")
+			if err := os.WriteFile(initScriptPath, []byte(initScript), 0755); err != nil {
+				log.Warnf("Failed to create claude interactive git worktree init script: %v", err)
+			} else {
+				args = append(args, "-v", fmt.Sprintf("%s:/docker-entrypoint.sh:ro", initScriptPath))
+				log.Infof("Added claude interactive git worktree initialization script")
+			}
+		}
 	}
 
 	// 添加 Claude API 相关环境变量
@@ -438,3 +475,4 @@ func (c *claudeInteractive) Close() error {
 
 	return nil
 }
+
