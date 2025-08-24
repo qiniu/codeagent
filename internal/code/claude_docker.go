@@ -76,17 +76,41 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 
 	// 如果是 git worktree，需要额外挂载父仓库目录
 	if parentRepoPath != "" && parentRepoPath != workspacePath {
-		// 计算相对路径，保持与worktree中.git文件指向的路径一致
-		relPath, err := filepath.Rel(workspacePath, parentRepoPath)
-		if err != nil {
-			log.Warnf("Failed to calculate relative path from %s to %s: %v", workspacePath, parentRepoPath, err)
-		} else {
-			// 挂载父仓库到容器中的相对位置，确保git命令可以找到.git目录
-			containerParentPath := filepath.Join("/workspace", relPath)
-			// 规范化路径，避免包含 ".." 的复杂路径
-			containerParentPath = filepath.Clean(containerParentPath)
-			args = append(args, "-v", fmt.Sprintf("%s:%s", parentRepoPath, containerParentPath))
-			log.Infof("Mounting parent repository for git worktree: %s -> %s", parentRepoPath, containerParentPath)
+		// 使用更安全的挂载策略：挂载到固定的父目录位置
+		// 这避免了复杂的相对路径计算和潜在的路径遍历问题
+		containerParentPath := "/parent_repo"
+		
+		// 添加只读挂载以提高安全性（父仓库通常不需要写入）
+		mountOptions := fmt.Sprintf("%s:%s:ro", parentRepoPath, containerParentPath)
+		args = append(args, "-v", mountOptions)
+		log.Infof("Mounting parent repository (read-only) for git worktree: %s -> %s", parentRepoPath, containerParentPath)
+		
+		// 创建符号链接环境变量，让容器内的脚本知道父仓库位置
+		args = append(args, "-e", fmt.Sprintf("PARENT_REPO_PATH=%s", containerParentPath))
+		
+		// 在容器启动后创建必要的符号链接的init脚本
+		initScript := `#!/bin/bash
+set -e
+# 检查是否需要创建符号链接来修复git worktree路径
+if [ -n "$PARENT_REPO_PATH" ] && [ -f /workspace/.git ]; then
+    GITDIR=$(cat /workspace/.git | sed 's/gitdir: //')
+    if [[ "$GITDIR" == *"../"* ]]; then
+        # 重写.git文件以指向容器内的正确位置
+        echo "gitdir: $PARENT_REPO_PATH/.git/worktrees/$(basename $GITDIR)" > /workspace/.git
+    fi
+fi
+exec "$@"
+`
+		
+		// 使用临时文件创建init脚本（更安全的做法）
+		if workspace.SessionPath != "" {
+			initScriptPath := filepath.Join(workspace.SessionPath, "git_worktree_init.sh")
+			if err := os.WriteFile(initScriptPath, []byte(initScript), 0755); err != nil {
+				log.Warnf("Failed to create git worktree init script: %v", err)
+			} else {
+				args = append(args, "-v", fmt.Sprintf("%s:/docker-entrypoint.sh:ro", initScriptPath))
+				log.Infof("Added git worktree initialization script")
+			}
 		}
 	}
 

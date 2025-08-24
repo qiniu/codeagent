@@ -104,17 +104,32 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 
 	// 如果是 git worktree，需要额外挂载父仓库目录
 	if parentRepoPath != "" && parentRepoPath != workspacePath {
-		// 计算相对路径，保持与worktree中.git文件指向的路径一致
-		relPath, err := filepath.Rel(workspacePath, parentRepoPath)
-		if err != nil {
-			log.Warnf("Failed to calculate relative path from %s to %s: %v", workspacePath, parentRepoPath, err)
-		} else {
-			// 挂载父仓库到容器中的相对位置，确保git命令可以找到.git目录
-			containerParentPath := filepath.Join("/workspace", relPath)
-			// 规范化路径，避免包含 ".." 的复杂路径
-			containerParentPath = filepath.Clean(containerParentPath)
-			args = append(args, "-v", fmt.Sprintf("%s:%s", parentRepoPath, containerParentPath))
-			log.Infof("Mounting parent repository for git worktree: %s -> %s", parentRepoPath, containerParentPath)
+		// 使用安全的固定路径挂载策略
+		containerParentPath := "/parent_repo"
+		mountOptions := fmt.Sprintf("%s:%s:ro", parentRepoPath, containerParentPath)
+		args = append(args, "-v", mountOptions)
+		args = append(args, "-e", fmt.Sprintf("PARENT_REPO_PATH=%s", containerParentPath))
+		log.Infof("Mounting parent repository (read-only) for git worktree: %s -> %s", parentRepoPath, containerParentPath)
+		
+		// 创建git worktree初始化脚本（对于交互式容器）
+		if workspace.SessionPath != "" {
+			initScript := `#!/bin/bash
+set -e
+if [ -n "$PARENT_REPO_PATH" ] && [ -f /workspace/.git ]; then
+    GITDIR=$(cat /workspace/.git | sed 's/gitdir: //')
+    if [[ "$GITDIR" == *"../"* ]]; then
+        echo "gitdir: $PARENT_REPO_PATH/.git/worktrees/$(basename $GITDIR)" > /workspace/.git
+    fi
+fi
+exec "$@"
+`
+			initScriptPath := filepath.Join(workspace.SessionPath, "claude_interactive_git_worktree_init.sh")
+			if err := os.WriteFile(initScriptPath, []byte(initScript), 0755); err != nil {
+				log.Warnf("Failed to create claude interactive git worktree init script: %v", err)
+			} else {
+				args = append(args, "-v", fmt.Sprintf("%s:/docker-entrypoint.sh:ro", initScriptPath))
+				log.Infof("Added claude interactive git worktree initialization script")
+			}
 		}
 	}
 
