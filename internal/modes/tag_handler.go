@@ -339,9 +339,6 @@ func (th *TagHandler) processIssueCommentReply(
 	xl.Infof("Starting issue comment reply: issue=#%d, title=%s, AI model=%s, instruction=%s",
 		issueNumber, issueTitle, cmdInfo.AIModel, cmdInfo.Args)
 
-	// 初始化code client用于AI对话，创建真实的工作空间以便AI可以访问代码
-	xl.Infof("Initializing AI client for comment reply")
-
 	// 创建临时工作空间用于代码访问（但不创建PR）
 	// 构造Issue HTML URL
 	htmlURL := fmt.Sprintf("https://github.com/%s/%s/issues/%d",
@@ -356,7 +353,7 @@ func (th *TagHandler) processIssueCommentReply(
 		HTMLURL: github.String(htmlURL),
 	}
 
-	tempWS := th.workspace.CreateWorkspaceFromIssueWithAI(tempIssue, cmdInfo.AIModel)
+	tempWS := th.workspace.CreateWorkspaceFromIssue(tempIssue, cmdInfo.AIModel)
 	if tempWS == nil {
 		return fmt.Errorf("failed to create temporary workspace for comment reply")
 	}
@@ -491,7 +488,7 @@ func (th *TagHandler) setupWorkspaceAndBranch(
 	xl := xlog.NewWith(ctx)
 
 	// 创建Issue工作空间，包含AI模型信息
-	ws := th.workspace.CreateWorkspaceFromIssueWithAI(event.Issue, aiModel)
+	ws := th.workspace.CreateWorkspaceFromIssue(event.Issue, aiModel)
 	if ws == nil {
 		return nil, fmt.Errorf("failed to create workspace from issue")
 	}
@@ -959,7 +956,7 @@ func (th *TagHandler) processPRCommand(
 
 	// 5. 设置工作空间
 	xl.Infof("Getting or creating workspace for PR with AI model: %s", cmdInfo.AIModel)
-	ws := th.workspace.GetOrCreateWorkspaceForPRWithAI(pr, cmdInfo.AIModel)
+	ws := th.workspace.GetOrCreateWorkspaceForPR(pr, cmdInfo.AIModel)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR %s", strings.ToLower(mode))
 	}
@@ -1150,7 +1147,7 @@ func (th *TagHandler) processPRReviewCommand(
 	xl.Infof("Found %d review comments for review %d", len(reviewComments), reviewID)
 
 	// 4. 获取或创建 PR 工作空间，包含AI模型信息
-	ws := th.workspace.GetOrCreateWorkspaceForPRWithAI(pr, cmdInfo.AIModel)
+	ws := th.workspace.GetOrCreateWorkspaceForPR(pr, cmdInfo.AIModel)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR batch processing from review")
 	}
@@ -1323,7 +1320,7 @@ func (th *TagHandler) processPRReviewCommentCommand(
 	xl.Infof("Extracted AI model from branch: %s", cmdInfo.AIModel)
 
 	// 3. 获取或创建 PR 工作空间，包含AI模型信息
-	ws := th.workspace.GetOrCreateWorkspaceForPRWithAI(pr, cmdInfo.AIModel)
+	ws := th.workspace.GetOrCreateWorkspaceForPR(pr, cmdInfo.AIModel)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR %s from review comment", strings.ToLower(mode))
 	}

@@ -282,7 +282,7 @@ func (h *CustomCommandHandler) createWorkspaceForEvent(ctx context.Context, gith
 				return nil, fmt.Errorf("failed to fetch PR details: %v", err)
 			}
 
-			workspace := h.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
+			workspace := h.workspace.GetOrCreateWorkspaceForPR(pr, aiModel)
 			if workspace != nil {
 				return workspace, nil
 			}
@@ -290,7 +290,7 @@ func (h *CustomCommandHandler) createWorkspaceForEvent(ctx context.Context, gith
 		} else {
 			// This is an Issue comment
 			xl.Infof("Processing Issue comment for Issue #%d", ctx.Issue.GetNumber())
-			workspace := h.workspace.CreateWorkspaceFromIssueWithAI(ctx.Issue, aiModel)
+			workspace := h.workspace.CreateWorkspaceFromIssue(ctx.Issue, aiModel)
 			if workspace != nil {
 				return workspace, nil
 			}
@@ -299,7 +299,7 @@ func (h *CustomCommandHandler) createWorkspaceForEvent(ctx context.Context, gith
 
 	case *models.PullRequestContext:
 		xl.Infof("Processing PR context for PR #%d", ctx.PullRequest.GetNumber())
-		workspace := h.workspace.GetOrCreateWorkspaceForPRWithAI(ctx.PullRequest, aiModel)
+		workspace := h.workspace.GetOrCreateWorkspaceForPR(ctx.PullRequest, aiModel)
 		if workspace != nil {
 			return workspace, nil
 		}
@@ -307,7 +307,7 @@ func (h *CustomCommandHandler) createWorkspaceForEvent(ctx context.Context, gith
 
 	case *models.PullRequestReviewCommentContext:
 		xl.Infof("Processing PR review comment for PR #%d", ctx.PullRequest.GetNumber())
-		workspace := h.workspace.GetOrCreateWorkspaceForPRWithAI(ctx.PullRequest, aiModel)
+		workspace := h.workspace.GetOrCreateWorkspaceForPR(ctx.PullRequest, aiModel)
 		if workspace != nil {
 			return workspace, nil
 		}
