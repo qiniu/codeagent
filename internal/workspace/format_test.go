@@ -5,7 +5,7 @@ import (
 )
 
 func TestDirectoryFormat_GenerateIssueDirName(t *testing.T) {
-	df := newDirFormatter()
+	df := NewDirFormatter()
 
 	tests := []struct {
 		name        string
@@ -27,7 +27,7 @@ func TestDirectoryFormat_GenerateIssueDirName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := df.generateIssueDirName(tt.aiModel, tt.repo, tt.issueNumber, tt.timestamp)
+			result := df.GenerateIssueDirName(tt.aiModel, tt.repo, tt.issueNumber, tt.timestamp)
 			if result != tt.expected {
 				t.Errorf("GenerateIssueDirName() = %v, want %v", result, tt.expected)
 			}
@@ -36,7 +36,7 @@ func TestDirectoryFormat_GenerateIssueDirName(t *testing.T) {
 }
 
 func TestDirectoryFormat_GeneratePRDirName(t *testing.T) {
-	df := newDirFormatter()
+	df := NewDirFormatter()
 
 	tests := []struct {
 		name      string
@@ -58,7 +58,7 @@ func TestDirectoryFormat_GeneratePRDirName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := df.generatePRDirName(tt.aiModel, tt.repo, tt.prNumber, tt.timestamp)
+			result := df.GeneratePRDirName(tt.aiModel, tt.repo, tt.prNumber, tt.timestamp)
 			if result != tt.expected {
 				t.Errorf("GeneratePRDirName() = %v, want %v", result, tt.expected)
 			}
@@ -67,7 +67,7 @@ func TestDirectoryFormat_GeneratePRDirName(t *testing.T) {
 }
 
 func TestDirectoryFormat_GenerateSessionDirName(t *testing.T) {
-	df := newDirFormatter()
+	df := NewDirFormatter()
 
 	tests := []struct {
 		name      string
@@ -83,13 +83,13 @@ func TestDirectoryFormat_GenerateSessionDirName(t *testing.T) {
 			repo:      "codeagent",
 			prNumber:  161,
 			timestamp: 1752829201,
-			expected:  "gemini__codeagent__session__161__1752829201",
+			expected:  "gemini-codeagent-session-161-1752829201",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := df.generateSessionDirName(tt.aiModel, tt.repo, tt.prNumber, tt.timestamp)
+			result := df.GenerateSessionDirName(tt.aiModel, tt.repo, tt.prNumber, tt.timestamp)
 			if result != tt.expected {
 				t.Errorf("GenerateSessionDirName() = %v, want %v", result, tt.expected)
 			}
@@ -98,7 +98,7 @@ func TestDirectoryFormat_GenerateSessionDirName(t *testing.T) {
 }
 
 func TestDirectoryFormat_ParsePRDirName(t *testing.T) {
-	df := newDirFormatter()
+	df := NewDirFormatter()
 
 	tests := []struct {
 		name     string
@@ -128,7 +128,7 @@ func TestDirectoryFormat_ParsePRDirName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := df.parsePRDirName(tt.dirName)
+			result, err := df.ParsePRDirName(tt.dirName)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParsePRDirName() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -153,7 +153,7 @@ func TestDirectoryFormat_ParsePRDirName(t *testing.T) {
 }
 
 func TestDirectoryFormat_ExtractSuffixFromPRDir(t *testing.T) {
-	df := newDirFormatter()
+	df := NewDirFormatter()
 
 	tests := []struct {
 		name     string
@@ -175,7 +175,7 @@ func TestDirectoryFormat_ExtractSuffixFromPRDir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := df.extractSuffixFromPRDir(tt.aiModel, tt.repo, tt.prNumber, tt.dirName)
+			result := df.ExtractSuffixFromPRDir(tt.aiModel, tt.repo, tt.prNumber, tt.dirName)
 			if result != tt.expected {
 				t.Errorf("ExtractSuffixFromPRDir() = %v, want %v", result, tt.expected)
 			}
