@@ -1,6 +1,8 @@
 package workspace
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/go-github/v58/github"
@@ -20,10 +22,14 @@ type WorkspaceManager interface {
 	GetWorkspaceByPR(pr *github.PullRequest) *models.Workspace
 	GetWorkspaceByPRAndAI(pr *github.PullRequest, aiModel string) *models.Workspace
 	GetAllWorkspacesByPR(pr *github.PullRequest) []*models.Workspace
+	GetWorkspaceByIssue(issue *github.Issue) *models.Workspace
+	GetWorkspaceByIssueAndAI(issue *github.Issue, aiModel string) *models.Workspace
+	GetAllWorkspacesByIssue(issue *github.Issue) []*models.Workspace
 
 	// Workspace creation
 	CreateWorkspaceFromIssue(issue *github.Issue, aiModel string) *models.Workspace
 	CreateWorkspaceFromPR(pr *github.PullRequest, aiModel string) *models.Workspace
+	GetOrCreateWorkspaceForIssue(issue *github.Issue, aiModel string) *models.Workspace
 	GetOrCreateWorkspaceForPR(pr *github.PullRequest, aiModel string) *models.Workspace
 
 	// Workspace management
@@ -136,6 +142,75 @@ func (m *MockWorkspaceManager) GetAllWorkspacesByPR(pr *github.PullRequest) []*m
 		}
 	}
 	return workspaces
+}
+
+// Issue workspace methods (mock implementations)
+func (m *MockWorkspaceManager) GetWorkspaceByIssue(issue *github.Issue) *models.Workspace {
+	return m.GetWorkspaceByIssueAndAI(issue, "")
+}
+
+func (m *MockWorkspaceManager) GetWorkspaceByIssueAndAI(issue *github.Issue, aiModel string) *models.Workspace {
+	// Extract org and repo from Issue URL for key generation
+	issueURL := issue.GetHTMLURL()
+	if !strings.Contains(issueURL, "github.com") {
+		return nil
+	}
+
+	parts := strings.Split(issueURL, "/")
+	if len(parts) < 4 {
+		return nil
+	}
+
+	var org, repo string
+	for i, part := range parts {
+		if part == "github.com" && i+2 < len(parts) {
+			org = parts[i+1]
+			repo = parts[i+2]
+			break
+		}
+	}
+
+	// Generate key using Issue number
+	var key string
+	if aiModel == "" {
+		key = fmt.Sprintf("%s/%s/issue-%d", org, repo, issue.GetNumber())
+	} else {
+		key = fmt.Sprintf("%s/%s/%s/issue-%d", aiModel, org, repo, issue.GetNumber())
+	}
+
+	return m.Workspaces[key]
+}
+
+func (m *MockWorkspaceManager) GetAllWorkspacesByIssue(issue *github.Issue) []*models.Workspace {
+	var workspaces []*models.Workspace
+	issueNumber := issue.GetNumber()
+
+	for _, ws := range m.Workspaces {
+		if ws.Issue != nil && ws.Issue.GetNumber() == issueNumber {
+			workspaces = append(workspaces, ws)
+		}
+	}
+	return workspaces
+}
+
+func (m *MockWorkspaceManager) CreateWorkspaceFromIssue(issue *github.Issue, aiModel string) *models.Workspace {
+	if m.CreateWorkspaceFunc != nil {
+		return m.CreateWorkspaceFunc()
+	}
+	ws := &models.Workspace{
+		AIModel:   aiModel,
+		Issue:     issue,
+		CreatedAt: time.Now(),
+	}
+	return ws
+}
+
+func (m *MockWorkspaceManager) GetOrCreateWorkspaceForIssue(issue *github.Issue, aiModel string) *models.Workspace {
+	ws := m.GetWorkspaceByIssueAndAI(issue, aiModel)
+	if ws != nil {
+		return ws
+	}
+	return m.CreateWorkspaceFromIssue(issue, aiModel)
 }
 
 // Workspace creation methods (mock implementations)

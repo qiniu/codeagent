@@ -8,24 +8,24 @@ import (
 // Predefined error types for workspace operations
 var (
 	// Repository errors
-	ErrWorkspaceNotFound     = errors.New("workspace not found")
+	ErrWorkspaceNotFound      = errors.New("workspace not found")
 	ErrWorkspaceAlreadyExists = errors.New("workspace already exists")
-	ErrInvalidWorkspace      = errors.New("invalid workspace")
+	ErrInvalidWorkspace       = errors.New("invalid workspace")
 
 	// Git errors
-	ErrGitCloneFailed        = errors.New("git clone failed")
-	ErrGitBranchNotFound     = errors.New("git branch not found")
-	ErrGitRemoteURLNotFound  = errors.New("git remote URL not found")
-	ErrGitOperationFailed    = errors.New("git operation failed")
+	ErrGitCloneFailed       = errors.New("git clone failed")
+	ErrGitBranchNotFound    = errors.New("git branch not found")
+	ErrGitRemoteURLNotFound = errors.New("git remote URL not found")
+	ErrGitOperationFailed   = errors.New("git operation failed")
 
 	// Container errors
-	ErrContainerNotFound     = errors.New("container not found")
+	ErrContainerNotFound        = errors.New("container not found")
 	ErrContainerOperationFailed = errors.New("container operation failed")
 
 	// Directory errors
 	ErrDirectoryCreationFailed = errors.New("directory creation failed")
-	ErrDirectoryNotFound      = errors.New("directory not found")
-	ErrDirectoryFormatInvalid = errors.New("directory format invalid")
+	ErrDirectoryNotFound       = errors.New("directory not found")
+	ErrDirectoryFormatInvalid  = errors.New("directory format invalid")
 
 	// Filesystem errors
 	ErrFileSystemOperationFailed = errors.New("filesystem operation failed")
@@ -34,10 +34,10 @@ var (
 
 // WorkspaceError represents a workspace-related error with context
 type WorkspaceError struct {
-	Op       string // Operation that failed
-	Path     string // Workspace path (if applicable)
-	Err      error  // Underlying error
-	Context  string // Additional context
+	Op      string // Operation that failed
+	Path    string // Workspace path (if applicable)
+	Err     error  // Underlying error
+	Context string // Additional context
 }
 
 func (e *WorkspaceError) Error() string {
@@ -103,7 +103,7 @@ func IsTemporaryError(err error) bool {
 	// Check for specific temporary error conditions
 	// This can be expanded based on actual error patterns observed
 	errorStr := err.Error()
-	
+
 	// Network-related errors that might be temporary
 	temporaryPatterns := []string{
 		"connection refused",
@@ -125,12 +125,12 @@ func IsTemporaryError(err error) bool {
 
 // contains checks if a string contains a substring (case-insensitive)
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && 
-		   (s == substr || 
-		    (len(s) > len(substr) && 
-		     (s[:len(substr)] == substr || 
-		      s[len(s)-len(substr):] == substr || 
-		      indexOf(s, substr) >= 0)))
+	return len(s) >= len(substr) &&
+		(s == substr ||
+			(len(s) > len(substr) &&
+				(s[:len(substr)] == substr ||
+					s[len(s)-len(substr):] == substr ||
+					indexOf(s, substr) >= 0)))
 }
 
 func indexOf(s, substr string) int {
