@@ -139,7 +139,7 @@ func (c *DefaultContextCollector) CollectCodeContext(pr *github.PullRequest) (*C
 	prNumber := pr.GetNumber()
 
 	files, _, err := client.GetClient().PullRequests.ListFiles(
-		nil, repoOwner, repoName, prNumber, nil,
+		context.Background(), repoOwner, repoName, prNumber, nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PR files: %w", err)

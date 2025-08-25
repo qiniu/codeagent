@@ -84,7 +84,7 @@ func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (
 
 	tagHandler := modes.NewTagHandler(cfg.CodeProvider, clientManager, workspaceManager, mcpClient, sessionManager)
 	agentHandler := modes.NewAgentHandler(clientManager, workspaceManager, mcpClient)
-	reviewHandler := modes.NewReviewHandler(clientManager, workspaceManager, mcpClient, sessionManager)
+	reviewHandler := modes.NewReviewHandler(clientManager, workspaceManager, mcpClient, sessionManager, cfg)
 
 	modeManager.RegisterHandler(tagHandler)
 	modeManager.RegisterHandler(agentHandler)
