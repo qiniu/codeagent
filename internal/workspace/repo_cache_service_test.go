@@ -36,7 +36,7 @@ func TestRepoCacheService_GetCachedRepoPath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := cacheService.GetCachedRepoPath(tt.org, tt.repo)
 			if result != tt.expected {
-				t.Errorf("GetCachedRepoPath(%s, %s) = %s, want %s", 
+				t.Errorf("GetCachedRepoPath(%s, %s) = %s, want %s",
 					tt.org, tt.repo, result, tt.expected)
 			}
 		})
@@ -85,7 +85,7 @@ func TestGenerateWorkspaceKey_Integration(t *testing.T) {
 		{
 			name:     "Full integration test",
 			org:      "qiniu",
-			repo:     "codeagent", 
+			repo:     "codeagent",
 			prNumber: 123,
 			aiModel:  "claude",
 			expected: "claude/qiniu/codeagent/123",

@@ -92,7 +92,7 @@ func (c *containerService) GenerateContainerNames(ws *models.Workspace) []string
 		containerNames = append(containerNames, fmt.Sprintf("claude__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber))
 		// Legacy naming format (backward compatibility)
 		containerNames = append(containerNames, fmt.Sprintf("claude-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber))
-		
+
 		// Interactive container variants
 		containerNames = append(containerNames, fmt.Sprintf("claude__interactive__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber))
 		containerNames = append(containerNames, fmt.Sprintf("claude-interactive-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber))

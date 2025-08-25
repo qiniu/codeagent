@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,8 @@ type WorkspaceRepository interface {
 	GetByKey(key string) (*models.Workspace, bool)
 	GetByPR(pr *github.PullRequest, aiModel string) (*models.Workspace, bool)
 	GetAllByPR(pr *github.PullRequest) []*models.Workspace
+	GetByIssue(issue *github.Issue, aiModel string) (*models.Workspace, bool)
+	GetAllByIssue(issue *github.Issue) []*models.Workspace
 	Remove(key string) bool
 	RemoveByWorkspace(ws *models.Workspace) bool
 	GetExpired(cleanupAfter time.Duration) []*models.Workspace
@@ -42,8 +45,16 @@ func (r *workspaceRepository) Store(ws *models.Workspace) error {
 		return fmt.Errorf("workspace cannot be nil")
 	}
 
-	key := generateWorkspaceKey(ws.Org, ws.Repo, ws.PRNumber, ws.AIModel)
-	
+	var key string
+	// Generate different keys for Issue vs PR workspaces
+	if ws.Issue != nil && ws.PRNumber == 0 {
+		// This is an Issue workspace
+		key = generateWorkspaceKeyForIssue(ws.Org, ws.Repo, ws.Issue.GetNumber(), ws.AIModel)
+	} else {
+		// This is a PR workspace
+		key = generateWorkspaceKey(ws.Org, ws.Repo, ws.PRNumber, ws.AIModel)
+	}
+
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
@@ -77,7 +88,7 @@ func (r *workspaceRepository) GetByPR(pr *github.PullRequest, aiModel string) (*
 	defer r.mutex.RUnlock()
 
 	if ws, exists := r.workspaces[key]; exists {
-		log.Infof("Found existing workspace for PR #%d with AI model %s: %s", 
+		log.Infof("Found existing workspace for PR #%d with AI model %s: %s",
 			pr.GetNumber(), aiModel, ws.Path)
 		return ws, true
 	}
@@ -87,7 +98,7 @@ func (r *workspaceRepository) GetByPR(pr *github.PullRequest, aiModel string) (*
 
 // GetAllByPR retrieves all workspaces for a specific PR (across all AI models)
 func (r *workspaceRepository) GetAllByPR(pr *github.PullRequest) []*models.Workspace {
-	orgRepoPath := fmt.Sprintf("%s/%s", 
+	orgRepoPath := fmt.Sprintf("%s/%s",
 		pr.GetBase().GetRepo().GetOwner().GetLogin(),
 		pr.GetBase().GetRepo().GetName())
 	prNumber := pr.GetNumber()
@@ -100,6 +111,57 @@ func (r *workspaceRepository) GetAllByPR(pr *github.PullRequest) []*models.Works
 	// Iterate through all workspaces to find ones matching this PR
 	for _, ws := range r.workspaces {
 		if ws.PRNumber == prNumber &&
+			fmt.Sprintf("%s/%s", ws.Org, ws.Repo) == orgRepoPath {
+			workspaces = append(workspaces, ws)
+		}
+	}
+
+	return workspaces
+}
+
+// GetByIssue retrieves a workspace by Issue and AI model
+func (r *workspaceRepository) GetByIssue(issue *github.Issue, aiModel string) (*models.Workspace, bool) {
+	// Extract org and repo from Issue URL
+	org, repo, err := extractOrgRepoFromIssueURL(issue.GetHTMLURL())
+	if err != nil {
+		log.Errorf("Failed to extract org/repo from Issue URL: %v", err)
+		return nil, false
+	}
+
+	key := generateWorkspaceKeyForIssue(org, repo, issue.GetNumber(), aiModel)
+
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
+	if ws, exists := r.workspaces[key]; exists {
+		log.Infof("Found existing workspace for Issue #%d with AI model %s: %s",
+			issue.GetNumber(), aiModel, ws.Path)
+		return ws, true
+	}
+
+	return nil, false
+}
+
+// GetAllByIssue retrieves all workspaces for a specific Issue (across all AI models)
+func (r *workspaceRepository) GetAllByIssue(issue *github.Issue) []*models.Workspace {
+	org, repo, err := extractOrgRepoFromIssueURL(issue.GetHTMLURL())
+	if err != nil {
+		log.Errorf("Failed to extract org/repo from Issue URL: %v", err)
+		return nil
+	}
+
+	orgRepoPath := fmt.Sprintf("%s/%s", org, repo)
+	issueNumber := issue.GetNumber()
+
+	var workspaces []*models.Workspace
+
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
+	// Iterate through all workspaces to find ones matching this Issue
+	for _, ws := range r.workspaces {
+		if ws.Issue != nil &&
+			ws.Issue.GetNumber() == issueNumber &&
 			fmt.Sprintf("%s/%s", ws.Org, ws.Repo) == orgRepoPath {
 			workspaces = append(workspaces, ws)
 		}
@@ -128,7 +190,16 @@ func (r *workspaceRepository) RemoveByWorkspace(ws *models.Workspace) bool {
 		return false
 	}
 
-	key := generateWorkspaceKey(ws.Org, ws.Repo, ws.PRNumber, ws.AIModel)
+	var key string
+	// Generate different keys for Issue vs PR workspaces
+	if ws.Issue != nil && ws.PRNumber == 0 {
+		// This is an Issue workspace
+		key = generateWorkspaceKeyForIssue(ws.Org, ws.Repo, ws.Issue.GetNumber(), ws.AIModel)
+	} else {
+		// This is a PR workspace
+		key = generateWorkspaceKey(ws.Org, ws.Repo, ws.PRNumber, ws.AIModel)
+	}
+
 	return r.Remove(key)
 }
 
@@ -176,4 +247,35 @@ func generateWorkspaceKey(org, repo string, prNumber int, aiModel string) string
 		return fmt.Sprintf("%s/%s/%d", org, repo, prNumber)
 	}
 	return fmt.Sprintf("%s/%s/%s/%d", aiModel, org, repo, prNumber)
+}
+
+// generateWorkspaceKeyForIssue generates a unique key for Issue workspace storage
+// Uses "issue-" prefix to distinguish from PR workspaces
+func generateWorkspaceKeyForIssue(org, repo string, issueNumber int, aiModel string) string {
+	if aiModel == "" {
+		return fmt.Sprintf("%s/%s/issue-%d", org, repo, issueNumber)
+	}
+	return fmt.Sprintf("%s/%s/%s/issue-%d", aiModel, org, repo, issueNumber)
+}
+
+// extractOrgRepoFromIssueURL extracts org and repo from Issue URL
+func extractOrgRepoFromIssueURL(issueURL string) (org, repo string, err error) {
+	// Issue URL format: https://github.com/owner/repo/issues/123
+	if !strings.Contains(issueURL, "github.com") {
+		return "", "", fmt.Errorf("invalid GitHub Issue URL: %s", issueURL)
+	}
+
+	parts := strings.Split(issueURL, "/")
+	if len(parts) < 4 {
+		return "", "", fmt.Errorf("invalid GitHub Issue URL format: %s", issueURL)
+	}
+
+	// Find github.com index and get owner/repo from there
+	for i, part := range parts {
+		if part == "github.com" && i+2 < len(parts) {
+			return parts[i+1], parts[i+2], nil
+		}
+	}
+
+	return "", "", fmt.Errorf("failed to extract org/repo from Issue URL: %s", issueURL)
 }

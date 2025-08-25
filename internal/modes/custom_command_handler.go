@@ -290,7 +290,7 @@ func (h *CustomCommandHandler) createWorkspaceForEvent(ctx context.Context, gith
 		} else {
 			// This is an Issue comment
 			xl.Infof("Processing Issue comment for Issue #%d", ctx.Issue.GetNumber())
-			workspace := h.workspace.CreateWorkspaceFromIssue(ctx.Issue, aiModel)
+			workspace := h.workspace.GetOrCreateWorkspaceForIssue(ctx.Issue, aiModel)
 			if workspace != nil {
 				return workspace, nil
 			}

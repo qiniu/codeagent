@@ -353,7 +353,7 @@ func (th *TagHandler) processIssueCommentReply(
 		HTMLURL: github.String(htmlURL),
 	}
 
-	tempWS := th.workspace.CreateWorkspaceFromIssue(tempIssue, cmdInfo.AIModel)
+	tempWS := th.workspace.GetOrCreateWorkspaceForIssue(tempIssue, cmdInfo.AIModel)
 	if tempWS == nil {
 		return fmt.Errorf("failed to create temporary workspace for comment reply")
 	}
@@ -487,8 +487,8 @@ func (th *TagHandler) setupWorkspaceAndBranch(
 ) (*models.Workspace, error) {
 	xl := xlog.NewWith(ctx)
 
-	// 创建Issue工作空间，包含AI模型信息
-	ws := th.workspace.CreateWorkspaceFromIssue(event.Issue, aiModel)
+	// 获取或创建Issue工作空间，包含AI模型信息（支持复用）
+	ws := th.workspace.GetOrCreateWorkspaceForIssue(event.Issue, aiModel)
 	if ws == nil {
 		return nil, fmt.Errorf("failed to create workspace from issue")
 	}

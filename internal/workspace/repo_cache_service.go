@@ -13,7 +13,9 @@ import (
 // RepoCacheService manages local repository cache to avoid repeated remote clones
 type RepoCacheService interface {
 	GetOrCreateCachedRepo(repoURL, org, repo string) (string, error)
+	GetOrCreateCachedRepoWithDefaultBranch(repoURL, org, repo, defaultBranch string) (string, error)
 	UpdateCachedRepo(cachedRepoPath string) error
+	UpdateCachedRepoWithDefaultBranch(cachedRepoPath, defaultBranch string) error
 	CloneFromCache(cachedRepoPath, targetPath, branch string, createNewBranch bool) error
 	CachedRepoExists(org, repo string) bool
 	GetCachedRepoPath(org, repo string) string
@@ -24,7 +26,7 @@ type repoCacheService struct {
 	gitService GitService
 	mutex      sync.RWMutex
 	// Track which repos are currently being updated to avoid concurrent updates
-	updating   map[string]bool
+	updating map[string]bool
 }
 
 // NewRepoCacheService creates a new repository cache service
@@ -36,14 +38,19 @@ func NewRepoCacheService(baseDir string, gitService GitService) RepoCacheService
 	}
 }
 
-// GetOrCreateCachedRepo gets or creates a cached repository
+// GetOrCreateCachedRepo gets or creates a cached repository using fallback branch detection
 func (r *repoCacheService) GetOrCreateCachedRepo(repoURL, org, repo string) (string, error) {
+	return r.GetOrCreateCachedRepoWithDefaultBranch(repoURL, org, repo, "")
+}
+
+// GetOrCreateCachedRepoWithDefaultBranch gets or creates a cached repository with specified default branch
+func (r *repoCacheService) GetOrCreateCachedRepoWithDefaultBranch(repoURL, org, repo, defaultBranch string) (string, error) {
 	cachedRepoPath := r.GetCachedRepoPath(org, repo)
-	
+
 	// Check if cached repo already exists
 	if r.CachedRepoExists(org, repo) {
 		// Update the cached repo to get latest changes
-		if err := r.UpdateCachedRepo(cachedRepoPath); err != nil {
+		if err := r.UpdateCachedRepoWithDefaultBranch(cachedRepoPath, defaultBranch); err != nil {
 			log.Warnf("Failed to update cached repo %s: %v", cachedRepoPath, err)
 			// Continue with existing cached repo even if update fails
 		}
@@ -52,7 +59,7 @@ func (r *repoCacheService) GetOrCreateCachedRepo(repoURL, org, repo string) (str
 
 	// Clone repository to cache for the first time
 	log.Infof("Cloning repository to cache: %s -> %s", repoURL, cachedRepoPath)
-	
+
 	// Create parent directory
 	if err := os.MkdirAll(filepath.Dir(cachedRepoPath), 0755); err != nil {
 		return "", DirectoryError("create_cache_dir", cachedRepoPath, err)
@@ -69,8 +76,13 @@ func (r *repoCacheService) GetOrCreateCachedRepo(repoURL, org, repo string) (str
 	return cachedRepoPath, nil
 }
 
-// UpdateCachedRepo updates a cached repository with latest changes
+// UpdateCachedRepo updates a cached repository with latest changes using fallback branch detection
 func (r *repoCacheService) UpdateCachedRepo(cachedRepoPath string) error {
+	return r.UpdateCachedRepoWithDefaultBranch(cachedRepoPath, "")
+}
+
+// UpdateCachedRepoWithDefaultBranch updates a cached repository with latest changes using specified default branch
+func (r *repoCacheService) UpdateCachedRepoWithDefaultBranch(cachedRepoPath, defaultBranch string) error {
 	repoKey := cachedRepoPath
 
 	r.mutex.Lock()
@@ -96,7 +108,7 @@ func (r *repoCacheService) UpdateCachedRepo(cachedRepoPath string) error {
 	}
 
 	// Update main/master branch
-	if err := r.updateMainBranch(cachedRepoPath); err != nil {
+	if err := r.updateMainBranchWithDefault(cachedRepoPath, defaultBranch); err != nil {
 		log.Warnf("Failed to update main branch in %s: %v", cachedRepoPath, err)
 		// Don't fail the entire operation if main branch update fails
 	}
@@ -107,7 +119,7 @@ func (r *repoCacheService) UpdateCachedRepo(cachedRepoPath string) error {
 
 // CloneFromCache clones from cached repository to target workspace
 func (r *repoCacheService) CloneFromCache(cachedRepoPath, targetPath, branch string, createNewBranch bool) error {
-	log.Infof("Cloning from cache: %s -> %s, branch: %s, createNewBranch: %v", 
+	log.Infof("Cloning from cache: %s -> %s, branch: %s, createNewBranch: %v",
 		cachedRepoPath, targetPath, branch, createNewBranch)
 
 	// Create parent directory
@@ -195,7 +207,7 @@ func (r *repoCacheService) runGitCommand(workDir string, args ...string) error {
 	if workDir != "" {
 		cmd.Dir = workDir
 	}
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git command failed: %s, output: %s", err, string(output))
@@ -203,11 +215,16 @@ func (r *repoCacheService) runGitCommand(workDir string, args ...string) error {
 	return nil
 }
 
-// updateMainBranch updates the main/master branch in cached repository
-func (r *repoCacheService) updateMainBranch(cachedRepoPath string) error {
-	// Try to find and update main branch (main or master)
-	mainBranches := []string{"main", "master"}
-	
+// updateMainBranchWithDefault updates the main/master branch in cached repository
+func (r *repoCacheService) updateMainBranchWithDefault(cachedRepoPath, defaultBranch string) error {
+	// Try to find and update main branch, prioritizing provided default branch
+	var mainBranches []string
+	if defaultBranch != "" {
+		mainBranches = []string{defaultBranch, "main", "master"}
+	} else {
+		mainBranches = []string{"main", "master"}
+	}
+
 	for _, mainBranch := range mainBranches {
 		// Check if branch exists
 		if err := r.runGitCommand(cachedRepoPath, "show-ref", "--verify", "--quiet", "refs/heads/"+mainBranch); err != nil {
