@@ -2,31 +2,47 @@ package workspace
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
+// DirFormatter handles directory name formatting and parsing
+type DirFormatter interface {
+	GenerateIssueDirName(aiModel, repo string, issueNumber int, timestamp int64) string
+	GeneratePRDirName(aiModel, repo string, prNumber int, timestamp int64) string
+	GenerateSessionDirName(aiModel, repo string, prNumber int, timestamp int64) string
+	ParsePRDirName(dirName string) (*PRDirFormat, error)
+	ExtractSuffixFromPRDir(aiModel, repo string, prNumber int, dirName string) string
+	ExtractSuffixFromIssueDir(aiModel, repo string, issueNumber int, dirName string) string
+	CreateSessionPath(underPath, aiModel, repo string, prNumber int, suffix string) string
+	CreateSessionPathWithTimestamp(underPath, aiModel, repo string, prNumber int, timestamp int64) string
+}
+
 // dirFormatter 目录格式管理器
 type dirFormatter struct{}
 
-// newDirFormatter 创建目录格式管理器
-func newDirFormatter() *dirFormatter {
+// NewDirFormatter 创建目录格式管理器
+func NewDirFormatter() DirFormatter {
 	return &dirFormatter{}
 }
 
-// generateIssueDirName 生成Issue目录名
-func (f *dirFormatter) generateIssueDirName(aiModel, repo string, issueNumber int, timestamp int64) string {
+// GenerateIssueDirName 生成Issue目录名
+func (f *dirFormatter) GenerateIssueDirName(aiModel, repo string, issueNumber int, timestamp int64) string {
 	return fmt.Sprintf("%s__%s__issue__%d__%d", aiModel, repo, issueNumber, timestamp)
 }
 
-// generatePRDirName 生成PR目录名
-func (f *dirFormatter) generatePRDirName(aiModel, repo string, prNumber int, timestamp int64) string {
+// GeneratePRDirName 生成PR目录名
+func (f *dirFormatter) GeneratePRDirName(aiModel, repo string, prNumber int, timestamp int64) string {
 	return fmt.Sprintf("%s__%s__pr__%d__%d", aiModel, repo, prNumber, timestamp)
 }
 
-// generateSessionDirName 生成Session目录名
-func (f *dirFormatter) generateSessionDirName(aiModel, repo string, prNumber int, timestamp int64) string {
-	return fmt.Sprintf("%s__%s__session__%d__%d", aiModel, repo, prNumber, timestamp)
+// GenerateSessionDirName 生成Session目录名
+func (f *dirFormatter) GenerateSessionDirName(aiModel, repo string, prNumber int, timestamp int64) string {
+	if aiModel != "" {
+		return fmt.Sprintf("%s-%s-session-%d-%d", aiModel, repo, prNumber, timestamp)
+	}
+	return fmt.Sprintf("%s-session-%d-%d", repo, prNumber, timestamp)
 }
 
 // generateSessionDirNameWithSuffix 生成Session目录名（使用suffix）
@@ -34,28 +50,28 @@ func (f *dirFormatter) generateSessionDirNameWithSuffix(aiModel, repo string, pr
 	return fmt.Sprintf("%s__%s__session__%d__%s", aiModel, repo, prNumber, suffix)
 }
 
-// extractSuffixFromPRDir 从PR目录名中提取suffix（时间戳）
-func (f *dirFormatter) extractSuffixFromPRDir(aiModel, repo string, prNumber int, dirName string) string {
+// ExtractSuffixFromPRDir 从PR目录名中提取suffix（时间戳）
+func (f *dirFormatter) ExtractSuffixFromPRDir(aiModel, repo string, prNumber int, dirName string) string {
 	expectedPrefix := fmt.Sprintf("%s__%s__pr__%d__", aiModel, repo, prNumber)
 	return strings.TrimPrefix(dirName, expectedPrefix)
 }
 
-// extractSuffixFromIssueDir 从Issue目录名中提取suffix（时间戳）
-func (f *dirFormatter) extractSuffixFromIssueDir(aiModel, repo string, issueNumber int, dirName string) string {
+// ExtractSuffixFromIssueDir 从Issue目录名中提取suffix（时间戳）
+func (f *dirFormatter) ExtractSuffixFromIssueDir(aiModel, repo string, issueNumber int, dirName string) string {
 	expectedPrefix := fmt.Sprintf("%s__%s__issue__%d__", aiModel, repo, issueNumber)
 	return strings.TrimPrefix(dirName, expectedPrefix)
 }
 
-// createSessionPath 创建Session目录路径
-func (f *dirFormatter) createSessionPath(underPath, aiModel, repo string, prNumber int, suffix string) string {
+// CreateSessionPath 创建Session目录路径
+func (f *dirFormatter) CreateSessionPath(underPath, aiModel, repo string, prNumber int, suffix string) string {
 	dirName := f.generateSessionDirNameWithSuffix(aiModel, repo, prNumber, suffix)
-	return fmt.Sprintf("%s/%s", underPath, dirName)
+	return filepath.Join(underPath, dirName)
 }
 
-// createSessionPathWithTimestamp 创建Session目录路径（使用时间戳）
-func (f *dirFormatter) createSessionPathWithTimestamp(underPath, aiModel, repo string, prNumber int, timestamp int64) string {
-	dirName := f.generateSessionDirName(aiModel, repo, prNumber, timestamp)
-	return fmt.Sprintf("%s/%s", underPath, dirName)
+// CreateSessionPathWithTimestamp 创建Session目录路径（使用时间戳）
+func (f *dirFormatter) CreateSessionPathWithTimestamp(underPath, aiModel, repo string, prNumber int, timestamp int64) string {
+	dirName := f.GenerateSessionDirName(aiModel, repo, prNumber, timestamp)
+	return filepath.Join(underPath, dirName)
 }
 
 // IssueDirFormat Issue目录格式
@@ -82,8 +98,8 @@ type SessionDirFormat struct {
 	Timestamp int64
 }
 
-// parsePRDirName 解析PR目录名
-func (f *dirFormatter) parsePRDirName(dirName string) (*PRDirFormat, error) {
+// ParsePRDirName 解析PR目录名
+func (f *dirFormatter) ParsePRDirName(dirName string) (*PRDirFormat, error) {
 	parts := strings.Split(dirName, "__")
 	if len(parts) < 5 {
 		return nil, fmt.Errorf("invalid PR directory format: %s", dirName)
