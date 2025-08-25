@@ -3,14 +3,19 @@ package modes
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
+	"time"
 
 	"github.com/qiniu/codeagent/internal/code"
+	"github.com/qiniu/codeagent/internal/config"
+	ctxsys "github.com/qiniu/codeagent/internal/context"
 	ghclient "github.com/qiniu/codeagent/internal/github"
 	"github.com/qiniu/codeagent/internal/mcp"
 	"github.com/qiniu/codeagent/internal/workspace"
 	"github.com/qiniu/codeagent/pkg/models"
 
+	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/xlog"
 )
 
@@ -22,20 +27,34 @@ type ReviewHandler struct {
 	workspace      *workspace.Manager
 	mcpClient      mcp.MCPClient
 	sessionManager *code.SessionManager
+	config         *config.Config
+	contextManager *ctxsys.ContextManager
 }
 
 // NewReviewHandler 创建Review模式处理器
-func NewReviewHandler(clientManager ghclient.ClientManagerInterface, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager) *ReviewHandler {
+func NewReviewHandler(clientManager ghclient.ClientManagerInterface, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager, config *config.Config) *ReviewHandler {
+	// Create context manager with dynamic client support
+	collector := ctxsys.NewDefaultContextCollector(clientManager)
+	formatter := ctxsys.NewDefaultContextFormatter(50000) // 50k tokens limit
+	generator := ctxsys.NewTemplatePromptGenerator(formatter)
+	contextManager := &ctxsys.ContextManager{
+		Collector: collector,
+		Formatter: formatter,
+		Generator: generator,
+	}
+
 	return &ReviewHandler{
 		BaseHandler: NewBaseHandler(
 			ReviewMode,
-			30, // 最低优先级
+			0, // 最低优先级
 			"Handle automatic code review events",
 		),
 		clientManager:  clientManager,
 		workspace:      workspace,
 		mcpClient:      mcpClient,
 		sessionManager: sessionManager,
+		config:         config,
+		contextManager: contextManager,
 	}
 }
 
@@ -48,10 +67,6 @@ func (rh *ReviewHandler) CanHandle(ctx context.Context, event models.GitHubConte
 		prCtx := event.(*models.PullRequestContext)
 		return rh.canHandlePREvent(ctx, prCtx)
 
-	case models.EventPush:
-		pushCtx := event.(*models.PushContext)
-		return rh.canHandlePushEvent(ctx, pushCtx)
-
 	default:
 		xl.Debugf("Review mode does not handle event type: %s", event.GetEventType())
 		return false
@@ -63,7 +78,7 @@ func (rh *ReviewHandler) canHandlePREvent(ctx context.Context, event *models.Pul
 	xl := xlog.NewWith(ctx)
 
 	switch event.GetEventAction() {
-	case "opened":
+	case "opened", "reopened":
 		// PR打开时自动审查
 		xl.Infof("Review mode can handle PR opened event")
 		return true
@@ -86,20 +101,6 @@ func (rh *ReviewHandler) canHandlePREvent(ctx context.Context, event *models.Pul
 	default:
 		return false
 	}
-}
-
-// canHandlePushEvent 检查是否能处理Push事件
-func (rh *ReviewHandler) canHandlePushEvent(ctx context.Context, event *models.PushContext) bool {
-	xl := xlog.NewWith(ctx)
-
-	// 只处理主分支的Push事件
-	if event.Ref == "refs/heads/main" || event.Ref == "refs/heads/master" {
-		xl.Infof("Review mode can handle push to main branch")
-		return true
-	}
-
-	// 可以扩展到处理其他重要分支
-	return false
 }
 
 // Execute 执行Review模式处理逻辑
@@ -128,8 +129,6 @@ func (rh *ReviewHandler) Execute(ctx context.Context, event models.GitHubContext
 	switch event.GetEventType() {
 	case models.EventPullRequest:
 		return rh.handlePREvent(ctx, event.(*models.PullRequestContext), client)
-	case models.EventPush:
-		return rh.handlePushEvent(ctx, event.(*models.PushContext), client)
 	default:
 		return fmt.Errorf("unsupported event type for ReviewHandler: %s", event.GetEventType())
 	}
@@ -140,13 +139,11 @@ func (rh *ReviewHandler) handlePREvent(ctx context.Context, event *models.PullRe
 	xl := xlog.NewWith(ctx)
 
 	switch event.GetEventAction() {
-	case "opened", "synchronize", "ready_for_review":
+	case "opened", "reopened", "synchronize", "ready_for_review":
 		xl.Infof("Auto-reviewing PR #%d", event.PullRequest.GetNumber())
 
 		// 执行自动代码审查
-		// TODO: 实现自动PR审查逻辑，使用MCP工具
-		xl.Infof("Auto-review for PR #%d is not yet implemented", event.PullRequest.GetNumber())
-		return nil
+		return rh.processCodeReview(ctx, event, client)
 
 	case "closed":
 		return rh.handlePRClosed(ctx, event, client)
@@ -219,14 +216,156 @@ func (rh *ReviewHandler) handlePRClosed(ctx context.Context, event *models.PullR
 	return nil
 }
 
-// handlePushEvent 处理Push事件
-func (rh *ReviewHandler) handlePushEvent(ctx context.Context, event *models.PushContext, client *ghclient.Client) error {
+// processCodeReview PR自动代码审查方法
+func (rh *ReviewHandler) processCodeReview(ctx context.Context, prEvent *models.PullRequestContext, client *ghclient.Client) error {
 	xl := xlog.NewWith(ctx)
-	xl.Infof("Processing push event to %s with %d commits", event.Ref, len(event.Commits))
+	xl.Infof("Starting automatic code review for PR")
 
-	// 这里可以实现对主分支Push的自动分析
-	// 例如：代码质量检查、安全扫描、性能分析等
+	// 1. 提取PR信息
+	if prEvent == nil {
+		return fmt.Errorf("PR event is required for PR review")
+	}
+	pr := prEvent.PullRequest
+	// 使用配置中的默认AI模型进行自动审查
+	aiModel := rh.config.CodeProvider
+	xl.Infof("Processing PR #%d with AI model: %s", pr.GetNumber(), aiModel)
 
-	// 暂时返回未实现错误
-	return fmt.Errorf("push event handling in ReviewHandler not implemented yet")
+	// 2. 立即创建初始状态comment
+	owner := pr.GetBase().GetRepo().GetOwner().GetLogin()
+	repoName := pr.GetBase().GetRepo().GetName()
+	prNumber := pr.GetNumber()
+
+	initialCommentBody := "CodeAgent is working… \n\nI'll analyze this and get back to you."
+
+	xl.Infof("Creating initial review status comment for PR #%d", prNumber)
+	initialComment, err := client.CreateComment(ctx, owner, repoName, prNumber, initialCommentBody)
+	if err != nil {
+		xl.Errorf("Failed to create initial status comment: %v", err)
+		return fmt.Errorf("failed to create initial status comment: %w", err)
+	}
+
+	commentID := initialComment.GetID()
+	xl.Infof("Created initial comment with ID: %d for PR #%d", commentID, prNumber)
+
+	// 3. 获取或创建工作空间
+	ws := rh.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
+	if ws == nil {
+		return fmt.Errorf("failed to get or create workspace for PR review")
+	}
+	// 拉取最新代码
+	if err := client.PullLatestChanges(ws, pr); err != nil {
+		xl.Warnf("Failed to pull latest changes: %v", err)
+	}
+	xl.Infof("Workspace ready: %s", ws.Path)
+
+	// 4. 初始化code client
+	xl.Infof("Initializing code client for review")
+	codeClient, err := rh.sessionManager.GetSession(ws)
+	if err != nil {
+		return fmt.Errorf("failed to get code session for review: %w", err)
+	}
+	xl.Infof("Code client initialized successfully")
+
+	// 5. 构建审查上下文和提示词
+	xl.Infof("Building review context and prompt")
+	prompt, err := rh.buildReviewPrompt(ctx, prEvent, commentID)
+	if err != nil {
+		xl.Errorf("Failed to build enhanced prompt : %v", err)
+	}
+
+	// 6. 执行AI代码审查
+	xl.Infof("Executing AI code review analysis")
+	resp, err := rh.promptWithRetry(ctx, codeClient, prompt, 3)
+	if err != nil {
+		return fmt.Errorf("failed to execute code review: %w", err)
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		return fmt.Errorf("failed to read review output: %w", err)
+	}
+
+	xl.Infof("AI code review completed, output length: %d", len(output))
+	xl.Debugf("Review Output: %s", string(output))
+
+	// 6. 直接提交AI原始输出作为评论
+	// 为PR添加审查评论，使用AI的原始输出
+	// 后续引入MCP , 此处可不用，让 AI 自动处理
+	commentBody := fmt.Sprintf("🤖 **自动代码审查结果**\n\n%s", string(output))
+	err = rh.addPRComment(ctx, pr, commentBody, client)
+	if err != nil {
+		xl.Errorf("Failed to add PR review comment: %v", err)
+		return fmt.Errorf("failed to add PR review comment: %w", err)
+	}
+	xl.Infof("Successfully added AI review comment to PR")
+
+	xl.Infof("PR code review process completed successfully")
+	return nil
+}
+
+// buildReviewPrompt 构建代码审查提示词
+func (rh *ReviewHandler) buildReviewPrompt(ctx context.Context, prEvent *models.PullRequestContext, commentID int64) (string, error) {
+	xl := xlog.NewWith(ctx)
+
+	if prEvent == nil {
+		return "", fmt.Errorf("PR event is required")
+	}
+
+	// 先收集代码上下文
+	var codeCtx *ctxsys.CodeContext
+	if prEvent.PullRequest != nil {
+		var err error
+		codeCtx, err = rh.contextManager.Collector.CollectCodeContext(prEvent.PullRequest)
+		if err != nil {
+			xl.Warnf("Failed to collect code context: %v", err)
+		} else {
+			xl.Infof("Successfully collected code context with %d files", len(codeCtx.Files))
+		}
+	}
+
+	// 构建PR审查的上下文
+	enhancedCtx := &ctxsys.EnhancedContext{
+		Type:      ctxsys.ContextTypePR,
+		Priority:  ctxsys.PriorityHigh,
+		Timestamp: time.Now(),
+		Subject:   prEvent,
+		Code:      codeCtx, // 确保代码上下文被设置
+		Metadata: map[string]interface{}{
+			"pr_number":            prEvent.PullRequest.GetNumber(),
+			"pr_title":             prEvent.PullRequest.GetTitle(),
+			"pr_body":              prEvent.PullRequest.GetBody(),
+			"repository":           prEvent.PullRequest.GetBase().GetRepo().GetFullName(),
+			"trigger_username":     "system", // 自动审查
+			"trigger_display_name": "CodeAgent Auto Review",
+			"claude_comment_id":    commentID,
+		},
+	}
+
+	// 使用模板生成器的Review模式生成提示词
+	xl.Infof("Generating review prompt using template generator")
+	return rh.contextManager.Generator.GeneratePrompt(enhancedCtx, "Review", "Perform automatic code review")
+}
+
+// promptWithRetry 带重试的提示执行
+func (rh *ReviewHandler) promptWithRetry(ctx context.Context, codeClient code.Code, prompt string, maxRetries int) (*code.Response, error) {
+	return code.PromptWithRetry(ctx, codeClient, prompt, maxRetries)
+}
+
+// addPRComment 使用GitHub client添加PR评论
+func (rh *ReviewHandler) addPRComment(ctx context.Context, pr *github.PullRequest, comment string, client *ghclient.Client) error {
+	xl := xlog.NewWith(ctx)
+
+	// 使用GitHub client的CreateComment方法添加评论
+	owner := pr.GetBase().GetRepo().GetOwner().GetLogin()
+	repo := pr.GetBase().GetRepo().GetName()
+	prNumber := pr.GetNumber()
+
+	_, err := client.CreateComment(ctx, owner, repo, prNumber, comment)
+	if err != nil {
+		xl.Errorf("Failed to add PR comment: %v", err)
+		return err
+	}
+
+	xl.Infof("Successfully added review comment to PR")
+	return nil
 }
