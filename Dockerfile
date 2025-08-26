@@ -37,6 +37,9 @@ RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 # 切换用户
 USER codeagent
 
+# 配置 Git safe directory 以解决跨用户挂载的权限问题
+RUN git config --global safe.directory '*'
+
 # 设置工作目录
 WORKDIR /workspace
 

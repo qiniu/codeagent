@@ -134,6 +134,12 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 
 	log.Infof("docker container started successfully")
 
+	// Configure Git safe directory inside the container to fix ownership issues
+	if err := configureGitSafeDirectoryInContainer(containerName); err != nil {
+		log.Warnf("Failed to configure Git safe directory in container: %v", err)
+		// Don't fail the container creation, just warn
+	}
+
 	return &claudeCode{
 		containerName: containerName,
 	}, nil
@@ -241,3 +247,4 @@ func copyHostClaudeConfig(isolatedConfigDir string) error {
 	log.Infof("Successfully copied host Claude config to isolated directory")
 	return nil
 }
+

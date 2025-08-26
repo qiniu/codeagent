@@ -140,6 +140,12 @@ func NewGeminiDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 
 	log.Infof("docker container started successfully")
 
+	// Configure Git safe directory inside the container to fix ownership issues
+	if err := configureGitSafeDirectoryInContainer(containerName); err != nil {
+		log.Warnf("Failed to configure Git safe directory in container: %v", err)
+		// Don't fail the container creation, just warn
+	}
+
 	return &geminiDocker{
 		containerName: containerName,
 	}, nil
@@ -178,3 +184,4 @@ func (g *geminiDocker) Close() error {
 	stopCmd := exec.Command("docker", "rm", "-f", g.containerName)
 	return stopCmd.Run()
 }
+

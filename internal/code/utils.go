@@ -1,6 +1,7 @@
 package code
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -211,4 +212,22 @@ func generateConfigDirName(provider, org, repoName string, workspace *models.Wor
 		timestamp := workspace.CreatedAt.Unix()
 		return fmt.Sprintf(".%s-%s-%s-workspace-%d", provider, org, repoName, timestamp)
 	}
+}
+
+// configureGitSafeDirectoryInContainer configures Git safe directory inside the Docker container
+// to prevent "fatal: unsafe repository" errors when Git operations are performed
+func configureGitSafeDirectoryInContainer(containerName string) error {
+	// Configure Git to treat /workspace as a safe directory
+	cmd := exec.Command("docker", "exec", containerName, "git", "config", "--global", "safe.directory", "/workspace")
+	
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	
+	if err := cmd.Run(); err != nil {
+		log.Errorf("Failed to configure Git safe directory: %v, stderr: %s", err, stderr.String())
+		return fmt.Errorf("failed to configure Git safe directory: %w", err)
+	}
+	
+	log.Infof("Successfully configured Git safe directory in container %s", containerName)
+	return nil
 }
