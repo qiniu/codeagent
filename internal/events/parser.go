@@ -9,7 +9,6 @@ import (
 	"github.com/qiniu/codeagent/pkg/models"
 
 	"github.com/google/go-github/v58/github"
-	"github.com/qiniu/x/xlog"
 )
 
 // EventParser 事件解析器
@@ -70,9 +69,6 @@ func (p *EventParser) ParseWebhookEvent(
 	deliveryID string,
 	payload []byte,
 ) (models.GitHubContext, error) {
-	xl := xlog.NewWith(ctx)
-	xl.Infof("Parsing webhook event: type=%s, delivery_id=%s", eventType, deliveryID)
-
 	// 验证事件类型
 	if !models.IsValidEventType(eventType) {
 		return nil, fmt.Errorf("unsupported event type: %s", eventType)

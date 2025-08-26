@@ -40,5 +40,8 @@ USER codeagent
 # 设置工作目录
 WORKDIR /workspace
 
+# 配置Git safe.directory以解决挂载目录权限问题
+RUN git config --global --add safe.directory /workspace
+
 # 默认命令
 CMD ["tail", "-f", "/dev/null"]
