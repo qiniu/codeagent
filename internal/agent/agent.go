@@ -82,9 +82,9 @@ func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (
 		xl.Infof("Custom command handler registered with global config path: %s", cfg.Commands.GlobalPath)
 	}
 
-	tagHandler := modes.NewTagHandler(cfg.CodeProvider, clientManager, workspaceManager, mcpClient, sessionManager)
-	agentHandler := modes.NewAgentHandler(clientManager, workspaceManager, mcpClient)
 	reviewHandler := modes.NewReviewHandler(clientManager, workspaceManager, mcpClient, sessionManager, cfg)
+	tagHandler := modes.NewTagHandler(cfg.CodeProvider, clientManager, workspaceManager, mcpClient, sessionManager, reviewHandler)
+	agentHandler := modes.NewAgentHandler(clientManager, workspaceManager, mcpClient)
 
 	modeManager.RegisterHandler(tagHandler)
 	modeManager.RegisterHandler(agentHandler)

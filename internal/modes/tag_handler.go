@@ -21,7 +21,7 @@ import (
 )
 
 // TagHandler Tag mode handler
-// Handles GitHub events containing commands (/code, /continue, /fix)
+// Handles GitHub events containing commands (/code, /continue, /fix, /review)
 type TagHandler struct {
 	*BaseHandler
 	defaultAIModel string
@@ -30,10 +30,11 @@ type TagHandler struct {
 	mcpClient      mcp.MCPClient
 	sessionManager *code.SessionManager
 	contextManager *ctxsys.ContextManager
+	reviewHandler  *ReviewHandler
 }
 
 // NewTagHandler creates a Tag mode handler
-func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerInterface, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager) *TagHandler {
+func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerInterface, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager, reviewHandler *ReviewHandler) *TagHandler {
 	// Create context manager with dynamic client support
 	collector := ctxsys.NewDefaultContextCollector(clientManager)
 	formatter := ctxsys.NewDefaultContextFormatter(50000) // 50k tokens limit
@@ -48,7 +49,7 @@ func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerIn
 		BaseHandler: NewBaseHandler(
 			TagMode,
 			10, // Medium priority
-			"Handle @codeagent mentions and commands (/code, /continue, /fix)",
+			"Handle @codeagent mentions and commands (/code, /continue, /fix, /review)",
 		),
 		defaultAIModel: defaultAIModel,
 		clientManager:  clientManager,
@@ -56,6 +57,7 @@ func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerIn
 		mcpClient:      mcpClient,
 		sessionManager: sessionManager,
 		contextManager: contextManager,
+		reviewHandler:  reviewHandler,
 	}
 }
 
@@ -155,6 +157,8 @@ func (th *TagHandler) handleIssueComment(
 			return th.processPRCommand(ctx, event, cmdInfo, "Continue")
 		case models.CommandFix:
 			return th.processPRCommand(ctx, event, cmdInfo, "Fix")
+		case models.CommandReview:
+			return th.processReviewCommand(ctx, event, cmdInfo, client)
 		default:
 			return fmt.Errorf("unsupported command for PR comment: %s", cmdInfo.Command)
 		}
@@ -1786,4 +1790,30 @@ func (th *TagHandler) replyToIssueComment(
 
 	xl.Infof("Successfully replied to issue comment via MCP")
 	return nil
+}
+
+// processReviewCommand 处理手动 /review 命令
+func (th *TagHandler) processReviewCommand(
+	ctx context.Context,
+	event *models.IssueCommentContext,
+	cmdInfo *models.CommandInfo,
+	client *ghclient.Client,
+) error {
+	xl := xlog.NewWith(ctx)
+	xl.Infof("Processing /review command for PR comment")
+
+	// 验证这是一个PR评论
+	if !event.IsPRComment {
+		return fmt.Errorf("/review command can only be used in PR comments")
+	}
+
+	// 如果用户指定了AI模型，使用指定的；否则使用系统默认的
+	if strings.TrimSpace(cmdInfo.AIModel) == "" {
+		cmdInfo.AIModel = th.defaultAIModel
+	}
+
+	xl.Infof("Executing /review command with AI model: %s, args: %s", cmdInfo.AIModel, cmdInfo.Args)
+
+	// 调用 ReviewHandler 的手动审查方法（简化调用，移除不必要的commentID）
+	return th.reviewHandler.ProcessManualCodeReview(ctx, event, client)
 }
