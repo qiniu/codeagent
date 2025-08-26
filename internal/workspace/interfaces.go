@@ -33,7 +33,6 @@ type WorkspaceManager interface {
 	CreateSessionPath(underPath, aiModel, repo string, prNumber int, suffix string) (string, error)
 	MoveIssueToPR(ws *models.Workspace, prNumber int) error
 
-
 	// Utility methods
 	ExtractAIModelFromBranch(branchName string) string
 
@@ -166,7 +165,6 @@ func (m *MockWorkspaceManager) GetWorkspaceByIssue(issue *github.Issue, aiModel 
 	return m.Workspaces[key]
 }
 
-
 func (m *MockWorkspaceManager) CreateWorkspaceFromIssue(issue *github.Issue, aiModel string) *models.Workspace {
 	if m.CreateWorkspaceFunc != nil {
 		return m.CreateWorkspaceFunc()
@@ -244,7 +242,6 @@ func (m *MockWorkspaceManager) MoveIssueToPR(ws *models.Workspace, prNumber int)
 	ws.PRNumber = prNumber
 	return nil
 }
-
 
 // Utility methods (mock implementations)
 func (m *MockWorkspaceManager) ExtractAIModelFromBranch(branchName string) string {

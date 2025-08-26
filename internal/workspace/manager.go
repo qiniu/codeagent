@@ -90,7 +90,6 @@ func (m *Manager) GetWorkspaceByIssue(issue *github.Issue, aiModel string) *mode
 	return nil
 }
 
-
 // CreateWorkspaceFromIssue creates workspace from Issue with AI model support
 func (m *Manager) CreateWorkspaceFromIssue(issue *github.Issue, aiModel string) *models.Workspace {
 	log.Infof("Creating workspace from Issue #%d with AI model: %s", issue.GetNumber(), aiModel)
@@ -309,7 +308,6 @@ func (m *Manager) CleanupWorkspace(ws *models.Workspace) bool {
 func (m *Manager) GetExpiredWorkspaces() []*models.Workspace {
 	return m.repository.GetExpired(m.config.Workspace.CleanupAfter)
 }
-
 
 // ExtractAIModelFromBranch extracts AI model information from branch name
 func (m *Manager) ExtractAIModelFromBranch(branchName string) string {
