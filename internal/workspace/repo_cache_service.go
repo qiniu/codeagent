@@ -96,13 +96,11 @@ func (r *repoCacheService) UpdateCachedRepo(cachedRepoPath string) error {
 		return GitError("fetch", cachedRepoPath, err)
 	}
 
-	// Update main/master branch
 	if err := r.updateCurrentBranch(cachedRepoPath); err != nil {
 		log.Warnf("Failed to update main branch in %s: %v", cachedRepoPath, err)
 		// Don't fail the entire operation if main branch update fails
 	}
 
-	log.Infof("Successfully updated cached repository: %s", cachedRepoPath)
 	return nil
 }
 
@@ -156,7 +154,6 @@ func (r *repoCacheService) CloneFromCache(cachedRepoPath, targetPath, branch, re
 		if err := r.gitService.CreateAndCheckoutBranch(targetPath, branch); err != nil {
 			return err
 		}
-		log.Infof("Created new branch: %s", branch)
 	} else if branch != "" {
 		// Verify we're on the correct branch or switch to it
 		if !r.gitService.ValidateBranch(targetPath, branch) {
@@ -237,6 +234,5 @@ func (r *repoCacheService) updateCurrentBranch(cachedRepoPath string) error {
 		return err
 	}
 
-	log.Infof("Successfully updated current branch '%s' in cached repo", currentBranch)
 	return nil
 }
