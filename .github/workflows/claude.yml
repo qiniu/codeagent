@@ -16,6 +16,7 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
+      actions: read
 
     steps:
       - name: Install bun
@@ -27,7 +28,7 @@ jobs:
       - name: Claude Code Action
         uses: anthropics/claude-code-action@v0.0.31
         with:
-          github_token: ${{ secrets.MY_GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           anthropic_api_key: ${{secrets.ANTHROPIC_API_KEY}}
           claude_env: |
             DEBUG: true
