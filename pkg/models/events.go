@@ -1,6 +1,7 @@
 package models
 
 import (
+	"regexp"
 	"strings"
 	"time"
 
@@ -156,8 +157,33 @@ const (
 	AIModelGemini = "gemini"
 )
 
-// HasCommand 检查上下文是否包含命令
+// MentionConfig 提及配置接口
+type MentionConfig interface {
+	GetTriggers() []string
+	GetDefaultTrigger() string
+}
+
+// ConfigMentionAdapter 从内部config包适配到models包
+type ConfigMentionAdapter struct {
+	Triggers       []string
+	DefaultTrigger string
+}
+
+func (c *ConfigMentionAdapter) GetTriggers() []string {
+	return c.Triggers
+}
+
+func (c *ConfigMentionAdapter) GetDefaultTrigger() string {
+	return c.DefaultTrigger
+}
+
+// HasCommand 检查上下文是否包含命令（使用默认mention配置）
 func HasCommand(ctx GitHubContext) (*CommandInfo, bool) {
+	return HasCommandWithConfig(ctx, nil)
+}
+
+// HasCommandWithConfig 检查上下文是否包含命令（支持自定义mention配置）
+func HasCommandWithConfig(ctx GitHubContext, mentionConfig MentionConfig) (*CommandInfo, bool) {
 	var content string
 
 	switch c := ctx.(type) {
@@ -186,7 +212,11 @@ func HasCommand(ctx GitHubContext) (*CommandInfo, bool) {
 		return cmdInfo, true
 	}
 
-	// Then try to parse as @claude mention
+	// Then try to parse as mention with config
+	if mentionConfig != nil {
+		return parseMentionWithConfig(content, mentionConfig)
+	}
+	// Fallback to default mention parsing
 	return parseMention(content)
 }
 
@@ -231,43 +261,58 @@ func parseCommand(content string) (*CommandInfo, bool) {
 	}, true
 }
 
-// parseMention 解析@qiniu-ci提及
+// parseMention 解析@qiniu-ci提及（默认触发词，向后兼容）
 func parseMention(content string) (*CommandInfo, bool) {
+	return parseMentionWithTrigger(content, CommandClaude)
+}
+
+// parseMentionWithConfig 使用配置解析mention
+func parseMentionWithConfig(content string, config MentionConfig) (*CommandInfo, bool) {
+	triggers := config.GetTriggers()
+	if len(triggers) == 0 {
+		triggers = []string{config.GetDefaultTrigger()}
+	}
+
+	// 尝试所有配置的触发词
+	for _, trigger := range triggers {
+		if trigger == "" {
+			continue
+		}
+		if cmdInfo, found := parseMentionWithTrigger(content, trigger); found {
+			return cmdInfo, true
+		}
+	}
+
+	return nil, false
+}
+
+// parseMentionWithTrigger 使用指定触发词解析mention，传递完整评论内容
+func parseMentionWithTrigger(content string, trigger string) (*CommandInfo, bool) {
 	content = strings.TrimSpace(content)
+	pattern := `(^|\s)` + regexp.QuoteMeta(trigger) + `([\s.,!?;:]|$)`
+	re := regexp.MustCompile(pattern)
 
-	// 检查是否包含@qiniu-ci
-	if !strings.Contains(content, CommandClaude) {
+	match := re.FindStringSubmatch(content)
+	if match == nil {
 		return nil, false
 	}
 
-	// 找到@qiniu-ci的位置
-	mentionIndex := strings.Index(content, CommandClaude)
-	if mentionIndex == -1 {
-		return nil, false
-	}
+	// NOTE(CarlJin): mention 模式传递暂时完整评论内容
+	fullContent := content
 
-	// 提取@qiniu-ci之后的内容作为参数
-	afterMention := strings.TrimSpace(content[mentionIndex+len(CommandClaude):])
-
-	// 解析AI模型和参数（类似于parseCommand的逻辑）
 	var aiModel string
-	var args string
 
-	if strings.HasPrefix(afterMention, "-claude") {
+	// 查找模型指定标志
+	if strings.Contains(fullContent, "-claude") {
 		aiModel = AIModelClaude
-		args = strings.TrimSpace(strings.TrimPrefix(afterMention, "-claude"))
-	} else if strings.HasPrefix(afterMention, "-gemini") {
+	} else if strings.Contains(fullContent, "-gemini") {
 		aiModel = AIModelGemini
-		args = strings.TrimSpace(strings.TrimPrefix(afterMention, "-gemini"))
-	} else {
-		aiModel = ""
-		args = afterMention
 	}
 
 	return &CommandInfo{
-		Command: CommandClaude,
+		Command: CommandClaude, // 总是使用CommandClaude作为mention的标识
 		AIModel: aiModel,
-		Args:    args,
+		Args:    fullContent, // 传递完整评论内容
 		RawText: content,
 	}, true
 }

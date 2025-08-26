@@ -22,6 +22,8 @@ type Config struct {
 
 	// v0.6 Configuration
 	Commands CommandsConfig `yaml:"commands"`
+	// AI Mention Configuration
+	Mention MentionConfig `yaml:"mention"`
 }
 
 type GeminiConfig struct {
@@ -71,6 +73,13 @@ type DockerConfig struct {
 
 type CommandsConfig struct {
 	GlobalPath string `yaml:"global_path"`
+}
+
+type MentionConfig struct {
+	// 可配置的mention目标，支持多个
+	Triggers []string `yaml:"triggers"`
+	// 默认的mention目标（向后兼容）
+	DefaultTrigger string `yaml:"default_trigger"`
 }
 
 func Load(configPath string) (*Config, error) {
@@ -168,6 +177,10 @@ func (c *Config) loadFromEnv() {
 	if globalPath := os.Getenv("GLOBAL_COMMANDS_PATH"); globalPath != "" {
 		c.Commands.GlobalPath = globalPath
 	}
+	// Mention configuration from environment
+	if mentionTrigger := os.Getenv("MENTION_TRIGGER"); mentionTrigger != "" {
+		c.Mention.DefaultTrigger = mentionTrigger
+	}
 }
 
 func loadFromEnv() *Config {
@@ -212,6 +225,10 @@ func loadFromEnv() *Config {
 		},
 		Commands: CommandsConfig{
 			GlobalPath: os.Getenv("GLOBAL_COMMANDS_PATH"),
+		},
+		Mention: MentionConfig{
+			Triggers:       []string{getEnvOrDefault("MENTION_TRIGGER", "@qiniu-ci")},
+			DefaultTrigger: getEnvOrDefault("MENTION_TRIGGER", "@qiniu-ci"),
 		},
 		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
 		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", true),
