@@ -138,7 +138,6 @@ func (a *EnhancedAgent) processGitHubContext(ctx context.Context, githubCtx mode
 	// 2. 选择合适的处理器
 	handler, err := a.modeManager.SelectHandler(ctx, githubCtx)
 	if err != nil {
-		xl.Warnf("No suitable handler found: %v", err)
 		return fmt.Errorf("no handler available: %w", err)
 	}
 
