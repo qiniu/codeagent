@@ -46,7 +46,7 @@ func NewReviewHandler(clientManager ghclient.ClientManagerInterface, workspace *
 	return &ReviewHandler{
 		BaseHandler: NewBaseHandler(
 			ReviewMode,
-			0, // 最低优先级
+			0, // 最高优先级
 			"Handle automatic code review events",
 		),
 		clientManager:  clientManager,
@@ -81,16 +81,6 @@ func (rh *ReviewHandler) canHandlePREvent(ctx context.Context, event *models.Pul
 	case "opened", "reopened":
 		// PR打开时自动审查
 		xl.Infof("Review mode can handle PR opened event")
-		return true
-
-	case "synchronize":
-		// PR有新提交时重新审查
-		xl.Infof("Review mode can handle PR synchronize event")
-		return true
-
-	case "ready_for_review":
-		// PR从draft状态变为ready时审查
-		xl.Infof("Review mode can handle PR ready_for_review event")
 		return true
 
 	case "closed":
@@ -235,7 +225,7 @@ func (rh *ReviewHandler) processCodeReview(ctx context.Context, prEvent *models.
 	repoName := pr.GetBase().GetRepo().GetName()
 	prNumber := pr.GetNumber()
 
-	initialCommentBody := "CodeAgent is working… \n\nI'll analyze this and get back to you."
+	initialCommentBody := "🤖 CodeAgent is working… \n\nI'll analyze this and get back to you."
 
 	xl.Infof("Creating initial review status comment for PR #%d", prNumber)
 	initialComment, err := client.CreateComment(ctx, owner, repoName, prNumber, initialCommentBody)
@@ -288,16 +278,14 @@ func (rh *ReviewHandler) processCodeReview(ctx context.Context, prEvent *models.
 	xl.Infof("AI code review completed, output length: %d", len(output))
 	xl.Debugf("Review Output: %s", string(output))
 
-	// 6. 直接提交AI原始输出作为评论
-	// 为PR添加审查评论，使用AI的原始输出
-	// 后续引入MCP , 此处可不用，让 AI 自动处理
-	commentBody := fmt.Sprintf("🤖 **自动代码审查结果**\n\n%s", string(output))
-	err = rh.addPRComment(ctx, pr, commentBody, client)
+	// 6. 更新初始评论为最终审查结果
+	commentBody := fmt.Sprintf("🤖 **代码审查结果**\n\n%s", string(output))
+	err = rh.updatePRComment(ctx, pr, commentID, commentBody, client)
 	if err != nil {
-		xl.Errorf("Failed to add PR review comment: %v", err)
-		return fmt.Errorf("failed to add PR review comment: %w", err)
+		xl.Errorf("Failed to update PR review comment: %v", err)
+		return fmt.Errorf("failed to update PR review comment: %w", err)
 	}
-	xl.Infof("Successfully added AI review comment to PR")
+	xl.Infof("Successfully updated AI review comment in PR")
 
 	xl.Infof("PR code review process completed successfully")
 	return nil
@@ -368,4 +356,60 @@ func (rh *ReviewHandler) addPRComment(ctx context.Context, pr *github.PullReques
 
 	xl.Infof("Successfully added review comment to PR")
 	return nil
+}
+
+// updatePRComment 使用GitHub client更新PR评论
+func (rh *ReviewHandler) updatePRComment(ctx context.Context, pr *github.PullRequest, commentID int64, comment string, client *ghclient.Client) error {
+	xl := xlog.NewWith(ctx)
+
+	// 使用GitHub client的UpdateComment方法更新评论
+	owner := pr.GetBase().GetRepo().GetOwner().GetLogin()
+	repo := pr.GetBase().GetRepo().GetName()
+
+	err := client.UpdateComment(ctx, owner, repo, commentID, comment)
+	if err != nil {
+		xl.Errorf("Failed to update PR comment: %v", err)
+		return err
+	}
+
+	xl.Infof("Successfully updated review comment in PR")
+	return nil
+}
+
+// ProcessManualCodeReview 处理手动代码审查请求（从PR评论触发）
+func (rh *ReviewHandler) ProcessManualCodeReview(ctx context.Context, event *models.IssueCommentContext, client *ghclient.Client) error {
+	xl := xlog.NewWith(ctx)
+	xl.Infof("Starting manual code review from PR comment")
+
+	// 1. 验证这是一个PR评论
+	if !event.IsPRComment {
+		return fmt.Errorf("manual review can only be triggered from PR comments")
+	}
+
+	// 2. 从GitHub API获取完整的PR信息
+	repoOwner := event.Repository.GetOwner().GetLogin()
+	repoName := event.Repository.GetName()
+	prNumber := event.Issue.GetNumber()
+
+	pr, _, err := client.GetClient().PullRequests.Get(ctx, repoOwner, repoName, prNumber)
+	if err != nil {
+		return fmt.Errorf("failed to get PR information: %w", err)
+	}
+
+	// 3. 构造 PullRequestContext
+	prEvent := &models.PullRequestContext{
+		BaseContext: models.BaseContext{
+			Type:       models.EventPullRequest,
+			Repository: event.Repository,
+			Sender:     event.Sender,
+			RawEvent:   pr, // 使用PR对象作为原始事件
+			Action:     event.GetEventAction(),
+			DeliveryID: event.DeliveryID,
+			Timestamp:  event.Timestamp,
+		},
+		PullRequest: pr,
+	}
+
+	// 4. 调用统一的代码审查逻辑
+	return rh.processCodeReview(ctx, prEvent, client)
 }

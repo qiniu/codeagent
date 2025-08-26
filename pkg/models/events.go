@@ -147,6 +147,7 @@ const (
 	CommandContinue = "/continue"
 	CommandFix      = "/fix"
 	CommandClaude   = "@qiniu-ci"
+	CommandReview   = "/review"
 )
 
 // AI模型类型
