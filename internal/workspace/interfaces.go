@@ -28,13 +28,9 @@ type WorkspaceManager interface {
 
 	// Workspace creation
 	CreateWorkspaceFromIssue(issue *github.Issue, aiModel string) *models.Workspace
-	CreateWorkspaceFromIssueWithDefaultBranch(issue *github.Issue, aiModel, defaultBranch string) *models.Workspace
 	CreateWorkspaceFromPR(pr *github.PullRequest, aiModel string) *models.Workspace
-	CreateWorkspaceFromPRWithDefaultBranch(pr *github.PullRequest, aiModel, defaultBranch string) *models.Workspace
 	GetOrCreateWorkspaceForIssue(issue *github.Issue, aiModel string) *models.Workspace
-	GetOrCreateWorkspaceForIssueWithDefaultBranch(issue *github.Issue, aiModel, defaultBranch string) *models.Workspace
 	GetOrCreateWorkspaceForPR(pr *github.PullRequest, aiModel string) *models.Workspace
-	GetOrCreateWorkspaceForPRWithDefaultBranch(pr *github.PullRequest, aiModel, defaultBranch string) *models.Workspace
 
 	// Workspace management
 	CreateSessionPath(underPath, aiModel, repo string, prNumber int, suffix string) (string, error)
@@ -198,10 +194,6 @@ func (m *MockWorkspaceManager) GetAllWorkspacesByIssue(issue *github.Issue) []*m
 }
 
 func (m *MockWorkspaceManager) CreateWorkspaceFromIssue(issue *github.Issue, aiModel string) *models.Workspace {
-	return m.CreateWorkspaceFromIssueWithDefaultBranch(issue, aiModel, "")
-}
-
-func (m *MockWorkspaceManager) CreateWorkspaceFromIssueWithDefaultBranch(issue *github.Issue, aiModel, defaultBranch string) *models.Workspace {
 	if m.CreateWorkspaceFunc != nil {
 		return m.CreateWorkspaceFunc()
 	}
@@ -214,15 +206,11 @@ func (m *MockWorkspaceManager) CreateWorkspaceFromIssueWithDefaultBranch(issue *
 }
 
 func (m *MockWorkspaceManager) GetOrCreateWorkspaceForIssue(issue *github.Issue, aiModel string) *models.Workspace {
-	return m.GetOrCreateWorkspaceForIssueWithDefaultBranch(issue, aiModel, "")
-}
-
-func (m *MockWorkspaceManager) GetOrCreateWorkspaceForIssueWithDefaultBranch(issue *github.Issue, aiModel, defaultBranch string) *models.Workspace {
 	ws := m.GetWorkspaceByIssueAndAI(issue, aiModel)
 	if ws != nil {
 		return ws
 	}
-	return m.CreateWorkspaceFromIssueWithDefaultBranch(issue, aiModel, defaultBranch)
+	return m.CreateWorkspaceFromIssue(issue, aiModel)
 }
 
 // Workspace creation methods (mock implementations)
@@ -234,10 +222,6 @@ func (m *MockWorkspaceManager) CreateWorkspaceFromIssueWithAI(issue *github.Issu
 }
 
 func (m *MockWorkspaceManager) CreateWorkspaceFromPR(pr *github.PullRequest, aiModel string) *models.Workspace {
-	return m.CreateWorkspaceFromPRWithDefaultBranch(pr, aiModel, "")
-}
-
-func (m *MockWorkspaceManager) CreateWorkspaceFromPRWithDefaultBranch(pr *github.PullRequest, aiModel, defaultBranch string) *models.Workspace {
 	if m.CreateWorkspaceFunc != nil {
 		return m.CreateWorkspaceFunc()
 	}
@@ -255,24 +239,20 @@ func (m *MockWorkspaceManager) CreateWorkspaceFromPRWithDefaultBranch(pr *github
 
 // Legacy method for compatibility
 func (m *MockWorkspaceManager) CreateWorkspaceFromPRWithAI(pr *github.PullRequest, aiModel string) *models.Workspace {
-	return m.CreateWorkspaceFromPRWithDefaultBranch(pr, aiModel, "")
+	return m.CreateWorkspaceFromPR(pr, aiModel)
 }
 
 func (m *MockWorkspaceManager) GetOrCreateWorkspaceForPR(pr *github.PullRequest, aiModel string) *models.Workspace {
-	return m.GetOrCreateWorkspaceForPRWithDefaultBranch(pr, aiModel, "")
-}
-
-func (m *MockWorkspaceManager) GetOrCreateWorkspaceForPRWithDefaultBranch(pr *github.PullRequest, aiModel, defaultBranch string) *models.Workspace {
 	ws := m.GetWorkspaceByPRAndAI(pr, aiModel)
 	if ws != nil {
 		return ws
 	}
-	return m.CreateWorkspaceFromPRWithDefaultBranch(pr, aiModel, defaultBranch)
+	return m.CreateWorkspaceFromPR(pr, aiModel)
 }
 
 // Legacy method for compatibility
 func (m *MockWorkspaceManager) GetOrCreateWorkspaceForPRWithAI(pr *github.PullRequest, aiModel string) *models.Workspace {
-	return m.GetOrCreateWorkspaceForPRWithDefaultBranch(pr, aiModel, "")
+	return m.GetOrCreateWorkspaceForPR(pr, aiModel)
 }
 
 // Workspace management methods (mock implementations)

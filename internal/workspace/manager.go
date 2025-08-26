@@ -107,11 +107,6 @@ func (m *Manager) GetAllWorkspacesByIssue(issue *github.Issue) []*models.Workspa
 
 // CreateWorkspaceFromIssue creates workspace from Issue with AI model support
 func (m *Manager) CreateWorkspaceFromIssue(issue *github.Issue, aiModel string) *models.Workspace {
-	return m.CreateWorkspaceFromIssueWithDefaultBranch(issue, aiModel, "")
-}
-
-// CreateWorkspaceFromIssueWithDefaultBranch creates workspace from Issue with AI model and default branch support
-func (m *Manager) CreateWorkspaceFromIssueWithDefaultBranch(issue *github.Issue, aiModel, defaultBranch string) *models.Workspace {
 	log.Infof("Creating workspace from Issue #%d with AI model: %s", issue.GetNumber(), aiModel)
 
 	// Extract repository information from Issue HTML URL
@@ -135,7 +130,7 @@ func (m *Manager) CreateWorkspaceFromIssueWithDefaultBranch(issue *github.Issue,
 	clonePath := filepath.Join(m.baseDir, org, issueDir)
 
 	// Get or create cached repository, then clone from cache
-	cachedRepoPath, err := m.repoCacheService.GetOrCreateCachedRepoWithDefaultBranch(repoURL, org, repo, defaultBranch)
+	cachedRepoPath, err := m.repoCacheService.GetOrCreateCachedRepo(repoURL, org, repo)
 	if err != nil {
 		log.Errorf("Failed to get cached repository for Issue #%d: %v", issue.GetNumber(), err)
 		return nil
@@ -171,11 +166,6 @@ func (m *Manager) CreateWorkspaceFromIssueWithDefaultBranch(issue *github.Issue,
 
 // GetOrCreateWorkspaceForIssue gets or creates workspace for Issue with AI model
 func (m *Manager) GetOrCreateWorkspaceForIssue(issue *github.Issue, aiModel string) *models.Workspace {
-	return m.GetOrCreateWorkspaceForIssueWithDefaultBranch(issue, aiModel, "")
-}
-
-// GetOrCreateWorkspaceForIssueWithDefaultBranch gets or creates workspace for Issue with AI model and default branch support
-func (m *Manager) GetOrCreateWorkspaceForIssueWithDefaultBranch(issue *github.Issue, aiModel, defaultBranch string) *models.Workspace {
 	// Try to get existing workspace for the specific AI model
 	ws := m.GetWorkspaceByIssueAndAI(issue, aiModel)
 	if ws != nil {
@@ -193,16 +183,11 @@ func (m *Manager) GetOrCreateWorkspaceForIssueWithDefaultBranch(issue *github.Is
 
 	// Create new workspace
 	log.Infof("Creating new workspace for Issue #%d with AI model: %s", issue.GetNumber(), aiModel)
-	return m.CreateWorkspaceFromIssueWithDefaultBranch(issue, aiModel, defaultBranch)
+	return m.CreateWorkspaceFromIssue(issue, aiModel)
 }
 
 // CreateWorkspaceFromPR creates workspace from PR with AI model support
 func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest, aiModel string) *models.Workspace {
-	return m.CreateWorkspaceFromPRWithDefaultBranch(pr, aiModel, "")
-}
-
-// CreateWorkspaceFromPRWithDefaultBranch creates workspace from PR with AI model and default branch support
-func (m *Manager) CreateWorkspaceFromPRWithDefaultBranch(pr *github.PullRequest, aiModel, defaultBranch string) *models.Workspace {
 	log.Infof("Creating workspace from PR #%d with AI model: %s", pr.GetNumber(), aiModel)
 
 	// Get repository URL
@@ -224,7 +209,7 @@ func (m *Manager) CreateWorkspaceFromPRWithDefaultBranch(pr *github.PullRequest,
 	clonePath := filepath.Join(m.baseDir, org, prDir)
 
 	// Get or create cached repository, then clone from cache
-	cachedRepoPath, err := m.repoCacheService.GetOrCreateCachedRepoWithDefaultBranch(repoURL, org, repo, defaultBranch)
+	cachedRepoPath, err := m.repoCacheService.GetOrCreateCachedRepo(repoURL, org, repo)
 	if err != nil {
 		log.Errorf("Failed to get cached repository for PR #%d: %v", pr.GetNumber(), err)
 		return nil
@@ -269,11 +254,6 @@ func (m *Manager) CreateWorkspaceFromPRWithDefaultBranch(pr *github.PullRequest,
 
 // GetOrCreateWorkspaceForPR gets or creates workspace for PR with AI model
 func (m *Manager) GetOrCreateWorkspaceForPR(pr *github.PullRequest, aiModel string) *models.Workspace {
-	return m.GetOrCreateWorkspaceForPRWithDefaultBranch(pr, aiModel, "")
-}
-
-// GetOrCreateWorkspaceForPRWithDefaultBranch gets or creates workspace for PR with AI model and default branch support
-func (m *Manager) GetOrCreateWorkspaceForPRWithDefaultBranch(pr *github.PullRequest, aiModel, defaultBranch string) *models.Workspace {
 	// Try to get existing workspace for the specific AI model
 	ws := m.GetWorkspaceByPRAndAI(pr, aiModel)
 	if ws != nil {
@@ -288,7 +268,7 @@ func (m *Manager) GetOrCreateWorkspaceForPRWithDefaultBranch(pr *github.PullRequ
 
 	// Create new workspace
 	log.Infof("Creating new workspace for PR #%d with AI model: %s", pr.GetNumber(), aiModel)
-	return m.CreateWorkspaceFromPRWithDefaultBranch(pr, aiModel, defaultBranch)
+	return m.CreateWorkspaceFromPR(pr, aiModel)
 }
 
 // CreateSessionPath creates a session directory

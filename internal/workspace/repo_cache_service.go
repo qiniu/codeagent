@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/qiniu/x/log"
@@ -13,9 +14,7 @@ import (
 // RepoCacheService manages local repository cache to avoid repeated remote clones
 type RepoCacheService interface {
 	GetOrCreateCachedRepo(repoURL, org, repo string) (string, error)
-	GetOrCreateCachedRepoWithDefaultBranch(repoURL, org, repo, defaultBranch string) (string, error)
 	UpdateCachedRepo(cachedRepoPath string) error
-	UpdateCachedRepoWithDefaultBranch(cachedRepoPath, defaultBranch string) error
 	CloneFromCache(cachedRepoPath, targetPath, branch, repoURL string, createNewBranch bool) error
 	CachedRepoExists(org, repo string) bool
 	GetCachedRepoPath(org, repo string) string
@@ -38,19 +37,14 @@ func NewRepoCacheService(baseDir string, gitService GitService) RepoCacheService
 	}
 }
 
-// GetOrCreateCachedRepo gets or creates a cached repository using fallback branch detection
+// GetOrCreateCachedRepo gets or creates a cached repository
 func (r *repoCacheService) GetOrCreateCachedRepo(repoURL, org, repo string) (string, error) {
-	return r.GetOrCreateCachedRepoWithDefaultBranch(repoURL, org, repo, "")
-}
-
-// GetOrCreateCachedRepoWithDefaultBranch gets or creates a cached repository with specified default branch
-func (r *repoCacheService) GetOrCreateCachedRepoWithDefaultBranch(repoURL, org, repo, defaultBranch string) (string, error) {
 	cachedRepoPath := r.GetCachedRepoPath(org, repo)
 
 	// Check if cached repo already exists
 	if r.CachedRepoExists(org, repo) {
 		// Update the cached repo to get latest changes
-		if err := r.UpdateCachedRepoWithDefaultBranch(cachedRepoPath, defaultBranch); err != nil {
+		if err := r.UpdateCachedRepo(cachedRepoPath); err != nil {
 			log.Warnf("Failed to update cached repo %s: %v", cachedRepoPath, err)
 			// Continue with existing cached repo even if update fails
 		}
@@ -76,13 +70,8 @@ func (r *repoCacheService) GetOrCreateCachedRepoWithDefaultBranch(repoURL, org, 
 	return cachedRepoPath, nil
 }
 
-// UpdateCachedRepo updates a cached repository with latest changes using fallback branch detection
+// UpdateCachedRepo updates a cached repository with latest changes
 func (r *repoCacheService) UpdateCachedRepo(cachedRepoPath string) error {
-	return r.UpdateCachedRepoWithDefaultBranch(cachedRepoPath, "")
-}
-
-// UpdateCachedRepoWithDefaultBranch updates a cached repository with latest changes using specified default branch
-func (r *repoCacheService) UpdateCachedRepoWithDefaultBranch(cachedRepoPath, defaultBranch string) error {
 	repoKey := cachedRepoPath
 
 	r.mutex.Lock()
@@ -108,7 +97,7 @@ func (r *repoCacheService) UpdateCachedRepoWithDefaultBranch(cachedRepoPath, def
 	}
 
 	// Update main/master branch
-	if err := r.updateMainBranchWithDefault(cachedRepoPath, defaultBranch); err != nil {
+	if err := r.updateCurrentBranch(cachedRepoPath); err != nil {
 		log.Warnf("Failed to update main branch in %s: %v", cachedRepoPath, err)
 		// Don't fail the entire operation if main branch update fails
 	}
@@ -225,37 +214,29 @@ func (r *repoCacheService) runGitCommand(workDir string, args ...string) error {
 	return nil
 }
 
-// updateMainBranchWithDefault updates the main/master branch in cached repository
-func (r *repoCacheService) updateMainBranchWithDefault(cachedRepoPath, defaultBranch string) error {
-	// Try to find and update main branch, prioritizing provided default branch
-	var mainBranches []string
-	if defaultBranch != "" {
-		mainBranches = []string{defaultBranch, "main", "master"}
-	} else {
-		mainBranches = []string{"main", "master"}
+// updateCurrentBranch updates the current branch in cached repository
+func (r *repoCacheService) updateCurrentBranch(cachedRepoPath string) error {
+	// Get current branch name
+	cmd := exec.Command("git", "branch", "--show-current")
+	cmd.Dir = cachedRepoPath
+	currentBranchBytes, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get current branch: %v", err)
 	}
 
-	for _, mainBranch := range mainBranches {
-		// Check if branch exists
-		if err := r.runGitCommand(cachedRepoPath, "show-ref", "--verify", "--quiet", "refs/heads/"+mainBranch); err != nil {
-			continue // Branch doesn't exist, try next
-		}
-
-		// Checkout to main branch
-		if err := r.runGitCommand(cachedRepoPath, "checkout", mainBranch); err != nil {
-			log.Warnf("Failed to checkout %s branch: %v", mainBranch, err)
-			continue
-		}
-
-		// Pull latest changes
-		if err := r.runGitCommand(cachedRepoPath, "pull", "--rebase"); err != nil {
-			log.Warnf("Failed to pull %s branch: %v", mainBranch, err)
-			continue
-		}
-
-		log.Infof("Successfully updated %s branch in cached repo", mainBranch)
-		return nil
+	currentBranch := strings.TrimSpace(string(currentBranchBytes))
+	if currentBranch == "" {
+		return fmt.Errorf("repository is in detached HEAD state")
 	}
 
-	return fmt.Errorf("no main/master branch found to update")
+	log.Infof("Updating current branch '%s' in cached repo", currentBranch)
+
+	// Pull latest changes for the current branch
+	if err := r.runGitCommand(cachedRepoPath, "pull", "--rebase"); err != nil {
+		log.Warnf("Failed to pull current branch %s: %v", currentBranch, err)
+		return err
+	}
+
+	log.Infof("Successfully updated current branch '%s' in cached repo", currentBranch)
+	return nil
 }
