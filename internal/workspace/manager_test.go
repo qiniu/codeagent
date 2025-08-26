@@ -459,7 +459,7 @@ func TestIssueWorkspaceLifecycle(t *testing.T) {
 
 	t.Run("Create new Issue workspace", func(t *testing.T) {
 		// Test workspace creation
-		ws := manager.GetWorkspaceByIssueAndAI(issue, "claude")
+		ws := manager.GetWorkspaceByIssue(issue, "claude")
 		if ws != nil {
 			t.Error("Expected no existing workspace but found one")
 		}
@@ -480,7 +480,7 @@ func TestIssueWorkspaceLifecycle(t *testing.T) {
 		}
 
 		// Verify workspace can be retrieved
-		retrieved := manager.GetWorkspaceByIssueAndAI(issue, "claude")
+		retrieved := manager.GetWorkspaceByIssue(issue, "claude")
 		if retrieved == nil {
 			t.Error("Expected to find stored workspace but didn't")
 		}
@@ -511,8 +511,8 @@ func TestIssueWorkspaceLifecycle(t *testing.T) {
 		}
 
 		// Verify both workspaces exist independently
-		claudeWs := manager.GetWorkspaceByIssueAndAI(issue, "claude")
-		geminiWs := manager.GetWorkspaceByIssueAndAI(issue, "gemini")
+		claudeWs := manager.GetWorkspaceByIssue(issue, "claude")
+		geminiWs := manager.GetWorkspaceByIssue(issue, "gemini")
 
 		if claudeWs == nil {
 			t.Error("Claude workspace should exist")
@@ -527,16 +527,12 @@ func TestIssueWorkspaceLifecycle(t *testing.T) {
 			}
 		}
 
-		// Test GetAllWorkspacesByIssue
-		allWorkspaces := manager.GetAllWorkspacesByIssue(issue)
-		if len(allWorkspaces) != 2 {
-			t.Errorf("Expected 2 workspaces for issue, got %d", len(allWorkspaces))
-		}
+		// Note: GetAllWorkspacesByIssue method has been removed as it was only used in tests
 	})
 
 	t.Run("Workspace cleanup", func(t *testing.T) {
 		// Get existing workspace
-		ws := manager.GetWorkspaceByIssueAndAI(issue, "claude")
+		ws := manager.GetWorkspaceByIssue(issue, "claude")
 		if ws == nil {
 			t.Fatal("Expected workspace to exist for cleanup test")
 		}
@@ -547,7 +543,7 @@ func TestIssueWorkspaceLifecycle(t *testing.T) {
 
 		// Issue workspace without SessionPath will return false, but should still cleanup
 		// Let's verify the workspace is removed from repository
-		wsAfterCleanup := manager.GetWorkspaceByIssueAndAI(issue, "claude")
+		wsAfterCleanup := manager.GetWorkspaceByIssue(issue, "claude")
 		if wsAfterCleanup != nil {
 			t.Error("Expected workspace to be removed from repository after cleanup")
 		}
@@ -611,7 +607,7 @@ func TestPRWorkspaceLifecycle(t *testing.T) {
 
 	t.Run("Create and reuse PR workspace", func(t *testing.T) {
 		// Initially no workspace should exist
-		ws := manager.GetWorkspaceByPRAndAI(pr, "claude")
+		ws := manager.GetWorkspaceByPR(pr, "claude")
 		if ws != nil {
 			t.Error("Expected no existing workspace but found one")
 		}
@@ -634,7 +630,7 @@ func TestPRWorkspaceLifecycle(t *testing.T) {
 		}
 
 		// Test retrieval
-		retrieved := manager.GetWorkspaceByPRAndAI(pr, "claude")
+		retrieved := manager.GetWorkspaceByPR(pr, "claude")
 		if retrieved == nil {
 			t.Error("Expected to find stored PR workspace")
 		}
@@ -843,7 +839,7 @@ func TestIssueWorkspaceReuse(t *testing.T) {
 		}
 
 		// Now it should be retrievable
-		retrieved := manager.GetWorkspaceByIssueAndAI(issue, "claude")
+		retrieved := manager.GetWorkspaceByIssue(issue, "claude")
 		if retrieved == nil {
 			t.Error("Should be able to retrieve stored Issue workspace")
 		}
@@ -1056,7 +1052,7 @@ func TestWorkspaceStateConsistency(t *testing.T) {
 		}
 
 		// Test retrieval consistency
-		retrievedWs := manager.GetWorkspaceByPRAndAI(pr, "claude")
+		retrievedWs := manager.GetWorkspaceByPR(pr, "claude")
 		if retrievedWs == nil {
 			t.Error("Manager should be able to retrieve workspace stored in repository")
 		}

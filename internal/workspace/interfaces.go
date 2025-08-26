@@ -19,12 +19,9 @@ type WorkspaceManager interface {
 	GetExpiredWorkspaces() []*models.Workspace
 
 	// Workspace retrieval
-	GetWorkspaceByPR(pr *github.PullRequest) *models.Workspace
-	GetWorkspaceByPRAndAI(pr *github.PullRequest, aiModel string) *models.Workspace
+	GetWorkspaceByPR(pr *github.PullRequest, aiModel string) *models.Workspace
 	GetAllWorkspacesByPR(pr *github.PullRequest) []*models.Workspace
-	GetWorkspaceByIssue(issue *github.Issue) *models.Workspace
-	GetWorkspaceByIssueAndAI(issue *github.Issue, aiModel string) *models.Workspace
-	GetAllWorkspacesByIssue(issue *github.Issue) []*models.Workspace
+	GetWorkspaceByIssue(issue *github.Issue, aiModel string) *models.Workspace
 
 	// Workspace creation
 	CreateWorkspaceFromIssue(issue *github.Issue, aiModel string) *models.Workspace
@@ -36,8 +33,6 @@ type WorkspaceManager interface {
 	CreateSessionPath(underPath, aiModel, repo string, prNumber int, suffix string) (string, error)
 	MoveIssueToPR(ws *models.Workspace, prNumber int) error
 
-	// Event handling
-	PrepareFromEvent(event *github.IssueCommentEvent) models.Workspace
 
 	// Utility methods
 	ExtractAIModelFromBranch(branchName string) string
@@ -65,7 +60,6 @@ type MockWorkspaceManager struct {
 	CreateWorkspaceFunc   func() *models.Workspace
 	CreateSessionPathFunc func(underPath, aiModel, repo string, prNumber int, suffix string) (string, error)
 	MoveIssueToPRFunc     func(ws *models.Workspace, prNumber int) error
-	PrepareFromEventFunc  func(event *github.IssueCommentEvent) models.Workspace
 	ExtractAIModelFunc    func(branchName string) string
 	DirectoryFormatFuncs  map[string]interface{}
 }
@@ -115,13 +109,8 @@ func (m *MockWorkspaceManager) GetExpiredWorkspaces() []*models.Workspace {
 	return m.ExpiredWorkspaces
 }
 
-// GetWorkspaceByPR retrieves workspace by PR
-func (m *MockWorkspaceManager) GetWorkspaceByPR(pr *github.PullRequest) *models.Workspace {
-	return m.GetWorkspaceByPRAndAI(pr, "")
-}
-
-// GetWorkspaceByPRAndAI retrieves workspace by PR and AI model
-func (m *MockWorkspaceManager) GetWorkspaceByPRAndAI(pr *github.PullRequest, aiModel string) *models.Workspace {
+// GetWorkspaceByPR retrieves workspace by PR and optional AI model
+func (m *MockWorkspaceManager) GetWorkspaceByPR(pr *github.PullRequest, aiModel string) *models.Workspace {
 	key := generateWorkspaceKey(
 		pr.GetBase().GetRepo().GetOwner().GetLogin(),
 		pr.GetBase().GetRepo().GetName(),
@@ -145,11 +134,7 @@ func (m *MockWorkspaceManager) GetAllWorkspacesByPR(pr *github.PullRequest) []*m
 }
 
 // Issue workspace methods (mock implementations)
-func (m *MockWorkspaceManager) GetWorkspaceByIssue(issue *github.Issue) *models.Workspace {
-	return m.GetWorkspaceByIssueAndAI(issue, "")
-}
-
-func (m *MockWorkspaceManager) GetWorkspaceByIssueAndAI(issue *github.Issue, aiModel string) *models.Workspace {
+func (m *MockWorkspaceManager) GetWorkspaceByIssue(issue *github.Issue, aiModel string) *models.Workspace {
 	// Extract org and repo from Issue URL for key generation
 	issueURL := issue.GetHTMLURL()
 	if !strings.Contains(issueURL, "github.com") {
@@ -181,17 +166,6 @@ func (m *MockWorkspaceManager) GetWorkspaceByIssueAndAI(issue *github.Issue, aiM
 	return m.Workspaces[key]
 }
 
-func (m *MockWorkspaceManager) GetAllWorkspacesByIssue(issue *github.Issue) []*models.Workspace {
-	var workspaces []*models.Workspace
-	issueNumber := issue.GetNumber()
-
-	for _, ws := range m.Workspaces {
-		if ws.Issue != nil && ws.Issue.GetNumber() == issueNumber {
-			workspaces = append(workspaces, ws)
-		}
-	}
-	return workspaces
-}
 
 func (m *MockWorkspaceManager) CreateWorkspaceFromIssue(issue *github.Issue, aiModel string) *models.Workspace {
 	if m.CreateWorkspaceFunc != nil {
@@ -206,7 +180,7 @@ func (m *MockWorkspaceManager) CreateWorkspaceFromIssue(issue *github.Issue, aiM
 }
 
 func (m *MockWorkspaceManager) GetOrCreateWorkspaceForIssue(issue *github.Issue, aiModel string) *models.Workspace {
-	ws := m.GetWorkspaceByIssueAndAI(issue, aiModel)
+	ws := m.GetWorkspaceByIssue(issue, aiModel)
 	if ws != nil {
 		return ws
 	}
@@ -243,7 +217,7 @@ func (m *MockWorkspaceManager) CreateWorkspaceFromPRWithAI(pr *github.PullReques
 }
 
 func (m *MockWorkspaceManager) GetOrCreateWorkspaceForPR(pr *github.PullRequest, aiModel string) *models.Workspace {
-	ws := m.GetWorkspaceByPRAndAI(pr, aiModel)
+	ws := m.GetWorkspaceByPR(pr, aiModel)
 	if ws != nil {
 		return ws
 	}
@@ -271,13 +245,6 @@ func (m *MockWorkspaceManager) MoveIssueToPR(ws *models.Workspace, prNumber int)
 	return nil
 }
 
-// Event handling (mock implementation)
-func (m *MockWorkspaceManager) PrepareFromEvent(event *github.IssueCommentEvent) models.Workspace {
-	if m.PrepareFromEventFunc != nil {
-		return m.PrepareFromEventFunc(event)
-	}
-	return models.Workspace{Issue: event.Issue}
-}
 
 // Utility methods (mock implementations)
 func (m *MockWorkspaceManager) ExtractAIModelFromBranch(branchName string) string {

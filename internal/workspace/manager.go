@@ -67,13 +67,8 @@ func (m *Manager) RegisterWorkspace(ws *models.Workspace, pr *github.PullRequest
 	}
 }
 
-// GetWorkspaceByPR retrieves workspace by PR (with default AI model)
-func (m *Manager) GetWorkspaceByPR(pr *github.PullRequest) *models.Workspace {
-	return m.GetWorkspaceByPRAndAI(pr, "")
-}
-
-// GetWorkspaceByPRAndAI retrieves workspace by PR and AI model
-func (m *Manager) GetWorkspaceByPRAndAI(pr *github.PullRequest, aiModel string) *models.Workspace {
+// GetWorkspaceByPR retrieves workspace by PR and optional AI model
+func (m *Manager) GetWorkspaceByPR(pr *github.PullRequest, aiModel string) *models.Workspace {
 	ws, exists := m.repository.GetByPR(pr, aiModel)
 	if exists {
 		return ws
@@ -86,13 +81,8 @@ func (m *Manager) GetAllWorkspacesByPR(pr *github.PullRequest) []*models.Workspa
 	return m.repository.GetAllByPR(pr)
 }
 
-// GetWorkspaceByIssue retrieves workspace by Issue (with default AI model)
-func (m *Manager) GetWorkspaceByIssue(issue *github.Issue) *models.Workspace {
-	return m.GetWorkspaceByIssueAndAI(issue, "")
-}
-
-// GetWorkspaceByIssueAndAI retrieves workspace by Issue and AI model
-func (m *Manager) GetWorkspaceByIssueAndAI(issue *github.Issue, aiModel string) *models.Workspace {
+// GetWorkspaceByIssue retrieves workspace by Issue and optional AI model
+func (m *Manager) GetWorkspaceByIssue(issue *github.Issue, aiModel string) *models.Workspace {
 	ws, exists := m.repository.GetByIssue(issue, aiModel)
 	if exists {
 		return ws
@@ -100,10 +90,6 @@ func (m *Manager) GetWorkspaceByIssueAndAI(issue *github.Issue, aiModel string) 
 	return nil
 }
 
-// GetAllWorkspacesByIssue gets all workspaces for an Issue (all AI models)
-func (m *Manager) GetAllWorkspacesByIssue(issue *github.Issue) []*models.Workspace {
-	return m.repository.GetAllByIssue(issue)
-}
 
 // CreateWorkspaceFromIssue creates workspace from Issue with AI model support
 func (m *Manager) CreateWorkspaceFromIssue(issue *github.Issue, aiModel string) *models.Workspace {
@@ -167,7 +153,7 @@ func (m *Manager) CreateWorkspaceFromIssue(issue *github.Issue, aiModel string) 
 // GetOrCreateWorkspaceForIssue gets or creates workspace for Issue with AI model
 func (m *Manager) GetOrCreateWorkspaceForIssue(issue *github.Issue, aiModel string) *models.Workspace {
 	// Try to get existing workspace for the specific AI model
-	ws := m.GetWorkspaceByIssueAndAI(issue, aiModel)
+	ws := m.GetWorkspaceByIssue(issue, aiModel)
 	if ws != nil {
 		// Validate workspace for Issue
 		if m.validateWorkspaceForIssue(ws, issue) {
@@ -255,7 +241,7 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest, aiModel string) 
 // GetOrCreateWorkspaceForPR gets or creates workspace for PR with AI model
 func (m *Manager) GetOrCreateWorkspaceForPR(pr *github.PullRequest, aiModel string) *models.Workspace {
 	// Try to get existing workspace for the specific AI model
-	ws := m.GetWorkspaceByPRAndAI(pr, aiModel)
+	ws := m.GetWorkspaceByPR(pr, aiModel)
 	if ws != nil {
 		// Validate workspace for PR
 		if m.validateWorkspaceForPR(ws, pr) {
@@ -324,16 +310,6 @@ func (m *Manager) GetExpiredWorkspaces() []*models.Workspace {
 	return m.repository.GetExpired(m.config.Workspace.CleanupAfter)
 }
 
-// PrepareFromEvent prepares workspace from Issue comment event
-func (m *Manager) PrepareFromEvent(event *github.IssueCommentEvent) models.Workspace {
-	// Issue event itself doesn't create workspace, need to create PR first
-	log.Infof("Issue comment event for Issue #%d, workspace should be created after PR is created", event.Issue.GetNumber())
-
-	// Return empty workspace indicating PR needs to be created first
-	return models.Workspace{
-		Issue: event.Issue,
-	}
-}
 
 // ExtractAIModelFromBranch extracts AI model information from branch name
 func (m *Manager) ExtractAIModelFromBranch(branchName string) string {

@@ -388,7 +388,7 @@ func (th *TagHandler) processIssueCommentReply(
 	}
 
 	responseText := string(output)
-	xl.Infof("AI response generated, length: %d", len(responseText))
+	xl.Infof("AI response generated, length: %d, response: %s", len(responseText), responseText)
 
 	// 使用MCP工具回复评论
 	err = th.replyToIssueComment(ctx, event, responseText)
