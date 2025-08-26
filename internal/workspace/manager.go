@@ -142,7 +142,7 @@ func (m *Manager) CreateWorkspaceFromIssueWithDefaultBranch(issue *github.Issue,
 	}
 
 	// Clone from cache to workspace
-	if err := m.repoCacheService.CloneFromCache(cachedRepoPath, clonePath, branchName, true); err != nil {
+	if err := m.repoCacheService.CloneFromCache(cachedRepoPath, clonePath, branchName, repoURL, true); err != nil {
 		log.Errorf("Failed to clone from cache for Issue #%d: %v", issue.GetNumber(), err)
 		return nil
 	}
@@ -231,7 +231,7 @@ func (m *Manager) CreateWorkspaceFromPRWithDefaultBranch(pr *github.PullRequest,
 	}
 
 	// Clone from cache to workspace (don't create new branch, switch to existing PR branch)
-	if err := m.repoCacheService.CloneFromCache(cachedRepoPath, clonePath, prBranch, false); err != nil {
+	if err := m.repoCacheService.CloneFromCache(cachedRepoPath, clonePath, prBranch, repoURL, false); err != nil {
 		log.Errorf("Failed to clone from cache for PR #%d: %v", pr.GetNumber(), err)
 		return nil
 	}

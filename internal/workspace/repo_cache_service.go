@@ -16,7 +16,7 @@ type RepoCacheService interface {
 	GetOrCreateCachedRepoWithDefaultBranch(repoURL, org, repo, defaultBranch string) (string, error)
 	UpdateCachedRepo(cachedRepoPath string) error
 	UpdateCachedRepoWithDefaultBranch(cachedRepoPath, defaultBranch string) error
-	CloneFromCache(cachedRepoPath, targetPath, branch string, createNewBranch bool) error
+	CloneFromCache(cachedRepoPath, targetPath, branch, repoURL string, createNewBranch bool) error
 	CachedRepoExists(org, repo string) bool
 	GetCachedRepoPath(org, repo string) string
 }
@@ -118,7 +118,7 @@ func (r *repoCacheService) UpdateCachedRepoWithDefaultBranch(cachedRepoPath, def
 }
 
 // CloneFromCache clones from cached repository to target workspace
-func (r *repoCacheService) CloneFromCache(cachedRepoPath, targetPath, branch string, createNewBranch bool) error {
+func (r *repoCacheService) CloneFromCache(cachedRepoPath, targetPath, branch, repoURL string, createNewBranch bool) error {
 	log.Infof("Cloning from cache: %s -> %s, branch: %s, createNewBranch: %v",
 		cachedRepoPath, targetPath, branch, createNewBranch)
 
@@ -180,6 +180,16 @@ func (r *repoCacheService) CloneFromCache(cachedRepoPath, targetPath, branch str
 			} else {
 				log.Infof("Switched to existing branch: %s", branch)
 			}
+		}
+	}
+
+	// Fix remote origin URL to point to the original remote repository instead of local cache
+	if repoURL != "" {
+		if err := r.runGitCommand(targetPath, "remote", "set-url", "origin", repoURL); err != nil {
+			log.Warnf("Failed to set remote origin URL to %s: %v", repoURL, err)
+			// Don't fail the entire operation if remote URL setting fails
+		} else {
+			log.Infof("Set remote origin URL to: %s", repoURL)
 		}
 	}
 
