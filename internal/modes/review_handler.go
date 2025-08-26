@@ -248,7 +248,7 @@ func (rh *ReviewHandler) processCodeReview(ctx context.Context, prEvent *models.
 	xl.Infof("Created initial comment with ID: %d for PR #%d", commentID, prNumber)
 
 	// 3. 获取或创建工作空间
-	ws := rh.workspace.GetOrCreateWorkspaceForPRWithAI(pr, aiModel)
+	ws := rh.workspace.GetOrCreateWorkspaceForPR(pr, aiModel)
 	if ws == nil {
 		return fmt.Errorf("failed to get or create workspace for PR review")
 	}
