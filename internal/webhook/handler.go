@@ -2,11 +2,13 @@ package webhook
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 
 	"github.com/qiniu/codeagent/internal/agent"
 	"github.com/qiniu/codeagent/internal/config"
+	"github.com/qiniu/codeagent/internal/events"
 	"github.com/qiniu/codeagent/pkg/signature"
 
 	"github.com/qiniu/x/reqid"
@@ -82,7 +84,11 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	go func(eventType string, payload []byte, deliveryID string, traceCtx context.Context) {
 		traceLog := xlog.NewWith(traceCtx)
 		if err := h.enhancedAgent.ProcessGitHubWebhookEvent(traceCtx, eventType, deliveryID, payload); err != nil {
-			traceLog.Warnf("enhanced agent event processing error: %v", err)
+			if errors.Is(err, events.ErrUnsupportedEventType) {
+				traceLog.Debugf("enhanced agent unsupported event type: %v", err)
+			} else {
+				traceLog.Warnf("enhanced agent event processing error: %v", err)
+			}
 		} else {
 			traceLog.Infof("enhanced agent event processing completed successfully")
 		}

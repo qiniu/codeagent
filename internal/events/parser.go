@@ -35,7 +35,7 @@ func (p *EventParser) ParseEvent(ctx context.Context, eventType string, rawEvent
 			return p.ParseIssueCommentEvent(ctx, event)
 		}
 	}
-	return nil, fmt.Errorf("unsupported event type or format: %s", eventType)
+	return nil, UnsupportedEventTypeError(eventType)
 }
 
 // ParseIssueCommentEvent 解析Issue评论事件（从原始GitHub事件）
@@ -71,7 +71,7 @@ func (p *EventParser) ParseWebhookEvent(
 ) (models.GitHubContext, error) {
 	// 验证事件类型
 	if !models.IsValidEventType(eventType) {
-		return nil, fmt.Errorf("unsupported event type: %s", eventType)
+		return nil, UnsupportedEventTypeError(eventType)
 	}
 
 	// 根据事件类型解析
@@ -89,7 +89,7 @@ func (p *EventParser) ParseWebhookEvent(
 	case models.EventPush:
 		return p.parsePushEvent(ctx, payload, deliveryID)
 	default:
-		return nil, fmt.Errorf("event type %s not implemented yet", eventType)
+		return nil, UnsupportedEventTypeError(eventType)
 	}
 }
 
@@ -101,21 +101,21 @@ func (p *EventParser) parseIssueCommentEvent(
 ) (*models.IssueCommentContext, error) {
 	var event github.IssueCommentEvent
 	if err := json.Unmarshal(payload, &event); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal issue comment event: %w", err)
+		return nil, ParsingError("issue_comment", err)
 	}
 
 	// 检查必需字段
 	if event.Repo == nil {
-		return nil, fmt.Errorf("missing repository in issue comment event")
+		return nil, ValidationError("issue_comment", ErrMissingRepository, "")
 	}
 	if event.Sender == nil {
-		return nil, fmt.Errorf("missing sender in issue comment event")
+		return nil, ValidationError("issue_comment", ErrMissingSender, "")
 	}
 	if event.Issue == nil {
-		return nil, fmt.Errorf("missing issue in issue comment event")
+		return nil, ValidationError("issue_comment", ErrMissingIssue, "")
 	}
 	if event.Comment == nil {
-		return nil, fmt.Errorf("missing comment in issue comment event")
+		return nil, ValidationError("issue_comment", ErrMissingComment, "")
 	}
 
 	// 判断是否是PR评论
