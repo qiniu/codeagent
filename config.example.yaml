@@ -34,3 +34,13 @@ docker:
 # Code provider configuration
 code_provider: claude # Options: claude, gemini
 use_docker: true # Whether to use Docker, false means use local CLI
+
+# AI mention configuration
+mention:
+  # List of mention triggers that will activate AI processing
+  # Supports multiple triggers for different use cases
+  triggers:
+    - "@qiniu-ci" # Default company AI assistant
+    - "@qiniu-ai" # another company AI assistant
+  # Default trigger (used when no specific trigger list is provided)
+  default_trigger: "@qiniu-ci"
