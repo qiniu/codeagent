@@ -278,15 +278,6 @@ func (rh *ReviewHandler) processCodeReview(ctx context.Context, prEvent *models.
 	xl.Infof("AI code review completed, output length: %d", len(output))
 	xl.Debugf("Review Output: %s", string(output))
 
-	// 6. 更新初始评论为最终审查结果
-	commentBody := fmt.Sprintf("🤖 **代码审查结果**\n\n%s", string(output))
-	err = rh.updatePRComment(ctx, pr, commentID, commentBody, client)
-	if err != nil {
-		xl.Errorf("Failed to update PR review comment: %v", err)
-		return fmt.Errorf("failed to update PR review comment: %w", err)
-	}
-	xl.Infof("Successfully updated AI review comment in PR")
-
 	xl.Infof("PR code review process completed successfully")
 	return nil
 }

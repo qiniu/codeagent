@@ -39,6 +39,7 @@ func New(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 			if cfg.Claude.Interactive {
 				return NewClaudeInteractive(workspace, cfg)
 			}
+			// Docker模式现在集成了MCP支持
 			return NewClaudeDocker(workspace, cfg)
 		}
 		return NewClaudeLocal(workspace, cfg)

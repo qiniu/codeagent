@@ -101,9 +101,9 @@ func (m *Manager) GetAvailableTools(ctx context.Context, mcpCtx *models.MCPConte
 
 		serverTools := server.GetTools()
 
-		// 为工具名称添加服务器前缀，避免冲突
+		// 为工具名称添加服务器前缀，使用 Claude CLI 期望的格式
 		for _, tool := range serverTools {
-			tool.Name = fmt.Sprintf("%s_%s", serverName, tool.Name)
+			tool.Name = fmt.Sprintf("mcp__%s__%s", serverName, tool.Name)
 			tools = append(tools, tool)
 		}
 
@@ -209,15 +209,27 @@ func (m *Manager) GetMetrics() map[string]*models.ExecutionMetrics {
 
 // parseToolName 解析工具名称，返回服务器名称和工具名称
 func (m *Manager) parseToolName(fullName string) (serverName, toolName string, err error) {
+	// 支持新格式：mcp__server__tool
+	if strings.HasPrefix(fullName, "mcp__") {
+		// 移除 "mcp__" 前缀
+		withoutPrefix := strings.TrimPrefix(fullName, "mcp__")
+		parts := strings.SplitN(withoutPrefix, "__", 2)
+		if len(parts) != 2 {
+			return "", "", fmt.Errorf("invalid MCP tool name format: %s (expected: mcp__server__tool)", fullName)
+		}
+		return parts[0], parts[1], nil
+	}
+	
+	// 支持旧格式：server_tool（向后兼容）
 	parts := strings.SplitN(fullName, "_", 2)
 	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid tool name format: %s (expected: server_tool)", fullName)
+		return "", "", fmt.Errorf("invalid tool name format: %s (expected: server_tool or mcp__server__tool)", fullName)
 	}
 	return parts[0], parts[1], nil
 }
 
 // errorResult 创建错误结果
-func (m *Manager) errorResult(id string, err error) *models.ToolResult {
+func (m *Manager) errorResult(id models.MCPID, err error) *models.ToolResult {
 	return &models.ToolResult{
 		ID:      id,
 		Success: false,

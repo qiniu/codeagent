@@ -184,9 +184,19 @@ func (s *GitHubFilesServer) HandleToolCall(ctx context.Context, call *models.Too
 		return nil, fmt.Errorf("failed to get GitHub client for %s/%s: %w", owner, repo, err)
 	}
 
-	xl.Infof("Executing GitHub files tool: %s on %s/%s", call.Function.Name, owner, repo)
+	// 解析工具名称，去掉服务器前缀
+	toolName := call.Function.Name
+	// 支持新格式 mcp__server__tool
+	if strings.HasPrefix(call.Function.Name, "mcp__github-files__") {
+		toolName = strings.TrimPrefix(call.Function.Name, "mcp__github-files__")
+	} else if parts := strings.SplitN(call.Function.Name, "_", 2); len(parts) == 2 {
+		// 兼容旧格式 server_tool
+		toolName = parts[1]
+	}
 
-	switch call.Function.Name {
+	xl.Infof("Executing GitHub files tool: %s (parsed: %s) on %s/%s", call.Function.Name, toolName, owner, repo)
+
+	switch toolName {
 	case "read_file":
 		return s.readFile(ctx, call, client, owner, repo)
 	case "write_file":

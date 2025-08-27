@@ -1,21 +1,61 @@
 package models
 
 import (
+	"encoding/json"
+	"fmt"
+	"strconv"
 	"time"
 )
 
+// MCPID 支持字符串和数字的ID类型
+type MCPID struct {
+	Value interface{}
+}
+
+// String 返回字符串表示
+func (id MCPID) String() string {
+	switch v := id.Value.(type) {
+	case string:
+		return v
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// MarshalJSON 序列化JSON
+func (id MCPID) MarshalJSON() ([]byte, error) {
+	return json.Marshal(id.Value)
+}
+
+// UnmarshalJSON 反序列化JSON
+func (id *MCPID) UnmarshalJSON(data []byte) error {
+	var v interface{}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	id.Value = v
+	return nil
+}
+
 // MCPRequest MCP协议请求
 type MCPRequest struct {
-	ID     string                 `json:"id"`
+	ID     MCPID                  `json:"id"`
 	Method string                 `json:"method"`
 	Params map[string]interface{} `json:"params"`
 }
 
 // MCPResponse MCP协议响应
 type MCPResponse struct {
-	ID     string      `json:"id"`
-	Result interface{} `json:"result,omitempty"`
-	Error  *MCPError   `json:"error,omitempty"`
+	ID      MCPID       `json:"id"`
+	Result  interface{} `json:"result,omitempty"`
+	Error   *MCPError   `json:"error,omitempty"`
+	JSONRPC string      `json:"jsonrpc"`
 }
 
 // MCPError MCP错误
@@ -45,7 +85,7 @@ type JSONSchema struct {
 
 // ToolCall 工具调用
 type ToolCall struct {
-	ID       string                 `json:"id"`
+	ID       MCPID                  `json:"id"`
 	Function ToolFunction           `json:"function"`
 	Context  map[string]interface{} `json:"context,omitempty"`
 }
@@ -58,7 +98,7 @@ type ToolFunction struct {
 
 // ToolResult 工具执行结果
 type ToolResult struct {
-	ID      string      `json:"id"`
+	ID      MCPID       `json:"id"`
 	Success bool        `json:"success"`
 	Content interface{} `json:"content,omitempty"`
 	Error   string      `json:"error,omitempty"`

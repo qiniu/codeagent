@@ -860,7 +860,7 @@ func (th *TagHandler) updatePRWithMCP(ctx context.Context, ws *models.Workspace,
 
 	// 使用MCP工具更新PR描述
 	updateCall := &models.ToolCall{
-		ID: "update_pr_" + fmt.Sprintf("%d", pr.GetNumber()),
+		ID: models.MCPID{Value: "update_pr_" + fmt.Sprintf("%d", pr.GetNumber())},
 		Function: models.ToolFunction{
 			Name: "github-comments_update_pr_description",
 			Arguments: map[string]interface{}{
@@ -1616,7 +1616,7 @@ func (th *TagHandler) addPRCommentWithMCP(ctx context.Context, ws *models.Worksp
 
 	// 使用MCP工具添加评论
 	commentCall := &models.ToolCall{
-		ID: "comment_pr_" + fmt.Sprintf("%d", pr.GetNumber()),
+		ID: models.MCPID{Value: "comment_pr_" + fmt.Sprintf("%d", pr.GetNumber())},
 		Function: models.ToolFunction{
 			Name: "github-comments_create_comment",
 			Arguments: map[string]interface{}{
@@ -1772,7 +1772,7 @@ func (th *TagHandler) replyToIssueComment(
 
 	// 使用MCP工具添加评论
 	commentCall := &models.ToolCall{
-		ID: "reply_issue_" + fmt.Sprintf("%d", event.Issue.GetNumber()),
+		ID: models.MCPID{Value: "reply_issue_" + fmt.Sprintf("%d", event.Issue.GetNumber())},
 		Function: models.ToolFunction{
 			Name: "github-comments_create_comment",
 			Arguments: map[string]interface{}{

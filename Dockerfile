@@ -1,3 +1,22 @@
+# Build stage for mcp-server
+FROM golang:1.24-bookworm AS mcp-builder
+
+# 设置工作目录
+WORKDIR /src
+
+# 复制 Go 模块文件
+COPY go.mod go.sum ./
+
+# 下载依赖
+RUN go mod download
+
+# 复制源代码
+COPY . .
+
+# 构建 mcp-server 二进制文件
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-server ./cmd/mcp-server
+
+# Main stage
 FROM node:24-bookworm
 
 # 添加用户
@@ -33,6 +52,12 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 
 # 清理缓存
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+
+
+# 从构建阶段复制 mcp-server 二进制文件
+COPY --from=mcp-builder /src/mcp-server /usr/local/bin/mcp-server
+RUN chmod +x /usr/local/bin/mcp-server
+
 
 # 切换用户
 USER codeagent
