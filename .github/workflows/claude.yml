@@ -17,7 +17,6 @@ jobs:
       issues: write
       id-token: write
       actions: read
-      workflow: write
 
     steps:
       - name: Install bun
@@ -27,7 +26,7 @@ jobs:
           fetch-depth: 20
 
       - name: Claude Code Action
-        uses: anthropics/claude-code-action@v0.0.31
+        uses: anthropics/claude-code-action@v1.0.1
         with:
           github_token: ${{ secrets.MY_GITHUB_TOKEN }}
           anthropic_api_key: ${{secrets.ANTHROPIC_API_KEY}}
