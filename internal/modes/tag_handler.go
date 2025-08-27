@@ -244,8 +244,8 @@ func (th *TagHandler) handlePRReviewComment(
 	}
 }
 
-// buildEnhancedIssuePrompt 为Issue中的/code命令构建增强提示词
-func (th *TagHandler) buildEnhancedIssuePrompt(ctx context.Context, event *models.IssueCommentContext, args string) (string, error) {
+// buildIssueCodePrompt 为Issue中的/code命令构建增强提示词
+func (th *TagHandler) buildIssueCodePrompt(ctx context.Context, event *models.IssueCommentContext, args string) (string, error) {
 	xl := xlog.NewWith(ctx)
 
 	// 收集Issue的完整上下文
@@ -442,8 +442,8 @@ func (th *TagHandler) executeIssueCodeProcessing(
 		return err
 	}
 
-	// 3. 生成代码实现
-	codeOutput, err := th.generateCodeImplementation(ctx, event, cmdInfo, ws, pcm)
+	// 3. 调用AI并生成代码实现
+	codeOutput, err := th.callAIAndGenerateCode(ctx, event, cmdInfo, ws, pcm)
 	if err != nil {
 		result = &models.ProgressExecutionResult{
 			Success: false,
@@ -616,8 +616,8 @@ func (th *TagHandler) initializeProgressTracking(
 	return pcm, nil
 }
 
-// generateCodeImplementation 生成代码实现
-func (th *TagHandler) generateCodeImplementation(
+// callAIAndGenerateCode 调用AI并生成代码实现
+func (th *TagHandler) callAIAndGenerateCode(
 	ctx context.Context,
 	event *models.IssueCommentContext,
 	cmdInfo *models.CommandInfo,
@@ -639,8 +639,8 @@ func (th *TagHandler) generateCodeImplementation(
 	}
 	xl.Infof("Code client initialized successfully")
 
-	// 构建提示词
-	codePrompt, err := th.buildCodePrompt(ctx, event, cmdInfo)
+	// 构建AI提示词
+	codePrompt, err := th.buildAIPromptForCode(ctx, event, cmdInfo)
 	if err != nil {
 		xl.Warnf("Failed to build enhanced prompt, falling back to simple prompt: %v", err)
 		codePrompt = th.buildFallbackPrompt(event)
@@ -676,13 +676,13 @@ func (th *TagHandler) generateCodeImplementation(
 	return codeOutput, nil
 }
 
-// buildCodePrompt 构建代码生成提示词
-func (th *TagHandler) buildCodePrompt(
+// buildAIPromptForCode 构建AI代码生成提示词
+func (th *TagHandler) buildAIPromptForCode(
 	ctx context.Context,
 	event *models.IssueCommentContext,
 	cmdInfo *models.CommandInfo,
 ) (string, error) {
-	return th.buildEnhancedIssuePrompt(ctx, event, cmdInfo.Args)
+	return th.buildIssueCodePrompt(ctx, event, cmdInfo.Args)
 }
 
 // buildFallbackPrompt 构建备用提示词
