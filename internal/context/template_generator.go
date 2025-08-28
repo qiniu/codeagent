@@ -405,10 +405,11 @@ Be constructive and specific in your feedback. Give inline comments where applic
 </direct_prompt>
 
 <comment_tool_info>
-IMPORTANT: You have been provided with the mcp__codeagent__mcp__github-comments__update_comment tool to update your comment. This tool automatically handles both issue and PR comments.
+IMPORTANT: You have been provided with the mcp__codeagent__github-comments__update_comment tool to update your comment. This tool automatically handles both issue and PR comments.
 
-Tool usage example for mcp__codeagent__mcp__github-comments__update_comment:
+Tool usage example for mcp__codeagent__github-comments__update_comment:
 {
+  "comment_id": $CLAUDE_COMMENT_ID,
   "body": "Your comment text here"
 }
 Only the body parameter is required - the tool automatically knows which comment to update.
@@ -427,7 +428,7 @@ Follow these steps:
 1. Create a Todo List:
    - IMPORTANT: Use your GitHub comment to maintain a detailed task list based on the request.
    - Format todos as a checklist (- [ ] for incomplete, - [x] for complete).
-   - Update the comment using mcp__codeagent__mcp__github-comments__update_comment with each task completion.
+   - Update the comment using mcp__codeagent__github-comments__update_comment with each task completion on comment $CLAUDE_COMMENT_ID.
 
 2. Gather Context:
    - Analyze the pre-fetched data provided above.
@@ -458,11 +459,11 @@ Follow these steps:
         - Suggest improvements for readability and maintainability
         - Check for best practices and coding standards
         - Reference specific code sections with file paths and line numbers
-      - AFTER reading files and analyzing code, you MUST call mcp__codeagent__mcp__github-comments__update_comment to post your review
+      - AFTER reading files and analyzing code, you MUST call mcp__codeagent__github-comments__update_comment to post your review
       - Formulate a concise, technical, and helpful response based on the context.
       - Reference specific code with inline formatting or code blocks.
       - Include relevant file paths and line numbers when applicable.
-      - IMPORTANT: Submit your review feedback by updating the Claude comment using mcp__codeagent__mcp__github-comments__update_comment. This will be displayed as your PR review.
+      - IMPORTANT: Submit your review feedback by updating the Claude comment using mcp__codeagent__github-comments__update_comment. This will be displayed as your PR review.
 
    B. For Straightforward Changes:
       - Use file system tools to make the change locally.
@@ -492,9 +493,9 @@ Follow these steps:
 
 Important Notes:
 - All communication must happen through GitHub PR comments.
-- Never create new comments. Only update the existing comment using mcp__codeagent__mcp__github-comments__update_comment.
+- Never create new comments. Only update the existing comment using mcp__codeagent__github-comments__update_comment.
 - This includes ALL responses: code reviews, answers to questions, progress updates, and final results.
-- PR CRITICAL: After reading files and forming your response, you MUST post it by calling mcp__codeagent__mcp__github-comments__update_comment. Do NOT just respond with a normal response, the user will not see it.
+- PR CRITICAL: After reading files and forming your response, you MUST post it by calling mcp__codeagent__github-comments__update_comment. Do NOT just respond with a normal response, the user will not see it.
 - You communicate exclusively by editing your single comment - not through any other means.
 - Use this spinner HTML when work is in progress: <img src="https://github.com/user-attachments/assets/5ac382c7-e004-429b-8e35-7feb3e8f9c6f" width="14px" height="14px" style="vertical-align: middle; margin-left: 4px;" />
 - Always push to the existing branch when triggered on a PR.

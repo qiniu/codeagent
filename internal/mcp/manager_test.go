@@ -51,8 +51,8 @@ func (m *MockMCPServer) IsAvailable(ctx context.Context, mcpCtx *models.MCPConte
 func (m *MockMCPServer) HandleToolCall(ctx context.Context, call *models.ToolCall, mcpCtx *models.MCPContext) (*models.ToolResult, error) {
 	// 从完整工具名称中提取原始工具名称（去掉服务器前缀）
 	toolName := call.Function.Name
-	if parts := strings.Split(call.Function.Name, "_"); len(parts) > 1 {
-		toolName = strings.Join(parts[1:], "_")
+	if parts := strings.SplitN(call.Function.Name, "__", 2); len(parts) == 2 {
+		toolName = parts[1]
 	}
 
 	if result, exists := m.responses[toolName]; exists {
@@ -178,9 +178,9 @@ func TestMCPManager_GetAvailableTools(t *testing.T) {
 		toolNames[i] = tool.Name
 	}
 
-	assert.Contains(t, toolNames, "srv1_tool1")
-	assert.Contains(t, toolNames, "srv1_tool2")
-	assert.Contains(t, toolNames, "srv2_tool3")
+	assert.Contains(t, toolNames, "srv1__tool1")
+	assert.Contains(t, toolNames, "srv1__tool2")
+	assert.Contains(t, toolNames, "srv2__tool3")
 }
 
 func TestMCPManager_GetAvailableTools_UnavailableServer(t *testing.T) {
@@ -232,9 +232,9 @@ func TestMCPManager_HandleToolCall(t *testing.T) {
 
 	// 创建工具调用
 	call := &models.ToolCall{
-		ID: "test-call-1",
+		ID: models.MCPID{Value: "test-call-1"},
 		Function: models.ToolFunction{
-			Name:      "srv_test_tool",
+			Name:      "srv__test_tool",
 			Arguments: map[string]interface{}{},
 		},
 	}
@@ -245,7 +245,7 @@ func TestMCPManager_HandleToolCall(t *testing.T) {
 	result, err := manager.HandleToolCall(context.Background(), call, mcpCtx)
 	require.NoError(t, err)
 
-	assert.Equal(t, "test-call-1", result.ID)
+	assert.Equal(t, "test-call-1", result.ID.String())
 	assert.True(t, result.Success)
 	assert.Equal(t, expectedResult.Content, result.Content)
 }
@@ -254,9 +254,9 @@ func TestMCPManager_HandleToolCall_UnknownServer(t *testing.T) {
 	manager := NewManager()
 
 	call := &models.ToolCall{
-		ID: "test-call-1",
+		ID: models.MCPID{Value: "test-call-1"},
 		Function: models.ToolFunction{
-			Name:      "unknown_server_tool",
+			Name:      "mcp__unknown__tool",
 			Arguments: map[string]interface{}{},
 		},
 	}
@@ -267,7 +267,7 @@ func TestMCPManager_HandleToolCall_UnknownServer(t *testing.T) {
 	result, err := manager.HandleToolCall(context.Background(), call, mcpCtx)
 	require.NoError(t, err)
 
-	assert.Equal(t, "test-call-1", result.ID)
+	assert.Equal(t, "test-call-1", result.ID.String())
 	assert.False(t, result.Success)
 	assert.Contains(t, result.Error, "unknown MCP server")
 }
@@ -276,7 +276,7 @@ func TestMCPManager_HandleToolCall_InvalidToolName(t *testing.T) {
 	manager := NewManager()
 
 	call := &models.ToolCall{
-		ID: "test-call-1",
+		ID: models.MCPID{Value: "test-call-1"},
 		Function: models.ToolFunction{
 			Name:      "invalid-tool-name", // 没有下划线分隔符
 			Arguments: map[string]interface{}{},
@@ -288,7 +288,7 @@ func TestMCPManager_HandleToolCall_InvalidToolName(t *testing.T) {
 	result, err := manager.HandleToolCall(context.Background(), call, mcpCtx)
 	require.NoError(t, err)
 
-	assert.Equal(t, "test-call-1", result.ID)
+	assert.Equal(t, "test-call-1", result.ID.String())
 	assert.False(t, result.Success)
 	assert.Contains(t, result.Error, "invalid tool name format")
 }

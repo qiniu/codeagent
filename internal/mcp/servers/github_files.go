@@ -186,11 +186,7 @@ func (s *GitHubFilesServer) HandleToolCall(ctx context.Context, call *models.Too
 
 	// 解析工具名称，去掉服务器前缀
 	toolName := call.Function.Name
-	// 支持新格式 mcp__server__tool
-	if strings.HasPrefix(call.Function.Name, "mcp__github-files__") {
-		toolName = strings.TrimPrefix(call.Function.Name, "mcp__github-files__")
-	} else if parts := strings.SplitN(call.Function.Name, "_", 2); len(parts) == 2 {
-		// 兼容旧格式 server_tool
+	if parts := strings.SplitN(call.Function.Name, "__", 2); len(parts) == 2 {
 		toolName = parts[1]
 	}
 

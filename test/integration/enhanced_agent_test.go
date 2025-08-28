@@ -153,9 +153,9 @@ func TestMCPToolsIntegration(t *testing.T) {
 	assert.Contains(t, toolNames, "github-files_search_files")
 
 	// 验证GitHub评论操作工具
-	assert.Contains(t, toolNames, "github-comments_create_comment")
-	assert.Contains(t, toolNames, "github-comments_update_comment")
-	assert.Contains(t, toolNames, "github-comments_list_comments")
+	assert.Contains(t, toolNames, "github-comments__create_comment")
+	assert.Contains(t, toolNames, "github-comments__update_comment")
+	assert.Contains(t, toolNames, "github-comments__list_comments")
 }
 
 // TestProgressCommentIntegration 测试进度评论集成
