@@ -108,10 +108,10 @@ func initialize() error {
 	mcpContext = buildMCPContext(repoOwner, repoName)
 
 	log.Printf("Registered %d MCP servers", len(mcpManager.GetServers()))
-	
+
 	// 输出到 stderr，和官方 GitHub MCP 服务器保持一致
 	fmt.Fprintln(os.Stderr, "CodeAgent MCP Server running on stdio")
-	
+
 	return nil
 }
 
@@ -227,14 +227,14 @@ func handleMCPRequest(request *models.MCPRequest) *models.MCPResponse {
 func handleInitialize(request *models.MCPRequest) *models.MCPResponse {
 	// 使用固定的协议版本，和官方 GitHub MCP 服务器保持一致
 	protocolVersion := "2024-11-05"
-	
+
 	// 从客户端请求中提取请求的协议版本（仅用于日志）
 	if params, ok := request.Params["protocolVersion"].(string); ok {
 		log.Printf("Client requested protocol version: %s", params)
 	}
-	
+
 	log.Printf("Server responding with protocol version: %s", protocolVersion)
-	
+
 	return &models.MCPResponse{
 		ID:      request.ID,
 		JSONRPC: "2.0",
@@ -327,10 +327,16 @@ func handleToolCall(ctx context.Context, request *models.MCPRequest) *models.MCP
 
 	// 执行工具调用
 	result, err := mcpManager.HandleToolCall(ctx, toolCall, mcpContext)
-	
-	log.Printf("Tool call result - Success: %v, Error: %v, Content: %+v", 
-		result != nil && result.Success, err, 
-		func() interface{} { if result != nil { return result.Content } else { return nil } }())
+
+	log.Printf("Tool call result - Success: %v, Error: %v, Content: %+v",
+		result != nil && result.Success, err,
+		func() interface{} {
+			if result != nil {
+				return result.Content
+			} else {
+				return nil
+			}
+		}())
 	if err != nil {
 		return &models.MCPResponse{
 			ID:      request.ID,

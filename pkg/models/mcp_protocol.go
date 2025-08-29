@@ -1,8 +1,8 @@
 package models
 
 import (
-	"time"
 	"github.com/google/go-github/v58/github"
+	"time"
 )
 
 // MCP协议相关数据模型

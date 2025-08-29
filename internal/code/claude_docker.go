@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/qiniu/codeagent/internal/config"
 	"github.com/qiniu/codeagent/pkg/models"
@@ -125,17 +124,6 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		args = append(args, "-e", fmt.Sprintf("GH_TOKEN=%s", cfg.GitHub.GHToken))
 	}
 
-	// 设置 Claude CLI 配置目录，避免权限问题
-	args = append(args, "-e", "HOME=/home/codeagent")
-	args = append(args, "-e", "CLAUDE_CONFIG_DIR=/home/codeagent/.claude")
-	args = append(args, "-e", "XDG_CONFIG_HOME=/home/codeagent/.config")
-
-	// 不在容器启动时强制用户，而是在执行命令时设置
-	// 这样可以避免容器镜像中没有 codeagent 用户的问题
-
-	// 创建必要的目录
-	args = append(args, "--init")
-
 	// 添加容器镜像
 	args = append(args, cfg.Claude.ContainerImage)
 
@@ -164,13 +152,6 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	}
 
 	log.Infof("docker container started successfully")
-
-	// 确保容器内的目录结构正确，避免 Claude CLI 权限问题
-	setupCmd := exec.Command("docker", "exec", containerName,
-		"sh", "-c", "mkdir -p /home/codeagent/.config /home/codeagent/.claude && chmod -R 755 /home/codeagent")
-	if err := setupCmd.Run(); err != nil {
-		log.Warnf("Failed to setup container directories: %v", err)
-	}
 
 	return &claudeCode{
 		containerName: containerName,
@@ -224,52 +205,19 @@ func (c *claudeCode) executeClaudeWithMCP(message string) (*Response, error) {
 	// 修复容器内文件权限，确保所有用户都可以读取
 	log.Infof("Step 2.1: Fixing file permissions in container")
 
-	// 首先尝试设置文件为全局可读 (更宽松的权限)
-	chmodCmd := exec.Command("docker", "exec", c.containerName, "chmod", "644", "/tmp/mcp-config.json")
+	// 首先尝试设置文件为全局可读
+	chmodCmd := exec.Command("docker", "exec", c.containerName, "chmod", "755", "/tmp/mcp-config.json")
 	if err := chmodCmd.Run(); err != nil {
 		log.Warnf("Failed to chmod MCP config file: %v", err)
-
-		// 如果 chmod 失败，尝试更宽松的权限
-		chmodAllCmd := exec.Command("docker", "exec", c.containerName, "chmod", "666", "/tmp/mcp-config.json")
-		if err := chmodAllCmd.Run(); err != nil {
-			log.Warnf("Failed to chmod 666 MCP config file: %v", err)
-
-			// 最后的尝试：检查文件是否已经可读
-			testReadCmd := exec.Command("docker", "exec", c.containerName, "test", "-r", "/tmp/mcp-config.json")
-			if err := testReadCmd.Run(); err != nil {
-				return nil, fmt.Errorf("MCP config file is not readable: %w", err)
-			}
-			log.Infof("MCP config file is already readable, continuing...")
-		} else {
-			log.Infof("Fixed MCP config file permissions with chmod 666")
-		}
-	} else {
-		log.Infof("Fixed MCP config file permissions with chmod 644")
+	}
+	// 检查文件是否已经可读
+	testReadCmd := exec.Command("docker", "exec", c.containerName, "test", "-r", "/tmp/mcp-config.json")
+	if err := testReadCmd.Run(); err != nil {
+		return nil, fmt.Errorf("MCP config file is not readable: %w", err)
 	}
 
-	// 3. 确保MCP服务器二进制文件权限正确并启动MCP服务器（后台运行）
-	log.Infof("Step 3: Starting MCP server in container")
-
-	log.Infof("Step 3.1: Starting MCP server daemon")
-	mcpServerCmd := []string{
-		"exec", "-d", c.containerName,
-		"/usr/local/bin/mcp-server",
-	}
-
-	startServerCmd := exec.Command("docker", mcpServerCmd...)
-	log.Infof("Running command: docker %s", strings.Join(mcpServerCmd, " "))
-	if err := startServerCmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to start MCP server in container: %w", err)
-	}
-
-	log.Infof("MCP server started in container")
-
-	// 4. 等待MCP服务器启动
-	log.Infof("Step 4: Waiting for MCP server to be ready")
-	time.Sleep(2 * time.Second)
-
-	// 5. 执行Claude CLI with MCP
-	log.Infof("Step 5: Executing Claude CLI with MCP configuration")
+	// 3. 执行Claude CLI with MCP
+	log.Infof("Step 3: Executing Claude CLI with MCP configuration")
 	args := []string{
 		"exec",
 		"-e", "HOME=/home/codeagent", // 设置环境变量

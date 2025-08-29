@@ -216,11 +216,11 @@ func (g *DefaultPromptGenerator) GenerateToolsList(ctx *EnhancedContext, mode st
 
 	// MCP工具（始终可用）
 	mcpTools := []string{
-		"github-files_read_file",
-		"github-files_write_file",
-		"github-files_search_files",
-		"github-comments_update_comment",
-		"github-comments_create_comment",
+		"mcp__github_files__read_repository_file",
+		"mcp__github_files__write_repository_file",
+		"mcp__github_files__search_files",
+		"mcp__github_comments__update_comment",
+		"mcp__github_comments__create_comment",
 	}
 	tools = append(tools, mcpTools...)
 
@@ -229,9 +229,9 @@ func (g *DefaultPromptGenerator) GenerateToolsList(ctx *EnhancedContext, mode st
 	case "Continue", "Fix", "Code":
 		// 开发模式需要完整的工具集
 		additionalTools := []string{
-			"github-files_commit_files",
-			"github-files_create_branch",
-			"github-files_list_files",
+			"mcp__github_files__commit_files",
+			"mcp__github_files__create_branch",
+			"mcp__github_files__get_file_tree",
 		}
 		tools = append(tools, additionalTools...)
 
