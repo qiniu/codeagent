@@ -326,6 +326,15 @@ func (rh *ReviewHandler) buildReviewPrompt(ctx context.Context, prEvent *models.
 			"trigger_username":     "system", // 自动审查
 			"trigger_display_name": "CodeAgent Auto Review",
 			"claude_comment_id":    commentID,
+			// 自动Review场景的自定义指令
+			"custom_instruction": `Please review this PR. Look at the changes and provide thoughtful feedback on:
+- Code quality and best practices  
+- Potential bugs or issues
+- Suggestions for improvements
+- Overall architecture and design decisions
+- Documentation consistency: Verify that README.md and other documentation files are updated to reflect any code changes (especially new inputs, features, or configuration options)
+
+Be constructive and specific in your feedback. Give inline comments where applicable.`,
 		},
 	}
 
