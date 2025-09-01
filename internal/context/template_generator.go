@@ -172,19 +172,12 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 		vars["TRIGGER_PHRASE"] = fmt.Sprintf("%v", triggerPhrase)
 	}
 
-	// 关键：支持自定义指令内容覆盖默认的trigger_comment
+	// 关键：支持自定义指令内容，所有场景都通过EnhancedContext传入
 	if customInstruction, ok := ctx.Metadata["custom_instruction"]; ok {
 		vars["CUSTOM_TRIGGER_COMMENT"] = fmt.Sprintf("%v", customInstruction)
 	} else {
-		// 默认的Review指令
-		vars["CUSTOM_TRIGGER_COMMENT"] = `Please review this PR. Look at the changes and provide thoughtful feedback on:
-- Code quality and best practices  
-- Potential bugs or issues
-- Suggestions for improvements
-- Overall architecture and design decisions
-- Documentation consistency: Verify that README.md and other documentation files are updated to reflect any code changes (especially new inputs, features, or configuration options)
-
-Be constructive and specific in your feedback. Give inline comments where applicable.`
+		// 没有提供自定义指令，不设置默认值
+		vars["CUSTOM_TRIGGER_COMMENT"] = ""
 	}
 
 	if triggerComment, ok := ctx.Metadata["trigger_comment"]; ok {
@@ -248,48 +241,6 @@ $ARGS
 3. Implement the necessary changes
 4. Update documentation if needed
 5. Ensure all tests pass (if applicable)`
-}
-
-// getFixTemplate 修复问题模板
-func (g *TemplatePromptGenerator) getFixTemplate() string {
-	return `You are an AI-powered code development assistant designed to fix code issues in GitHub PRs and issues.
-
-## Context Information
-
-Repository: $REPOSITORY
-$IS_PR: PR #$PR_NUMBER | Issue #$ISSUE_NUMBER
-
-### Current Context
-$FORMATTED_CONTEXT
-
-### Files Changed
-$CHANGED_FILES
-
-### Comments
-$COMMENTS
-
-## Issue to Fix
-$ARGS
-
-## Your Task
-
-Fix the specified issue in the codebase. Analyze the problem, identify the root cause, and implement a proper solution.
-
-## Guidelines
-
-- Focus on the specific issue mentioned
-- Ensure the fix doesn't break existing functionality
-- Add appropriate tests if needed
-- Document any significant changes
-- Provide clear explanation of the fix
-
-## Steps
-
-1. Analyze the problem description
-2. Identify the root cause
-3. Implement the fix
-4. Verify the solution works
-5. Update related documentation`
 }
 
 // getCodeTemplate 代码实现模板
@@ -375,7 +326,7 @@ Images have been downloaded from GitHub comments and saved to disk. Their file p
 <trigger_phrase>$TRIGGER_PHRASE</trigger_phrase>
 
 <trigger_comment>
-$CUSTOM_TRIGGER_COMMENT
+$TRIGGER_COMMENT
 </trigger_comment>
 
 <comment_tool_info>

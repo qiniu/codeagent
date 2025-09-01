@@ -15,7 +15,6 @@ import (
 	"github.com/qiniu/codeagent/internal/workspace"
 	"github.com/qiniu/codeagent/pkg/models"
 
-	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/xlog"
 )
 
@@ -322,6 +321,15 @@ func (rh *ReviewHandler) buildReviewPrompt(ctx context.Context, prEvent *models.
 
 			if triggerComment != nil && *triggerComment != "" {
 				metadata["trigger_comment"] = *triggerComment
+			} else {
+				metadata["trigger_comment"] = `Please review this PR. Look at the changes and provide thoughtful feedback on:
+- Code quality and best practices  
+- Potential bugs or issues
+- Suggestions for improvements
+- Overall architecture and design decisions
+- Documentation consistency: Verify that README.md and other documentation files are updated to reflect any code changes (especially new inputs, features, or configuration options)
+
+Be constructive and specific in your feedback. Give inline comments where applicable.`
 			}
 			return metadata
 		}(),
@@ -335,24 +343,6 @@ func (rh *ReviewHandler) buildReviewPrompt(ctx context.Context, prEvent *models.
 // promptWithRetry 带重试的提示执行
 func (rh *ReviewHandler) promptWithRetry(ctx context.Context, codeClient code.Code, prompt string, maxRetries int) (*code.Response, error) {
 	return code.PromptWithRetry(ctx, codeClient, prompt, maxRetries)
-}
-
-// updatePRComment 使用GitHub client更新PR评论
-func (rh *ReviewHandler) updatePRComment(ctx context.Context, pr *github.PullRequest, commentID int64, comment string, client *ghclient.Client) error {
-	xl := xlog.NewWith(ctx)
-
-	// 使用GitHub client的UpdateComment方法更新评论
-	owner := pr.GetBase().GetRepo().GetOwner().GetLogin()
-	repo := pr.GetBase().GetRepo().GetName()
-
-	err := client.UpdateComment(ctx, owner, repo, commentID, comment)
-	if err != nil {
-		xl.Errorf("Failed to update PR comment: %v", err)
-		return err
-	}
-
-	xl.Infof("Successfully updated review comment in PR")
-	return nil
 }
 
 // ProcessManualCodeReview 处理手动代码审查请求（从PR评论触发）
