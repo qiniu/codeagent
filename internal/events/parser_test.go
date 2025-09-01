@@ -135,17 +135,7 @@ func TestHasCommand(t *testing.T) {
 			},
 			hasCmd: true,
 		},
-		{
-			name:    "fix command without model",
-			content: "/fix please resolve this",
-			expected: &models.CommandInfo{
-				Command: "/fix",
-				AIModel: "",
-				Args:    "please resolve this",
-				RawText: "/fix please resolve this",
-			},
-			hasCmd: true,
-		},
+
 		{
 			name:     "no command",
 			content:  "just a regular comment",

@@ -210,6 +210,4 @@ func TestTaskFactory(t *testing.T) {
 	continueTasks := factory.GetTasksForCommand(models.CommandCode, true)
 	assert.Len(t, continueTasks, 5) // PR中的/code当作/continue处理
 
-	fixTasks := factory.GetTasksForCommand(models.CommandFix, true)
-	assert.Len(t, fixTasks, 5) // /fix命令
 }

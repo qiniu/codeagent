@@ -37,18 +37,6 @@ func (tf *TaskFactory) CreatePRContinueTasks() []*models.Task {
 	}
 }
 
-// CreatePRFixTasks 创建PR修复任务列表
-// 对应 /fix 命令的处理流程
-func (tf *TaskFactory) CreatePRFixTasks() []*models.Task {
-	return []*models.Task{
-		models.NewTask(models.TaskNameGatherContext, "Gathering PR context and issue details"),
-		models.NewTask(models.TaskNameIdentifyProblems, "Identifying problems and errors"),
-		models.NewTask(models.TaskNamePrepareWorkspace, "Preparing workspace for fixes"),
-		models.NewTask(models.TaskNameApplyFixes, "Applying fixes to resolve issues"),
-		models.NewTask(models.TaskNameCommitFixes, "Committing fixes to PR branch"),
-	}
-}
-
 // CreatePRReviewTasks 创建PR审查任务列表
 // 对应自动PR审查流程
 func (tf *TaskFactory) CreatePRReviewTasks() []*models.Task {
@@ -107,9 +95,6 @@ func (tf *TaskFactory) GetTasksForCommand(command string, isPR bool) []*models.T
 
 	case models.CommandContinue:
 		return tf.CreatePRContinueTasks()
-
-	case models.CommandFix:
-		return tf.CreatePRFixTasks()
 
 	default:
 		// 默认的通用任务列表

@@ -15,7 +15,7 @@
 ### 2. 模式化处理系统
 
 - **文件**: `internal/modes/`
-- **TagHandler**: 处理命令式操作(`/code`, `/continue`, `/fix`)
+- **TagHandler**: 处理命令式操作(`/code`, `/continue`)
 - **AgentHandler**: 处理@mention 事件
 - **ReviewHandler**: 自动 PR 审查
 - **BaseHandler**: 统一的处理器接口和优先级管理
@@ -41,7 +41,7 @@
 ### 5. MCP (Model Context Protocol) 基础架构
 
 - **文件**: `internal/mcp/`
-- **状态**: 基础架构实现，为未来AI工具集成做准备
+- **状态**: 基础架构实现，为未来 AI 工具集成做准备
 - **manager.go**: MCP 服务器管理框架
 - **client.go**: MCP 客户端接口定义
 - **servers/github\_\*.go**: GitHub API MCP 服务器模板
@@ -79,7 +79,7 @@
 ### 10. 统一命令解析
 
 - **文件**: `pkg/models/events.go`
-- **支持**: `/code`, `/continue`, `/fix` 命令
+- **支持**: `/code`, `/continue` 命令
 - **AI 模型参数**: `-claude`, `-gemini` 参数支持
 
 ### 11. PR Review 批量处理

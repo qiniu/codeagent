@@ -21,7 +21,7 @@ import (
 )
 
 // TagHandler Tag mode handler
-// Handles GitHub events containing commands (/code, /continue, /fix, /review)
+// Handles GitHub events containing commands (/code, /continue, /review)
 type TagHandler struct {
 	*BaseHandler
 	defaultAIModel string
@@ -49,7 +49,7 @@ func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerIn
 		BaseHandler: NewBaseHandler(
 			TagMode,
 			10, // Medium priority
-			"Handle @codeagent mentions and commands (/code, /continue, /fix, /review)",
+			"Handle @codeagent mentions and commands (/code, /continue, /review)",
 		),
 		defaultAIModel: defaultAIModel,
 		clientManager:  clientManager,
@@ -155,8 +155,6 @@ func (th *TagHandler) handleIssueComment(
 		switch cmdInfo.Command {
 		case models.CommandContinue:
 			return th.processPRCommand(ctx, event, cmdInfo, "Continue")
-		case models.CommandFix:
-			return th.processPRCommand(ctx, event, cmdInfo, "Fix")
 		case models.CommandReview:
 			return th.processReviewCommand(ctx, event, cmdInfo, client)
 		default:
@@ -168,7 +166,7 @@ func (th *TagHandler) handleIssueComment(
 			return th.processIssueCodeCommand(ctx, event, cmdInfo)
 		case models.CommandClaude:
 			// @qiniu-ci 作为通用指令处理器，仅回复评论
-			return th.processIssueCommentReply(ctx, event, cmdInfo)
+			return th.processIssueComment(ctx, event, cmdInfo)
 		default:
 			return fmt.Errorf("unsupported command for Issue comment: %s", cmdInfo.Command)
 		}
@@ -200,10 +198,6 @@ func (th *TagHandler) handlePRReview(
 		// Implement PR Review continue logic, integrating original Agent functionality
 		xl.Infof("Processing PR review continue with new architecture")
 		return th.processPRReviewCommand(ctx, event, cmdInfo, "Continue")
-	case models.CommandFix:
-		// Implement PR Review fix logic, integrating original Agent functionality
-		xl.Infof("Processing PR review fix with new architecture")
-		return th.processPRReviewCommand(ctx, event, cmdInfo, "Fix")
 	default:
 		return fmt.Errorf("unsupported command for PR review: %s", cmdInfo.Command)
 	}
@@ -235,10 +229,6 @@ func (th *TagHandler) handlePRReviewComment(
 		// 实现PR Review评论继续逻辑，集成原姻 Agent功能
 		xl.Infof("Processing PR review comment continue with new architecture")
 		return th.processPRReviewCommentCommand(ctx, event, cmdInfo, "Continue")
-	case models.CommandFix:
-		// 实现PR Review评论修复逻辑，集成原姻Agent功能
-		xl.Infof("Processing PR review comment fix with new architecture")
-		return th.processPRReviewCommentCommand(ctx, event, cmdInfo, "Fix")
 	default:
 		return fmt.Errorf("unsupported command for PR review comment: %s", cmdInfo.Command)
 	}
@@ -329,8 +319,8 @@ func (th *TagHandler) processIssueCodeCommand(
 	return th.executeIssueCodeProcessing(ctx, event, cmdInfo)
 }
 
-// processIssueCommentReply 处理Issue的@qiniu-ci指令，仅回复评论
-func (th *TagHandler) processIssueCommentReply(
+// processIssueComment 处理Issue的评论
+func (th *TagHandler) processIssueComment(
 	ctx context.Context,
 	event *models.IssueCommentContext,
 	cmdInfo *models.CommandInfo,
@@ -373,11 +363,10 @@ func (th *TagHandler) processIssueCommentReply(
 		return fmt.Errorf("failed to get code client: %w", err)
 	}
 
-	// 构建增强提示词（参考/code命令的逻辑）
-	prompt, err := th.buildEnhancedCommentReplyPrompt(ctx, event, cmdInfo)
+	prompt, err := th.buildPrompt(ctx, event, cmdInfo)
 	if err != nil {
-		xl.Warnf("Failed to build enhanced prompt, falling back to simple prompt: %v", err)
-		prompt = th.buildCommentReplyPrompt(ctx, event, cmdInfo)
+		xl.Errorf("Failed to build enhanced prompt: %v", err)
+		return err
 	}
 
 	xl.Infof("Executing AI query for comment reply")
@@ -642,8 +631,8 @@ func (th *TagHandler) callAIAndGenerateCode(
 	// 构建AI提示词
 	codePrompt, err := th.buildAIPromptForCode(ctx, event, cmdInfo)
 	if err != nil {
-		xl.Warnf("Failed to build enhanced prompt, falling back to simple prompt: %v", err)
-		codePrompt = th.buildFallbackPrompt(event)
+		xl.Errorf("Failed to build enhanced prompt: %v", err)
+		return nil, fmt.Errorf("failed to build enhanced prompt: %w", err)
 	}
 
 	// 执行代码生成
@@ -683,22 +672,6 @@ func (th *TagHandler) buildAIPromptForCode(
 	cmdInfo *models.CommandInfo,
 ) (string, error) {
 	return th.buildIssueCodePrompt(ctx, event, cmdInfo.Args)
-}
-
-// buildFallbackPrompt 构建备用提示词
-func (th *TagHandler) buildFallbackPrompt(event *models.IssueCommentContext) string {
-	return fmt.Sprintf(`根据Issue修改代码：
-
-标题：%s
-描述：%s
-
-输出格式：
-%s
-简要说明改动内容
-
-%s
-- 列出修改的文件和具体变动`,
-		event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
 }
 
 // commitAndPushChanges 提交并推送代码变更
@@ -881,7 +854,7 @@ func (th *TagHandler) updatePRWithMCP(ctx context.Context, ws *models.Workspace,
 	return nil
 }
 
-// processPRCommand 处理PR的通用命令（continue/fix），简化版本
+// processPRCommand 处理PR的通用命令（continue），简化版本
 func (th *TagHandler) processPRCommand(
 	ctx context.Context,
 	event *models.IssueCommentContext,
@@ -1042,7 +1015,7 @@ func (th *TagHandler) processPRCommand(
 	// 12. 更新PR描述（仅对/code命令）并添加完成评论
 	xl.Infof("Adding completion comment")
 
-	// 只有 /code 命令才更新PR描述，/continue 和 /fix 命令不更新PR描述
+	// 只有 /code 命令才更新PR描述，/continue 命令不更新PR描述
 	if cmdInfo.Command == models.CommandCode {
 		xl.Infof("Updating PR description for /code command")
 
@@ -1466,9 +1439,7 @@ func (th *TagHandler) buildPromptWithCurrentComment(mode string, args string, hi
 		if strings.HasPrefix(currentComment, "/continue") {
 			commentCommand = "/continue"
 			commentArgs = strings.TrimSpace(strings.TrimPrefix(currentComment, "/continue"))
-		} else if strings.HasPrefix(currentComment, "/fix") {
-			commentCommand = "/fix"
-			commentArgs = strings.TrimSpace(strings.TrimPrefix(currentComment, "/fix"))
+
 		}
 
 		if commentArgs != "" {
@@ -1664,8 +1635,8 @@ func (th *TagHandler) truncateText(text string, maxLength int) string {
 	return text[:maxLength]
 }
 
-// buildEnhancedCommentReplyPrompt 构建增强的评论回复提示词，参考/code命令的逻辑
-func (th *TagHandler) buildEnhancedCommentReplyPrompt(ctx context.Context, event *models.IssueCommentContext, cmdInfo *models.CommandInfo) (string, error) {
+// buildPrompt 构建提示词
+func (th *TagHandler) buildPrompt(ctx context.Context, event *models.IssueCommentContext, cmdInfo *models.CommandInfo) (string, error) {
 	xl := xlog.NewWith(ctx)
 
 	// 收集Issue的完整上下文
@@ -1729,30 +1700,6 @@ func (th *TagHandler) buildEnhancedCommentReplyPrompt(ctx context.Context, event
 	}
 
 	return prompt, nil
-}
-
-// buildCommentReplyPrompt 构建简单的评论回复提示词（备用）
-func (th *TagHandler) buildCommentReplyPrompt(
-	ctx context.Context,
-	event *models.IssueCommentContext,
-	cmdInfo *models.CommandInfo,
-) string {
-	issue := event.Issue
-
-	return fmt.Sprintf(`你是一个AI编程助手。用户在GitHub Issue评论中向你提出了问题或请求。
-
-Issue信息：
-标题：%s
-描述：%s
-
-用户指令：%s
-
-请根据Issue的上下文和用户指令，提供有用的回复。你可以查看仓库代码来提供更准确的建议。如果需要分析代码问题，请使用可用的工具来读取和分析代码文件。
-
-请用中文回复，保持友好和专业的语调。`,
-		issue.GetTitle(),
-		issue.GetBody(),
-		cmdInfo.Args)
 }
 
 // replyToIssueComment 使用MCP工具回复Issue评论

@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEnhancedAgentPRCommands 测试PR命令处理（continue/fix）
+// TestEnhancedAgentPRCommands 测试PR命令处理（continue）
 func TestEnhancedAgentPRCommands(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -53,25 +53,6 @@ func TestEnhancedAgentPRCommands(t *testing.T) {
 		}
 	})
 
-	// 测试/fix命令
-	t.Run("PR Fix Command", func(t *testing.T) {
-		fixEvent := createMockPRCommentEvent("/fix Update the function parameters")
-
-		// 序列化为JSON
-		eventBytes, err := json.Marshal(fixEvent)
-		require.NoError(t, err)
-
-		err = enhancedAgent.ProcessGitHubWebhookEvent(context.Background(), "issue_comment", "test-delivery-id", eventBytes)
-
-		// 由于使用fake token，预期会在GitHub API调用阶段失败
-		// 但这证明了我们的命令处理逻辑正在工作
-		if err != nil {
-			assert.Error(t, err)
-			// 任何错误都是可以接受的，因为这是测试环境限制
-		} else {
-			assert.NoError(t, err) // 如果通过了，也是可以接受的
-		}
-	})
 }
 
 // 创建模拟PR评论事件
