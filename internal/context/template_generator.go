@@ -172,14 +172,6 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 		vars["TRIGGER_PHRASE"] = fmt.Sprintf("%v", triggerPhrase)
 	}
 
-	// 关键：支持自定义指令内容，所有场景都通过EnhancedContext传入
-	if customInstruction, ok := ctx.Metadata["custom_instruction"]; ok {
-		vars["CUSTOM_TRIGGER_COMMENT"] = fmt.Sprintf("%v", customInstruction)
-	} else {
-		// 没有提供自定义指令，不设置默认值
-		vars["CUSTOM_TRIGGER_COMMENT"] = ""
-	}
-
 	if triggerComment, ok := ctx.Metadata["trigger_comment"]; ok {
 		vars["TRIGGER_COMMENT"] = fmt.Sprintf("%v", triggerComment)
 	}
