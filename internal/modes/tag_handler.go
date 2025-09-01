@@ -168,7 +168,7 @@ func (th *TagHandler) handleIssueComment(
 			return th.processIssueCodeCommand(ctx, event, cmdInfo)
 		case models.CommandClaude:
 			// @qiniu-ci 作为通用指令处理器，仅回复评论
-			return th.processIssueCommentReply(ctx, event, cmdInfo)
+			return th.processIssueComment(ctx, event, cmdInfo)
 		default:
 			return fmt.Errorf("unsupported command for Issue comment: %s", cmdInfo.Command)
 		}
@@ -329,8 +329,8 @@ func (th *TagHandler) processIssueCodeCommand(
 	return th.executeIssueCodeProcessing(ctx, event, cmdInfo)
 }
 
-// processIssueCommentReply 处理Issue的@qiniu-ci指令，仅回复评论
-func (th *TagHandler) processIssueCommentReply(
+// processIssueComment 处理Issue的评论
+func (th *TagHandler) processIssueComment(
 	ctx context.Context,
 	event *models.IssueCommentContext,
 	cmdInfo *models.CommandInfo,
@@ -373,11 +373,10 @@ func (th *TagHandler) processIssueCommentReply(
 		return fmt.Errorf("failed to get code client: %w", err)
 	}
 
-	// 构建增强提示词（参考/code命令的逻辑）
-	prompt, err := th.buildEnhancedCommentReplyPrompt(ctx, event, cmdInfo)
+	prompt, err := th.buildPrompt(ctx, event, cmdInfo)
 	if err != nil {
-		xl.Warnf("Failed to build enhanced prompt, falling back to simple prompt: %v", err)
-		prompt = th.buildCommentReplyPrompt(ctx, event, cmdInfo)
+		xl.Errorf("Failed to build enhanced prompt: %v", err)
+		return err
 	}
 
 	xl.Infof("Executing AI query for comment reply")
@@ -642,8 +641,8 @@ func (th *TagHandler) callAIAndGenerateCode(
 	// 构建AI提示词
 	codePrompt, err := th.buildAIPromptForCode(ctx, event, cmdInfo)
 	if err != nil {
-		xl.Warnf("Failed to build enhanced prompt, falling back to simple prompt: %v", err)
-		codePrompt = th.buildFallbackPrompt(event)
+		xl.Errorf("Failed to build enhanced prompt: %v", err)
+		return nil, fmt.Errorf("failed to build enhanced prompt: %w", err)
 	}
 
 	// 执行代码生成
@@ -683,22 +682,6 @@ func (th *TagHandler) buildAIPromptForCode(
 	cmdInfo *models.CommandInfo,
 ) (string, error) {
 	return th.buildIssueCodePrompt(ctx, event, cmdInfo.Args)
-}
-
-// buildFallbackPrompt 构建备用提示词
-func (th *TagHandler) buildFallbackPrompt(event *models.IssueCommentContext) string {
-	return fmt.Sprintf(`根据Issue修改代码：
-
-标题：%s
-描述：%s
-
-输出格式：
-%s
-简要说明改动内容
-
-%s
-- 列出修改的文件和具体变动`,
-		event.Issue.GetTitle(), event.Issue.GetBody(), models.SectionSummary, models.SectionChanges)
 }
 
 // commitAndPushChanges 提交并推送代码变更
@@ -1664,8 +1647,8 @@ func (th *TagHandler) truncateText(text string, maxLength int) string {
 	return text[:maxLength]
 }
 
-// buildEnhancedCommentReplyPrompt 构建增强的评论回复提示词，参考/code命令的逻辑
-func (th *TagHandler) buildEnhancedCommentReplyPrompt(ctx context.Context, event *models.IssueCommentContext, cmdInfo *models.CommandInfo) (string, error) {
+// buildPrompt 构建提示词
+func (th *TagHandler) buildPrompt(ctx context.Context, event *models.IssueCommentContext, cmdInfo *models.CommandInfo) (string, error) {
 	xl := xlog.NewWith(ctx)
 
 	// 收集Issue的完整上下文
@@ -1729,30 +1712,6 @@ func (th *TagHandler) buildEnhancedCommentReplyPrompt(ctx context.Context, event
 	}
 
 	return prompt, nil
-}
-
-// buildCommentReplyPrompt 构建简单的评论回复提示词（备用）
-func (th *TagHandler) buildCommentReplyPrompt(
-	ctx context.Context,
-	event *models.IssueCommentContext,
-	cmdInfo *models.CommandInfo,
-) string {
-	issue := event.Issue
-
-	return fmt.Sprintf(`你是一个AI编程助手。用户在GitHub Issue评论中向你提出了问题或请求。
-
-Issue信息：
-标题：%s
-描述：%s
-
-用户指令：%s
-
-请根据Issue的上下文和用户指令，提供有用的回复。你可以查看仓库代码来提供更准确的建议。如果需要分析代码问题，请使用可用的工具来读取和分析代码文件。
-
-请用中文回复，保持友好和专业的语调。`,
-		issue.GetTitle(),
-		issue.GetBody(),
-		cmdInfo.Args)
 }
 
 // replyToIssueComment 使用MCP工具回复Issue评论
