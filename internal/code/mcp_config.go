@@ -41,7 +41,7 @@ func NewMCPConfigGenerator(workspace *models.Workspace, cfg *config.Config) *MCP
 // GenerateConfig 生成MCP配置
 func (g *MCPConfigGenerator) GenerateConfig() (*MCPConfig, error) {
 	// Docker模式：使用容器内的路径
-	serverBinary := "github-mcp-server"
+	serverBinary := "codeagent-github-mcp-server"
 	workingDir := "/workspace" // Docker容器内的工作目录
 	log.Infof("Docker mode: Using container binary path: %s", serverBinary)
 

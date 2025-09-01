@@ -44,7 +44,7 @@ func (g *GitHubContextWrapper) GetEventAction() string {
 }
 
 func (g *GitHubContextWrapper) GetDeliveryID() string {
-	return "github-mcp-server"
+	return "codeagent-github-mcp-server"
 }
 
 func (g *GitHubContextWrapper) GetTimestamp() time.Time {
