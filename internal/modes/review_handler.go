@@ -133,7 +133,7 @@ func (rh *ReviewHandler) handlePREvent(ctx context.Context, event *models.PullRe
 		xl.Infof("Auto-reviewing PR #%d", event.PullRequest.GetNumber())
 
 		// 执行自动代码审查
-		return rh.processCodeReview(ctx, event, client)
+		return rh.processCodeReview(ctx, event, client, nil)
 
 	case "closed":
 		return rh.handlePRClosed(ctx, event, client)
@@ -207,7 +207,7 @@ func (rh *ReviewHandler) handlePRClosed(ctx context.Context, event *models.PullR
 }
 
 // processCodeReview PR自动代码审查方法
-func (rh *ReviewHandler) processCodeReview(ctx context.Context, prEvent *models.PullRequestContext, client *ghclient.Client) error {
+func (rh *ReviewHandler) processCodeReview(ctx context.Context, prEvent *models.PullRequestContext, client *ghclient.Client, triggerComment *string) error {
 	xl := xlog.NewWith(ctx)
 	xl.Infof("Starting automatic code review for PR")
 
@@ -258,7 +258,7 @@ func (rh *ReviewHandler) processCodeReview(ctx context.Context, prEvent *models.
 
 	// 5. 构建审查上下文和提示词
 	xl.Infof("Building review context and prompt")
-	prompt, err := rh.buildReviewPrompt(ctx, prEvent, commentID)
+	prompt, err := rh.buildReviewPrompt(ctx, prEvent, commentID, triggerComment)
 	if err != nil {
 		xl.Errorf("Failed to build enhanced prompt : %v", err)
 	}
@@ -278,21 +278,12 @@ func (rh *ReviewHandler) processCodeReview(ctx context.Context, prEvent *models.
 	xl.Infof("AI code review completed, output length: %d", len(output))
 	xl.Debugf("Review Output: %s", string(output))
 
-	// 6. 更新初始评论为最终审查结果
-	commentBody := fmt.Sprintf("🤖 **代码审查结果**\n\n%s", string(output))
-	err = rh.updatePRComment(ctx, pr, commentID, commentBody, client)
-	if err != nil {
-		xl.Errorf("Failed to update PR review comment: %v", err)
-		return fmt.Errorf("failed to update PR review comment: %w", err)
-	}
-	xl.Infof("Successfully updated AI review comment in PR")
-
 	xl.Infof("PR code review process completed successfully")
 	return nil
 }
 
 // buildReviewPrompt 构建代码审查提示词
-func (rh *ReviewHandler) buildReviewPrompt(ctx context.Context, prEvent *models.PullRequestContext, commentID int64) (string, error) {
+func (rh *ReviewHandler) buildReviewPrompt(ctx context.Context, prEvent *models.PullRequestContext, commentID int64, triggerComment *string) (string, error) {
 	xl := xlog.NewWith(ctx)
 
 	if prEvent == nil {
@@ -318,15 +309,22 @@ func (rh *ReviewHandler) buildReviewPrompt(ctx context.Context, prEvent *models.
 		Timestamp: time.Now(),
 		Subject:   prEvent,
 		Code:      codeCtx, // 确保代码上下文被设置
-		Metadata: map[string]interface{}{
-			"pr_number":            prEvent.PullRequest.GetNumber(),
-			"pr_title":             prEvent.PullRequest.GetTitle(),
-			"pr_body":              prEvent.PullRequest.GetBody(),
-			"repository":           prEvent.PullRequest.GetBase().GetRepo().GetFullName(),
-			"trigger_username":     "system", // 自动审查
-			"trigger_display_name": "CodeAgent Auto Review",
-			"claude_comment_id":    commentID,
-		},
+		Metadata: func() map[string]interface{} {
+			metadata := map[string]interface{}{
+				"pr_number":            prEvent.PullRequest.GetNumber(),
+				"pr_title":             prEvent.PullRequest.GetTitle(),
+				"pr_body":              prEvent.PullRequest.GetBody(),
+				"repository":           prEvent.PullRequest.GetBase().GetRepo().GetFullName(),
+				"trigger_username":     prEvent.Sender.GetLogin(),
+				"trigger_display_name": prEvent.Sender.GetLogin(),
+				"claude_comment_id":    commentID,
+			}
+
+			if triggerComment != nil && *triggerComment != "" {
+				metadata["trigger_comment"] = *triggerComment
+			}
+			return metadata
+		}(),
 	}
 
 	// 使用模板生成器的Review模式生成提示词
@@ -396,6 +394,7 @@ func (rh *ReviewHandler) ProcessManualCodeReview(ctx context.Context, event *mod
 		return fmt.Errorf("failed to get PR information: %w", err)
 	}
 
+	triggerComment := event.Comment.GetBody()
 	// 3. 构造 PullRequestContext
 	prEvent := &models.PullRequestContext{
 		BaseContext: models.BaseContext{
@@ -411,5 +410,5 @@ func (rh *ReviewHandler) ProcessManualCodeReview(ctx context.Context, event *mod
 	}
 
 	// 4. 调用统一的代码审查逻辑
-	return rh.processCodeReview(ctx, prEvent, client)
+	return rh.processCodeReview(ctx, prEvent, client, &triggerComment)
 }

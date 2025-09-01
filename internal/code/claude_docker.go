@@ -13,7 +13,11 @@ import (
 	"github.com/qiniu/x/log"
 )
 
-// claudeCode Docker implementation
+const (
+	targetMCPConfigPath = "/home/codeagent/mcp-config.json"
+)
+
+// claudeCode Docker implementation with MCP support
 type claudeCode struct {
 	containerName string
 }
@@ -24,6 +28,14 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 
 	// Generate unique container name using shared function
 	containerName := generateContainerName("claude", workspace.Org, repoName, workspace)
+
+	// Generate MCP config file early
+	configGen := NewMCPConfigGenerator(workspace, cfg)
+	mcpConfigPath, err := configGen.CreateTempConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MCP config: %w", err)
+	}
+	log.Infof("MCP config file created at: %s", mcpConfigPath)
 
 	// Check if corresponding container is already running
 	if isContainerRunning(containerName) {
@@ -101,9 +113,8 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		args = append(args, "-e", fmt.Sprintf("GH_TOKEN=%s", cfg.GitHub.GHToken))
 	}
 
-	if cfg.GitHub.GHToken != "" {
-		args = append(args, "-e", fmt.Sprintf("GH_TOKEN=%s", cfg.GitHub.GHToken))
-	}
+	// Mount MCP config file
+	args = append(args, "-v", fmt.Sprintf("%s:%s", mcpConfigPath, targetMCPConfigPath))
 
 	// 添加容器镜像
 	args = append(args, cfg.Claude.ContainerImage)
@@ -140,22 +151,22 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 }
 
 func (c *claudeCode) Prompt(message string) (*Response, error) {
+	log.Infof("Executing Claude with Docker container %s", c.containerName)
+
 	args := []string{
 		"exec",
 		c.containerName,
 		"claude",
+		"--mcp-config", targetMCPConfigPath,
 		"--dangerously-skip-permissions",
 		"-c",
-		"-p",
-		message,
+		"-p", message,
 	}
 
-	// 打印调试信息
-	log.Infof("Executing claude command: docker %s", strings.Join(args, " "))
+	log.Infof("Claude command: docker %s", strings.Join(args, " "))
 
 	cmd := exec.Command("docker", args...)
 
-	// 捕获stderr用于调试
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -166,15 +177,13 @@ func (c *claudeCode) Prompt(message string) (*Response, error) {
 		return nil, err
 	}
 
-	// 启动命令
 	if err := cmd.Start(); err != nil {
 		log.Errorf("Failed to start claude command: %v", err)
 		log.Errorf("Stderr: %s", stderr.String())
 		return nil, fmt.Errorf("failed to execute claude: %w", err)
 	}
 
-	// 不等待命令完成，让调用方处理输出流
-	// 错误处理将在调用方读取时进行
+	log.Infof("Claude MCP command started successfully")
 	return &Response{Out: stdout}, nil
 }
 
