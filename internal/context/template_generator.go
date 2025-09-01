@@ -199,8 +199,6 @@ func (g *TemplatePromptGenerator) selectTemplate(mode string) string {
 	switch mode {
 	case "Continue":
 		return g.getContinueTemplate()
-	case "Fix":
-		return g.getFixTemplate()
 	case "Code":
 		return g.getCodeTemplate()
 	case "Review":

@@ -103,7 +103,6 @@ The system supports various AI instructions triggered through GitHub comments an
 **PR Collaboration Instructions:**
 
 - `/continue <instruction>` - Continue development in the PR, supporting custom instructions
-- `/fix <description>` - Fix code issues in the PR
 
 **Supported Scenarios:**
 

@@ -337,25 +337,6 @@ func (rh *ReviewHandler) promptWithRetry(ctx context.Context, codeClient code.Co
 	return code.PromptWithRetry(ctx, codeClient, prompt, maxRetries)
 }
 
-// addPRComment 使用GitHub client添加PR评论
-func (rh *ReviewHandler) addPRComment(ctx context.Context, pr *github.PullRequest, comment string, client *ghclient.Client) error {
-	xl := xlog.NewWith(ctx)
-
-	// 使用GitHub client的CreateComment方法添加评论
-	owner := pr.GetBase().GetRepo().GetOwner().GetLogin()
-	repo := pr.GetBase().GetRepo().GetName()
-	prNumber := pr.GetNumber()
-
-	_, err := client.CreateComment(ctx, owner, repo, prNumber, comment)
-	if err != nil {
-		xl.Errorf("Failed to add PR comment: %v", err)
-		return err
-	}
-
-	xl.Infof("Successfully added review comment to PR")
-	return nil
-}
-
 // updatePRComment 使用GitHub client更新PR评论
 func (rh *ReviewHandler) updatePRComment(ctx context.Context, pr *github.PullRequest, commentID int64, comment string, client *ghclient.Client) error {
 	xl := xlog.NewWith(ctx)

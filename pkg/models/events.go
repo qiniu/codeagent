@@ -146,7 +146,6 @@ type CommandInfo struct {
 const (
 	CommandCode     = "/code"
 	CommandContinue = "/continue"
-	CommandFix      = "/fix"
 	CommandClaude   = "@qiniu-ci"
 	CommandReview   = "/review"
 )

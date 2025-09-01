@@ -21,7 +21,7 @@ import (
 )
 
 // TagHandler Tag mode handler
-// Handles GitHub events containing commands (/code, /continue, /fix, /review)
+// Handles GitHub events containing commands (/code, /continue, /review)
 type TagHandler struct {
 	*BaseHandler
 	defaultAIModel string
@@ -49,7 +49,7 @@ func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerIn
 		BaseHandler: NewBaseHandler(
 			TagMode,
 			10, // Medium priority
-			"Handle @codeagent mentions and commands (/code, /continue, /fix, /review)",
+			"Handle @codeagent mentions and commands (/code, /continue, /review)",
 		),
 		defaultAIModel: defaultAIModel,
 		clientManager:  clientManager,
@@ -155,8 +155,6 @@ func (th *TagHandler) handleIssueComment(
 		switch cmdInfo.Command {
 		case models.CommandContinue:
 			return th.processPRCommand(ctx, event, cmdInfo, "Continue")
-		case models.CommandFix:
-			return th.processPRCommand(ctx, event, cmdInfo, "Fix")
 		case models.CommandReview:
 			return th.processReviewCommand(ctx, event, cmdInfo, client)
 		default:
@@ -200,10 +198,6 @@ func (th *TagHandler) handlePRReview(
 		// Implement PR Review continue logic, integrating original Agent functionality
 		xl.Infof("Processing PR review continue with new architecture")
 		return th.processPRReviewCommand(ctx, event, cmdInfo, "Continue")
-	case models.CommandFix:
-		// Implement PR Review fix logic, integrating original Agent functionality
-		xl.Infof("Processing PR review fix with new architecture")
-		return th.processPRReviewCommand(ctx, event, cmdInfo, "Fix")
 	default:
 		return fmt.Errorf("unsupported command for PR review: %s", cmdInfo.Command)
 	}
@@ -235,10 +229,6 @@ func (th *TagHandler) handlePRReviewComment(
 		// 实现PR Review评论继续逻辑，集成原姻 Agent功能
 		xl.Infof("Processing PR review comment continue with new architecture")
 		return th.processPRReviewCommentCommand(ctx, event, cmdInfo, "Continue")
-	case models.CommandFix:
-		// 实现PR Review评论修复逻辑，集成原姻Agent功能
-		xl.Infof("Processing PR review comment fix with new architecture")
-		return th.processPRReviewCommentCommand(ctx, event, cmdInfo, "Fix")
 	default:
 		return fmt.Errorf("unsupported command for PR review comment: %s", cmdInfo.Command)
 	}
@@ -864,7 +854,7 @@ func (th *TagHandler) updatePRWithMCP(ctx context.Context, ws *models.Workspace,
 	return nil
 }
 
-// processPRCommand 处理PR的通用命令（continue/fix），简化版本
+// processPRCommand 处理PR的通用命令（continue），简化版本
 func (th *TagHandler) processPRCommand(
 	ctx context.Context,
 	event *models.IssueCommentContext,
@@ -1025,7 +1015,7 @@ func (th *TagHandler) processPRCommand(
 	// 12. 更新PR描述（仅对/code命令）并添加完成评论
 	xl.Infof("Adding completion comment")
 
-	// 只有 /code 命令才更新PR描述，/continue 和 /fix 命令不更新PR描述
+	// 只有 /code 命令才更新PR描述，/continue 命令不更新PR描述
 	if cmdInfo.Command == models.CommandCode {
 		xl.Infof("Updating PR description for /code command")
 
@@ -1449,9 +1439,7 @@ func (th *TagHandler) buildPromptWithCurrentComment(mode string, args string, hi
 		if strings.HasPrefix(currentComment, "/continue") {
 			commentCommand = "/continue"
 			commentArgs = strings.TrimSpace(strings.TrimPrefix(currentComment, "/continue"))
-		} else if strings.HasPrefix(currentComment, "/fix") {
-			commentCommand = "/fix"
-			commentArgs = strings.TrimSpace(strings.TrimPrefix(currentComment, "/fix"))
+
 		}
 
 		if commentArgs != "" {
