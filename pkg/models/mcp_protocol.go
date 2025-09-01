@@ -1,8 +1,9 @@
 package models
 
 import (
-	"github.com/google/go-github/v58/github"
 	"time"
+
+	"github.com/google/go-github/v58/github"
 )
 
 // MCP协议相关数据模型
@@ -43,7 +44,7 @@ func (g *GitHubContextWrapper) GetEventAction() string {
 }
 
 func (g *GitHubContextWrapper) GetDeliveryID() string {
-	return "mcp-server"
+	return "github-mcp-server"
 }
 
 func (g *GitHubContextWrapper) GetTimestamp() time.Time {

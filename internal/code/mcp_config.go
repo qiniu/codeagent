@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 
 	"github.com/qiniu/codeagent/internal/config"
@@ -27,24 +26,22 @@ type MCPConfig struct {
 
 // MCPConfigGenerator MCP配置生成器（仅支持Docker模式）
 type MCPConfigGenerator struct {
-	workspace           *models.Workspace
-	config              *config.Config
-	containerBinaryPath string // Docker容器内的二进制路径
+	workspace *models.Workspace
+	config    *config.Config
 }
 
 // NewMCPConfigGenerator 创建Docker模式的MCP配置生成器
-func NewMCPConfigGenerator(workspace *models.Workspace, cfg *config.Config, containerBinaryPath string) *MCPConfigGenerator {
+func NewMCPConfigGenerator(workspace *models.Workspace, cfg *config.Config) *MCPConfigGenerator {
 	return &MCPConfigGenerator{
-		workspace:           workspace,
-		config:              cfg,
-		containerBinaryPath: containerBinaryPath,
+		workspace: workspace,
+		config:    cfg,
 	}
 }
 
 // GenerateConfig 生成MCP配置
 func (g *MCPConfigGenerator) GenerateConfig() (*MCPConfig, error) {
 	// Docker模式：使用容器内的路径
-	serverBinary := filepath.Join(g.containerBinaryPath, "mcp-server")
+	serverBinary := "github-mcp-server"
 	workingDir := "/workspace" // Docker容器内的工作目录
 	log.Infof("Docker mode: Using container binary path: %s", serverBinary)
 
@@ -133,7 +130,7 @@ func (g *MCPConfigGenerator) CreateTempConfig() (string, error) {
 	}
 
 	// 创建临时文件在/tmp目录中
-	tempFile, err := os.CreateTemp("/tmp", "codeagent-mcp-*.json")
+	tempFile, err := os.CreateTemp(g.config.Workspace.BaseDir, "codeagent-mcp-*.json")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}

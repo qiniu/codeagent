@@ -25,7 +25,7 @@ var (
 
 func main() {
 	// 创建日志文件用于调试
-	logFile, err := os.OpenFile("/tmp/mcp-server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logFile, err := os.OpenFile("/tmp/github-mcp-server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		// 如果无法创建日志文件，回退到stderr
 		log.SetOutput(os.Stderr)
@@ -244,7 +244,7 @@ func handleInitialize(request *models.MCPRequest) *models.MCPResponse {
 				"tools": map[string]interface{}{}, // 服务器支持工具
 			},
 			"serverInfo": map[string]interface{}{
-				"name":    "codeagent-mcp-server",
+				"name":    "codeagent-github-mcp-server",
 				"version": "1.0.0",
 			},
 		},

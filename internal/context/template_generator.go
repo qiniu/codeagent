@@ -471,7 +471,7 @@ Follow these steps:
       - Reference specific code with inline formatting or code blocks.
       - Include relevant file paths and line numbers when applicable.
       - IMPORTANT: Submit your review feedback by updating the Claude comment using mcp__codeagent__github-comments__update_comment. This will be displayed as your PR review.
-	  - IMPORTANT: Before submission, be sure to add a prompt to manually re-execute the code review at the end, and use friendly guiding language to remind users to enter /review in the comment section
+	  - IMPORTANT: Before submission, be sure to add this exact prompt at the end: "👉 **Want me to re-run this review?** Just type ` + "`/review`" + ` in the comments!"
 
    B. For Straightforward Changes:
       - Use file system tools to make the change locally.

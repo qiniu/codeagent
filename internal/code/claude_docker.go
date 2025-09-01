@@ -13,10 +13,13 @@ import (
 	"github.com/qiniu/x/log"
 )
 
+const (
+	targetMCPConfigPath = "/home/codeagent/mcp-config.json"
+)
+
 // claudeCode Docker implementation with MCP support
 type claudeCode struct {
 	containerName string
-	configGen     *MCPConfigGenerator
 }
 
 func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, error) {
@@ -26,16 +29,19 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	// Generate unique container name using shared function
 	containerName := generateContainerName("claude", workspace.Org, repoName, workspace)
 
-	// Initialize MCP support (默认启用)
-	configGen := NewMCPConfigGenerator(workspace, cfg, "/usr/local/bin")
-	log.Infof("MCP support enabled for Docker container")
+	// Generate MCP config file early
+	configGen := NewMCPConfigGenerator(workspace, cfg)
+	mcpConfigPath, err := configGen.CreateTempConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MCP config: %w", err)
+	}
+	log.Infof("MCP config file created at: %s", mcpConfigPath)
 
 	// Check if corresponding container is already running
 	if isContainerRunning(containerName) {
 		log.Infof("Found existing container: %s, reusing it", containerName)
 		return &claudeCode{
 			containerName: containerName,
-			configGen:     configGen,
 		}, nil
 	}
 
@@ -94,23 +100,6 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 		}
 	}
 
-	// Add MCP support (默认启用)
-	// 添加 MCP 相关环境变量
-	args = append(args, "-e", fmt.Sprintf("GITHUB_TOKEN=%s", cfg.GitHub.Token))
-	args = append(args, "-e", fmt.Sprintf("REPO_OWNER=%s", workspace.Org))
-	args = append(args, "-e", fmt.Sprintf("REPO_NAME=%s", workspace.Repo))
-	if workspace.Branch != "" {
-		args = append(args, "-e", fmt.Sprintf("BRANCH_NAME=%s", workspace.Branch))
-	}
-	if workspace.PRNumber > 0 {
-		args = append(args, "-e", fmt.Sprintf("PR_NUMBER=%d", workspace.PRNumber))
-	}
-	if workspace.Issue != nil {
-		args = append(args, "-e", fmt.Sprintf("ISSUE_NUMBER=%d", workspace.Issue.GetNumber()))
-	}
-
-	log.Infof("Added MCP environment variables for container")
-
 	// 添加 Claude API 相关环境变量
 	if cfg.Claude.AuthToken != "" {
 		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=%s", cfg.Claude.AuthToken))
@@ -123,6 +112,9 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	if cfg.GitHub.GHToken != "" {
 		args = append(args, "-e", fmt.Sprintf("GH_TOKEN=%s", cfg.GitHub.GHToken))
 	}
+
+	// Mount MCP config file
+	args = append(args, "-v", fmt.Sprintf("%s:%s", mcpConfigPath, targetMCPConfigPath))
 
 	// 添加容器镜像
 	args = append(args, cfg.Claude.ContainerImage)
@@ -155,88 +147,26 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 
 	return &claudeCode{
 		containerName: containerName,
-		configGen:     configGen,
 	}, nil
 }
 
 func (c *claudeCode) Prompt(message string) (*Response, error) {
 	log.Infof("Executing Claude with Docker container %s", c.containerName)
-	log.Infof("MCP support enabled, configGen available: %v", c.configGen != nil)
 
-	// 尝试 MCP 模式
-	if c.configGen != nil {
-		log.Infof("Attempting MCP mode in Docker container")
-		response, err := c.executeClaudeWithMCP(message)
-		if err != nil {
-			log.Errorf("MCP mode failed with error: %v", err)
-			log.Warnf("Falling back to normal mode")
-			return c.executeClaudeWithoutMCP(message)
-		}
-		log.Infof("MCP mode executed successfully")
-		return response, nil
-	}
-
-	// 普通模式（作为后备）
-	log.Infof("Using normal mode (MCP configGen not available)")
-	return c.executeClaudeWithoutMCP(message)
-}
-
-// executeClaudeWithMCP 在Docker容器中使用MCP执行Claude
-func (c *claudeCode) executeClaudeWithMCP(message string) (*Response, error) {
-	log.Infof("Starting MCP execution in Docker container")
-
-	// 1. 生成MCP配置文件
-	log.Infof("Step 1: Generating MCP config file")
-	mcpConfigPath, err := c.configGen.CreateTempConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create MCP config: %w", err)
-	}
-
-	log.Infof("MCP config file created at: %s", mcpConfigPath)
-
-	// 2. 将MCP配置文件复制到容器中并修复权限
-	log.Infof("Step 2: Copying MCP config file to container")
-	copyCmd := exec.Command("docker", "cp", mcpConfigPath, c.containerName+":/tmp/mcp-config.json")
-	if err := copyCmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to copy MCP config to container: %w", err)
-	}
-	log.Infof("MCP config file copied to container: /tmp/mcp-config.json")
-
-	// 修复容器内文件权限，确保所有用户都可以读取
-	log.Infof("Step 2.1: Fixing file permissions in container")
-
-	// 首先尝试设置文件为全局可读
-	chmodCmd := exec.Command("docker", "exec", c.containerName, "chmod", "755", "/tmp/mcp-config.json")
-	if err := chmodCmd.Run(); err != nil {
-		log.Warnf("Failed to chmod MCP config file: %v", err)
-	}
-	// 检查文件是否已经可读
-	testReadCmd := exec.Command("docker", "exec", c.containerName, "test", "-r", "/tmp/mcp-config.json")
-	if err := testReadCmd.Run(); err != nil {
-		return nil, fmt.Errorf("MCP config file is not readable: %w", err)
-	}
-
-	// 3. 执行Claude CLI with MCP
-	log.Infof("Step 3: Executing Claude CLI with MCP configuration")
 	args := []string{
 		"exec",
-		"-e", "HOME=/home/codeagent", // 设置环境变量
-		"-e", "CLAUDE_CONFIG_DIR=/home/codeagent/.claude",
 		c.containerName,
 		"claude",
-		"--mcp-config", "/tmp/mcp-config.json",
+		"--mcp-config", targetMCPConfigPath,
 		"--dangerously-skip-permissions",
+		"-c",
 		"-p", message,
 	}
 
-	log.Infof("Final Claude command: docker %s", strings.Join(args, " "))
+	log.Infof("Claude command: docker %s", strings.Join(args, " "))
 
 	cmd := exec.Command("docker", args...)
 
-	// 打印调试信息
-	log.Infof("Executing Claude with MCP in Docker: docker %s", strings.Join(args, " "))
-
-	// 捕获stderr用于调试
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -247,58 +177,13 @@ func (c *claudeCode) executeClaudeWithMCP(message string) (*Response, error) {
 		return nil, err
 	}
 
-	// 启动命令
-	if err := cmd.Start(); err != nil {
-		log.Errorf("Failed to start claude command: %v", err)
-		log.Errorf("Stderr: %s", stderr.String())
-		return nil, fmt.Errorf("failed to execute claude: %w", err)
-	}
-	log.Infof("Claude MCP command started successfully in Docker")
-
-	return &Response{Out: stdout}, nil
-}
-
-// executeClaudeWithoutMCP 在Docker容器中不使用MCP执行Claude（降级模式）
-func (c *claudeCode) executeClaudeWithoutMCP(message string) (*Response, error) {
-	log.Infof("Executing Claude in fallback mode (no MCP)")
-
-	args := []string{
-		"exec",
-		"-e", "HOME=/home/codeagent", // 设置环境变量
-		"-e", "CLAUDE_CONFIG_DIR=/home/codeagent/.claude",
-		c.containerName,
-		"claude",
-		"--dangerously-skip-permissions",
-		"-c",
-		"-p",
-		message,
-	}
-
-	// 打印调试信息
-	log.Infof("Executing claude command: docker %s", strings.Join(args, " "))
-
-	cmd := exec.Command("docker", args...)
-
-	// 捕获stderr用于调试
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		log.Errorf("Failed to start claude command: %v", err)
-		log.Errorf("Stderr: %s", stderr.String())
-		return nil, err
-	}
-
-	// 启动命令
 	if err := cmd.Start(); err != nil {
 		log.Errorf("Failed to start claude command: %v", err)
 		log.Errorf("Stderr: %s", stderr.String())
 		return nil, fmt.Errorf("failed to execute claude: %w", err)
 	}
 
-	// 不等待命令完成，让调用方处理输出流
-	// 错误处理将在调用方读取时进行
+	log.Infof("Claude MCP command started successfully")
 	return &Response{Out: stdout}, nil
 }
 

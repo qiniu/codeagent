@@ -1,4 +1,4 @@
-# Build stage for mcp-server
+# Build stage for github-mcp-server
 FROM golang:1.24-bookworm AS mcp-builder
 
 # 设置工作目录
@@ -13,8 +13,8 @@ RUN go mod download
 # 复制源代码
 COPY . .
 
-# 构建 mcp-server 二进制文件
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-server ./cmd/mcp-server
+# 构建 github-mcp-server 二进制文件
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o github-mcp-server ./cmd/github-mcp-server
 
 # Main stage
 FROM node:24-bookworm
@@ -54,9 +54,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 
-# 从构建阶段复制 mcp-server 二进制文件
-COPY --from=mcp-builder /src/mcp-server /usr/local/bin/mcp-server
-RUN chmod +x /usr/local/bin/mcp-server
+# 从构建阶段复制 github-mcp-server 二进制文件
+COPY --from=mcp-builder /src/github-mcp-server /usr/local/bin/github-mcp-server
+RUN chmod +x /usr/local/bin/github-mcp-server
 
 
 # 切换用户
