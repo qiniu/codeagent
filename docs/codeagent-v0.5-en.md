@@ -15,7 +15,7 @@
 ### 2. Mode-based Processing System
 
 - **File**: `internal/modes/`
-- **TagHandler**: Handles command operations (`/code`, `/continue`, `/fix`)
+- **TagHandler**: Handles command operations (`/code`, `/continue`)
 - **AgentHandler**: Handles @mention events
 - **ReviewHandler**: Automatic PR review
 - **BaseHandler**: Unified handler interface and priority management

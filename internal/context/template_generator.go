@@ -171,7 +171,7 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 	if triggerPhrase, ok := ctx.Metadata["trigger_phrase"]; ok {
 		vars["TRIGGER_PHRASE"] = fmt.Sprintf("%v", triggerPhrase)
 	}
-	
+
 	// 关键：支持自定义指令内容覆盖默认的trigger_comment
 	if customInstruction, ok := ctx.Metadata["custom_instruction"]; ok {
 		vars["CUSTOM_TRIGGER_COMMENT"] = fmt.Sprintf("%v", customInstruction)
@@ -195,8 +195,6 @@ func (g *TemplatePromptGenerator) selectTemplate(mode string) string {
 	switch mode {
 	case "Continue":
 		return g.getContinueTemplate()
-	case "Fix":
-		return g.getFixTemplate()
 	case "Code":
 		return g.getCodeTemplate()
 	case "Review":
