@@ -44,3 +44,13 @@ mention:
     - "@qiniu-ai" # another company AI assistant
   # Default trigger (used when no specific trigger list is provided)
   default_trigger: "@qiniu-ci"
+
+# Review configuration
+review:
+  # List of accounts to exclude from automatic code review
+  # Supports multiple accounts and patterns
+  excluded_accounts:
+    - "dependabot" # GitHub's dependency bot
+    - "renovate" # Renovate bot
+    - "github-actions" # GitHub Actions bot
+    - "*-bot" # Pattern to exclude all accounts ending with -bot (optional)

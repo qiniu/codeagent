@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 
@@ -92,6 +93,40 @@ func (rh *ReviewHandler) canHandlePREvent(ctx context.Context, event *models.Pul
 	}
 }
 
+// isAccountExcluded 检查账号是否应该被排除在自动审查之外
+func (rh *ReviewHandler) isAccountExcluded(ctx context.Context, username string) bool {
+	xl := xlog.NewWith(ctx)
+
+	// 1. 检查是否以"[bot]"结尾（GitHub App账号的常见模式）
+	if strings.HasSuffix(strings.ToLower(username), "[bot]") {
+		xl.Infof("Account %s excluded: ends with '[bot]'", username)
+		return true
+	}
+
+	// 2. 检查配置中的排除账号列表
+	for _, excludedAccount := range rh.config.Review.ExcludedAccounts {
+		// 支持通配符模式匹配
+		if strings.Contains(excludedAccount, "*") {
+			// 将通配符模式转换为正则表达式
+			pattern := strings.ReplaceAll(excludedAccount, "*", ".*")
+			matched, err := regexp.MatchString(pattern, username)
+			if err == nil && matched {
+				xl.Infof("Account %s excluded: matches pattern '%s'", username, excludedAccount)
+				return true
+			}
+		} else {
+			// 精确匹配
+			if strings.EqualFold(username, excludedAccount) {
+				xl.Infof("Account %s excluded: exact match with '%s'", username, excludedAccount)
+				return true
+			}
+		}
+	}
+
+	xl.Debugf("Account %s not excluded from auto-review", username)
+	return false
+}
+
 // Execute 执行Review模式处理逻辑
 func (rh *ReviewHandler) Execute(ctx context.Context, event models.GitHubContext) error {
 	xl := xlog.NewWith(ctx)
@@ -129,7 +164,14 @@ func (rh *ReviewHandler) handlePREvent(ctx context.Context, event *models.PullRe
 
 	switch event.GetEventAction() {
 	case "opened", "reopened", "synchronize", "ready_for_review":
-		xl.Infof("Auto-reviewing PR #%d", event.PullRequest.GetNumber())
+		// 检查PR作者是否应该被排除
+		prAuthor := event.PullRequest.GetUser().GetLogin()
+		if rh.isAccountExcluded(ctx, prAuthor) {
+			xl.Infof("Skipping auto-review for PR #%d: author %s is excluded", event.PullRequest.GetNumber(), prAuthor)
+			return nil
+		}
+
+		xl.Infof("Auto-reviewing PR #%d by author %s", event.PullRequest.GetNumber(), prAuthor)
 
 		// 执行自动代码审查
 		return rh.processCodeReview(ctx, event, client, nil)

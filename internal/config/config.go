@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	yaml "gopkg.in/yaml.v3"
@@ -24,6 +25,8 @@ type Config struct {
 	Commands CommandsConfig `yaml:"commands"`
 	// AI Mention Configuration
 	Mention MentionConfig `yaml:"mention"`
+	// Review Configuration
+	Review ReviewConfig `yaml:"review"`
 }
 
 type GeminiConfig struct {
@@ -80,6 +83,11 @@ type MentionConfig struct {
 	Triggers []string `yaml:"triggers"`
 	// 默认的mention目标（向后兼容）
 	DefaultTrigger string `yaml:"default_trigger"`
+}
+
+type ReviewConfig struct {
+	// 自动审查的排除账号，支持多个
+	ExcludedAccounts []string `yaml:"excluded_accounts"`
 }
 
 func Load(configPath string) (*Config, error) {
@@ -181,6 +189,10 @@ func (c *Config) loadFromEnv() {
 	if mentionTrigger := os.Getenv("MENTION_TRIGGER"); mentionTrigger != "" {
 		c.Mention.DefaultTrigger = mentionTrigger
 	}
+	// Review configuration from environment
+	if excludedAccounts := os.Getenv("REVIEW_EXCLUDED_ACCOUNTS"); excludedAccounts != "" {
+		c.Review.ExcludedAccounts = strings.Split(excludedAccounts, ",")
+	}
 }
 
 func loadFromEnv() *Config {
@@ -229,6 +241,9 @@ func loadFromEnv() *Config {
 		Mention: MentionConfig{
 			Triggers:       []string{getEnvOrDefault("MENTION_TRIGGER", "@qiniu-ci")},
 			DefaultTrigger: getEnvOrDefault("MENTION_TRIGGER", "@qiniu-ci"),
+		},
+		Review: ReviewConfig{
+			ExcludedAccounts: []string{},
 		},
 		CodeProvider: getEnvOrDefault("CODE_PROVIDER", "claude"),
 		UseDocker:    getEnvBoolOrDefault("USE_DOCKER", true),
