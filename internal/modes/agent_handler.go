@@ -230,25 +230,6 @@ func (ah *AgentHandler) autoProcessIssue(ctx context.Context, event *models.Issu
 	return nil
 }
 
-// generateAutoPrompt 为Issue生成自动化提示
-func (ah *AgentHandler) generateAutoPrompt(issue *github.Issue) string {
-	// 基于Issue的标题和描述生成合适的提示
-	title := issue.GetTitle()
-
-	prompt := "Please implement this feature based on the issue description."
-
-	// 可以根据标题中的关键词优化提示
-	if strings.Contains(strings.ToLower(title), "bug") || strings.Contains(strings.ToLower(title), "fix") {
-		prompt = "Please analyze and fix this bug based on the issue description."
-	} else if strings.Contains(strings.ToLower(title), "test") {
-		prompt = "Please add tests for this functionality based on the issue description."
-	} else if strings.Contains(strings.ToLower(title), "refactor") {
-		prompt = "Please refactor the code based on the issue description."
-	}
-
-	return prompt
-}
-
 // hasAutoTriggerLabel 检查Issue是否包含自动触发标签
 func (ah *AgentHandler) hasAutoTriggerLabel(issue *github.Issue) bool {
 	autoTriggerLabels := []string{"ai-assist", "codeagent", "auto-code", "ai-help"}
