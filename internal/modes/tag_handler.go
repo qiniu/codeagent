@@ -129,6 +129,7 @@ func (th *TagHandler) Execute(ctx context.Context, event models.GitHubContext) e
 	case models.EventPullRequestReview:
 		return th.handlePRReview(ctx, event.(*models.PullRequestReviewContext), cmdInfo, client)
 	case models.EventPullRequestReviewComment:
+		// NOTE(CarlJi): 可能不需要响应这个事件，因为PR Review Comment事件已经通过PR Review事件响应了
 		return th.handlePRReviewComment(ctx, event.(*models.PullRequestReviewCommentContext), cmdInfo, client)
 	default:
 		return fmt.Errorf("unsupported event type for TagHandler: %s", event.GetEventType())
@@ -1873,21 +1874,30 @@ func (th *TagHandler) processPRComment(
 		cmdInfo.AIModel = th.defaultAIModel
 	}
 
-	// 创建临时工作空间用于代码访问（但不创建PR）
-	// 构造PR HTML URL
-	htmlURL := fmt.Sprintf("https://github.com/%s/%s/pull/%d",
+	// 获取完整的PR信息
+	repoInfo := &models.Repository{
+		Owner: event.Repository.GetOwner().GetLogin(),
+		Name:  event.Repository.GetName(),
+	}
+	client, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
+	// 通过GitHub API获取完整的PR信息
+	pr, _, err := client.GetClient().PullRequests.Get(ctx,
 		event.Repository.GetOwner().GetLogin(),
 		event.Repository.GetName(),
 		event.Issue.GetNumber())
-
-	tempPR := &github.PullRequest{
-		Number:  github.Int(event.Issue.GetNumber()),
-		Title:   github.String("temp-reply-" + event.Issue.GetTitle()),
-		Body:    event.Issue.Body,
-		HTMLURL: github.String(htmlURL),
+	if err != nil {
+		return fmt.Errorf("failed to get PR info: %w", err)
 	}
 
-	tempWS := th.workspace.GetOrCreateWorkspaceForPR(tempPR, cmdInfo.AIModel)
+	xl.Infof("Retrieved full PR info: #%d, head=%s, base=%s",
+		pr.GetNumber(), pr.GetHead().GetRef(), pr.GetBase().GetRef())
+
+	// 使用完整的PR对象创建工作空间
+	tempWS := th.workspace.GetOrCreateWorkspaceForPR(pr, cmdInfo.AIModel)
 	if tempWS == nil {
 		return fmt.Errorf("failed to create temporary workspace for PR comment reply")
 	}
