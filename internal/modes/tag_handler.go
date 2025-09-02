@@ -157,6 +157,9 @@ func (th *TagHandler) handleIssueComment(
 			return th.processPRCommand(ctx, event, cmdInfo, "Continue")
 		case models.CommandReview:
 			return th.processReviewCommand(ctx, event, cmdInfo, client)
+		case models.CommandMention:
+			// @qiniu-ci 在PR Conversation页面作为通用指令处理器，仅回复评论
+			return th.processPRComment(ctx, event, cmdInfo)
 		default:
 			return fmt.Errorf("unsupported command for PR comment: %s", cmdInfo.Command)
 		}
@@ -164,7 +167,7 @@ func (th *TagHandler) handleIssueComment(
 		switch cmdInfo.Command {
 		case models.CommandCode:
 			return th.processIssueCodeCommand(ctx, event, cmdInfo)
-		case models.CommandClaude:
+		case models.CommandMention:
 			// @qiniu-ci 作为通用指令处理器，仅回复评论
 			return th.processIssueComment(ctx, event, cmdInfo)
 		default:
@@ -229,6 +232,9 @@ func (th *TagHandler) handlePRReviewComment(
 		// 实现PR Review评论继续逻辑，集成原姻 Agent功能
 		xl.Infof("Processing PR review comment continue with new architecture")
 		return th.processPRReviewCommentCommand(ctx, event, cmdInfo, "Continue")
+	case models.CommandMention:
+		// TODO(CarlJi): TO BE IMPLEMENTED
+		return fmt.Errorf("unsupported command for PR review comment: %s", cmdInfo.Command)
 	default:
 		return fmt.Errorf("unsupported command for PR review comment: %s", cmdInfo.Command)
 	}
@@ -1635,6 +1641,73 @@ func (th *TagHandler) truncateText(text string, maxLength int) string {
 	return text[:maxLength]
 }
 
+// buildPRPrompt 构建PR评论的提示词
+func (th *TagHandler) buildPRPrompt(ctx context.Context, event *models.IssueCommentContext, cmdInfo *models.CommandInfo) (string, error) {
+	xl := xlog.NewWith(ctx)
+
+	// 收集PR的完整上下文
+	pr := event.Issue // 在PR评论中，Issue实际上是PR
+	repo := event.Repository
+	repoFullName := repo.GetFullName()
+
+	// 创建增强上下文
+	ctxType := ctxsys.ContextTypePR
+	enhancedCtx := &ctxsys.EnhancedContext{
+		Type:      ctxType,
+		Priority:  ctxsys.PriorityHigh,
+		Timestamp: time.Now(),
+		Subject:   event,
+		Metadata: map[string]interface{}{
+			"pr_number":  pr.GetNumber(),
+			"pr_title":   pr.GetTitle(),
+			"pr_body":    pr.GetBody(),
+			"repository": repoFullName,
+			"sender":     event.Sender.GetLogin(),
+		},
+	}
+
+	// 收集PR的评论上下文
+	prNumber := pr.GetNumber()
+	owner, repoName := th.extractRepoInfo(repoFullName)
+
+	// 获取PR的所有评论
+	repoInfo := &models.Repository{Owner: owner, Name: repoName}
+	client, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		xl.Warnf("Failed to get GitHub client: %v", err)
+		return "", fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+	comments, _, err := client.GetClient().Issues.ListComments(ctx, owner, repoName, prNumber, &github.IssueListCommentsOptions{
+		Sort:      github.String("created"),
+		Direction: github.String("asc"),
+	})
+	if err != nil {
+		xl.Warnf("Failed to get PR comments: %v", err)
+	} else {
+		// 转换评论格式
+		for _, comment := range comments {
+			if comment.GetID() != event.Comment.GetID() { // 排除当前评论
+				enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
+					ID:        comment.GetID(),
+					Type:      "comment",
+					Author:    comment.GetUser().GetLogin(),
+					Body:      comment.GetBody(),
+					CreatedAt: comment.GetCreatedAt().Time,
+					UpdatedAt: comment.GetUpdatedAt().Time,
+				})
+			}
+		}
+	}
+
+	// 使用增强的提示词生成器，用于PR评论回复
+	prompt, err := th.contextManager.Generator.GeneratePrompt(enhancedCtx, "Reply", cmdInfo.Args)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate enhanced prompt: %w", err)
+	}
+
+	return prompt, nil
+}
+
 // buildPrompt 构建提示词
 func (th *TagHandler) buildPrompt(ctx context.Context, event *models.IssueCommentContext, cmdInfo *models.CommandInfo) (string, error) {
 	xl := xlog.NewWith(ctx)
@@ -1702,6 +1775,43 @@ func (th *TagHandler) buildPrompt(ctx context.Context, event *models.IssueCommen
 	return prompt, nil
 }
 
+// replyToPRComment 使用MCP工具回复PR评论
+func (th *TagHandler) replyToPRComment(
+	ctx context.Context,
+	event *models.IssueCommentContext,
+	responseText string,
+) error {
+	xl := xlog.NewWith(ctx)
+
+	// 创建MCP上下文
+	mcpCtx := &models.MCPContext{
+		Repository:  event,
+		Permissions: []string{"github:read", "github:write"},
+		Constraints: []string{},
+	}
+
+	// 使用MCP工具添加评论
+	commentCall := &models.ToolCall{
+		ID: models.MCPID{Value: "reply_pr_" + fmt.Sprintf("%d", event.Issue.GetNumber())},
+		Function: models.ToolFunction{
+			Name: "github-comments__create_comment",
+			Arguments: map[string]interface{}{
+				"issue_number": event.Issue.GetNumber(), // PR的issue_number就是PR number
+				"body":         responseText,
+			},
+		},
+	}
+
+	_, err := th.mcpClient.ExecuteToolCalls(ctx, []*models.ToolCall{commentCall}, mcpCtx)
+	if err != nil {
+		xl.Errorf("Failed to reply to PR comment via MCP: %v", err)
+		return err
+	}
+
+	xl.Infof("Successfully replied to PR comment via MCP")
+	return nil
+}
+
 // replyToIssueComment 使用MCP工具回复Issue评论
 func (th *TagHandler) replyToIssueComment(
 	ctx context.Context,
@@ -1736,6 +1846,90 @@ func (th *TagHandler) replyToIssueComment(
 	}
 
 	xl.Infof("Successfully replied to issue comment via MCP")
+	return nil
+}
+
+// processPRComment 处理PR中的@qiniu-ci命令（PR Conversation页面）
+func (th *TagHandler) processPRComment(
+	ctx context.Context,
+	event *models.IssueCommentContext,
+	cmdInfo *models.CommandInfo,
+) error {
+	xl := xlog.NewWith(ctx)
+
+	prNumber := event.Issue.GetNumber()
+	prTitle := event.Issue.GetTitle()
+
+	xl.Infof("Processing @qiniu-ci command in PR comment: PR=#%d, title=%s, AI model=%s, instruction=%s",
+		prNumber, prTitle, cmdInfo.AIModel, cmdInfo.Args)
+
+	// 验证这是一个PR评论
+	if !event.IsPRComment {
+		return fmt.Errorf("@qiniu-ci command can only be used in PR comments")
+	}
+
+	// 如果用户指定了AI模型，使用指定的；否则使用系统默认的
+	if strings.TrimSpace(cmdInfo.AIModel) == "" {
+		cmdInfo.AIModel = th.defaultAIModel
+	}
+
+	// 创建临时工作空间用于代码访问（但不创建PR）
+	// 构造PR HTML URL
+	htmlURL := fmt.Sprintf("https://github.com/%s/%s/pull/%d",
+		event.Repository.GetOwner().GetLogin(),
+		event.Repository.GetName(),
+		event.Issue.GetNumber())
+
+	tempPR := &github.PullRequest{
+		Number:  github.Int(event.Issue.GetNumber()),
+		Title:   github.String("temp-reply-" + event.Issue.GetTitle()),
+		Body:    event.Issue.Body,
+		HTMLURL: github.String(htmlURL),
+	}
+
+	tempWS := th.workspace.GetOrCreateWorkspaceForPR(tempPR, cmdInfo.AIModel)
+	if tempWS == nil {
+		return fmt.Errorf("failed to create temporary workspace for PR comment reply")
+	}
+
+	// 设置仓库信息
+	tempWS.Org = event.Repository.GetOwner().GetLogin()
+	tempWS.Repo = event.Repository.GetName()
+
+	xl.Infof("Created temporary workspace for PR comment reply: %s", tempWS.Path)
+
+	codeClient, err := th.sessionManager.GetSession(tempWS)
+	if err != nil {
+		return fmt.Errorf("failed to get code client: %w", err)
+	}
+
+	prompt, err := th.buildPRPrompt(ctx, event, cmdInfo)
+	if err != nil {
+		xl.Errorf("Failed to build enhanced prompt: %v", err)
+		return err
+	}
+
+	xl.Infof("Executing AI query for PR comment reply")
+	resp, err := th.promptWithRetry(ctx, codeClient, prompt, 3)
+	if err != nil {
+		return fmt.Errorf("failed to get AI response: %w", err)
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		return fmt.Errorf("failed to read AI response: %w", err)
+	}
+
+	responseText := string(output)
+	xl.Infof("AI response generated, length: %d, response: %s", len(responseText), responseText)
+
+	// 使用MCP工具回复PR评论
+	err = th.replyToPRComment(ctx, event, responseText)
+	if err != nil {
+		return fmt.Errorf("failed to reply to PR comment: %w", err)
+	}
+
+	xl.Infof("Successfully replied to PR comment")
 	return nil
 }
 
