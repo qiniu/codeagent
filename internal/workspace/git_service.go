@@ -236,27 +236,37 @@ func (g *gitService) FetchAndCheckoutPR(repoPath string, prNumber int) error {
 	log.Infof("Fetching PR #%d content using GitHub PR refs (force mode)", prNumber)
 
 	prBranchName := fmt.Sprintf("pr-%d", prNumber)
-
-	// Step 1: Reset workspace to clean state if we're on the PR branch
 	currentBranch, err := g.GetCurrentBranch(repoPath)
+
+	// If we're already on the PR branch, use a lightweight in-place update
 	if err == nil && currentBranch == prBranchName {
-		// Reset workspace to avoid conflicts
-		resetCmd := exec.Command("git", "reset", "--hard")
+		log.Infof("Already on PR branch %s, performing in-place sync", prBranchName)
+
+		// Step 1: First fetch the PR content to FETCH_HEAD without creating/updating local branch
+		fetchCmd := exec.Command("git", "fetch", "origin", fmt.Sprintf("pull/%d/head", prNumber))
+		fetchCmd.Dir = repoPath
+		if output, err := fetchCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to fetch PR #%d content: %w, output: %s", prNumber, err, string(output))
+		}
+
+		// Step 2: Reset current branch to the fetched content
+		resetCmd := exec.Command("git", "reset", "--hard", "FETCH_HEAD")
 		resetCmd.Dir = repoPath
 		if output, err := resetCmd.CombinedOutput(); err != nil {
-			log.Warnf("Failed to reset workspace: %v, output: %s", err, string(output))
+			return fmt.Errorf("failed to reset PR branch to latest content: %w, output: %s", err, string(output))
 		}
+
+		log.Infof("Successfully updated PR #%d branch in-place", prNumber)
+		return nil
 	}
 
-	// Step 2: Force fetch the PR using GitHub's pull/<number>/head reference
 	fetchCmd := exec.Command("git", "fetch", "origin", fmt.Sprintf("pull/%d/head:%s", prNumber, prBranchName), "--force")
 	fetchCmd.Dir = repoPath
 	if output, err := fetchCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to fetch PR #%d: %w, output: %s", prNumber, err, string(output))
 	}
 
-	// Step 3: Force checkout the PR branch
-	checkoutCmd := exec.Command("git", "checkout", prBranchName, "--force")
+	checkoutCmd := exec.Command("git", "checkout", prBranchName)
 	checkoutCmd.Dir = repoPath
 	if output, err := checkoutCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to checkout PR branch %s: %w, output: %s", prBranchName, err, string(output))
