@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -418,6 +419,7 @@ func (m *Manager) ExtractSuffixFromIssueDir(aiModel, repo string, issueNumber in
 func (m *Manager) cleanupPhysicalWorkspace(ws *models.Workspace) bool {
 	cloneRemoved := false
 	sessionRemoved := false
+	mcpConfigsRemoved := true // 默认为true，如果有MCP配置文件但清理失败则设为false
 
 	// Remove cloned repository directory
 	if ws.Path != "" {
@@ -439,13 +441,19 @@ func (m *Manager) cleanupPhysicalWorkspace(ws *models.Workspace) bool {
 		}
 	}
 
+	// Clean up MCP configuration files
+	if err := m.cleanupMCPConfigs(ws); err != nil {
+		log.Errorf("Failed to cleanup MCP config files: %v", err)
+		mcpConfigsRemoved = false
+	}
+
 	// Clean up related Docker containers
 	if err := m.containerService.CleanupWorkspaceContainers(ws); err != nil {
 		log.Warnf("Failed to cleanup containers for workspace %s: %v", ws.Path, err)
 	}
 
-	// Only return true if both clone and session are cleaned successfully
-	return cloneRemoved && sessionRemoved
+	// Return true if all cleanup operations succeeded
+	return cloneRemoved && sessionRemoved && mcpConfigsRemoved
 }
 
 // cleanupClonedRepository removes a cloned repository directory
@@ -461,6 +469,88 @@ func (m *Manager) cleanupClonedRepository(clonePath string) error {
 		return fmt.Errorf("failed to remove cloned repository directory: %w", err)
 	}
 	return nil
+}
+
+// cleanupMCPConfigs removes MCP configuration files associated with the workspace
+func (m *Manager) cleanupMCPConfigs(ws *models.Workspace) error {
+	if ws == nil {
+		return nil
+	}
+
+	removedCount := 0
+
+	// Remove the specific MCP config file if path is known
+	if ws.MCPConfigPath != "" {
+		if err := os.Remove(ws.MCPConfigPath); err != nil {
+			if !os.IsNotExist(err) {
+				log.Warnf("Failed to remove MCP config file %s: %v", ws.MCPConfigPath, err)
+				return err
+			} else {
+				log.Infof("MCP config file already removed: %s", ws.MCPConfigPath)
+			}
+		} else {
+			log.Infof("Successfully removed MCP config file: %s", ws.MCPConfigPath)
+			removedCount++
+		}
+	} else {
+		// Fallback: search for MCP config files using pattern matching (for legacy workspaces)
+		var mcpConfigDirs []string
+
+		if ws.SessionPath != "" {
+			// session目录的同级目录
+			mcpConfigDirs = append(mcpConfigDirs, filepath.Dir(ws.SessionPath))
+		} else if ws.Path != "" {
+			// 代码仓的同级目录
+			mcpConfigDirs = append(mcpConfigDirs, filepath.Dir(ws.Path))
+		}
+
+		for _, dir := range mcpConfigDirs {
+			matches, err := filepath.Glob(filepath.Join(dir, "codeagent-mcp-*.json"))
+			if err != nil {
+				log.Warnf("Failed to search MCP config files in %s: %v", dir, err)
+				continue
+			}
+
+			for _, mcpFile := range matches {
+				if err := os.Remove(mcpFile); err != nil {
+					log.Warnf("Failed to remove MCP config file %s: %v", mcpFile, err)
+				} else {
+					log.Infof("Successfully removed MCP config file: %s", mcpFile)
+					removedCount++
+				}
+			}
+		}
+	}
+
+	if removedCount > 0 {
+		log.Infof("Cleaned up %d MCP config files for workspace", removedCount)
+	}
+
+	return nil
+}
+
+// findExistingMCPConfig tries to find an existing MCP config file in the specified directory
+func (m *Manager) findExistingMCPConfig(searchDir string) string {
+	if searchDir == "" {
+		return ""
+	}
+
+	// Search for codeagent-mcp-*.json pattern
+	matches, err := filepath.Glob(filepath.Join(searchDir, "codeagent-mcp-*.json"))
+	if err != nil {
+		log.Warnf("Failed to search for MCP config files in %s: %v", searchDir, err)
+		return ""
+	}
+
+	// Return the first match if found
+	for _, match := range matches {
+		if _, err := os.Stat(match); err == nil {
+			log.Infof("Found existing MCP config file during recovery: %s", match)
+			return match
+		}
+	}
+
+	return ""
 }
 
 // isForkRepositoryPR checks if a PR is from a fork repository
@@ -614,8 +704,9 @@ func (m *Manager) recoverExistingWorkspaces() {
 
 // recoverPRWorkspaceFromClone recovers a single PR workspace from clone
 func (m *Manager) recoverPRWorkspaceFromClone(org, repo, clonePath, remoteURL string, prNumber int, aiModel string, timestamp int64) error {
-	// Create corresponding session directory (same level as clone directory)
-	sessionPath := m.dirFormatter.CreateSessionPathWithTimestamp(m.baseDir, aiModel, repo, prNumber, timestamp)
+	// Create corresponding session directory using the same suffix as the clone directory
+	suffix := strconv.FormatInt(timestamp, 10)
+	sessionPath := m.dirFormatter.CreateSessionPath(filepath.Join(m.baseDir, org), aiModel, repo, prNumber, suffix)
 
 	// Get current branch information
 	currentBranch, err := m.gitService.GetCurrentBranch(clonePath)
@@ -624,17 +715,21 @@ func (m *Manager) recoverPRWorkspaceFromClone(org, repo, clonePath, remoteURL st
 		currentBranch = ""
 	}
 
+	// Try to find existing MCP config file
+	mcpConfigPath := m.findExistingMCPConfig(filepath.Dir(sessionPath))
+
 	// Recover workspace object
 	ws := &models.Workspace{
-		Org:         org,
-		Repo:        repo,
-		AIModel:     aiModel,
-		Path:        clonePath,
-		PRNumber:    prNumber,
-		SessionPath: sessionPath,
-		Repository:  remoteURL,
-		Branch:      currentBranch,
-		CreatedAt:   time.Unix(timestamp, 0),
+		Org:           org,
+		Repo:          repo,
+		AIModel:       aiModel,
+		Path:          clonePath,
+		PRNumber:      prNumber,
+		SessionPath:   sessionPath,
+		MCPConfigPath: mcpConfigPath,
+		Repository:    remoteURL,
+		Branch:        currentBranch,
+		CreatedAt:     time.Unix(timestamp, 0),
 	}
 
 	// Store in repository

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/qiniu/codeagent/internal/config"
@@ -129,8 +130,23 @@ func (g *MCPConfigGenerator) CreateTempConfig() (string, error) {
 		return "", err
 	}
 
-	// 创建临时文件在/tmp目录中
-	tempFile, err := os.CreateTemp(g.config.Workspace.BaseDir, "codeagent-mcp-*.json")
+	// 创建MCP配置文件在workspace目录中，与代码仓和session目录保持一致
+	var mcpConfigDir string
+	if g.workspace.SessionPath != "" {
+		// 如果有session目录，将MCP配置放在session目录的同级
+		mcpConfigDir = filepath.Dir(g.workspace.SessionPath)
+	} else {
+		// 如果没有session目录，将MCP配置放在代码仓的同级
+		mcpConfigDir = filepath.Dir(g.workspace.Path)
+	}
+
+	// 确保目录存在
+	if err := os.MkdirAll(mcpConfigDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create MCP config directory: %w", err)
+	}
+
+	// 创建临时文件在workspace相关目录中
+	tempFile, err := os.CreateTemp(mcpConfigDir, "codeagent-mcp-*.json")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
@@ -146,5 +162,6 @@ func (g *MCPConfigGenerator) CreateTempConfig() (string, error) {
 		return "", err
 	}
 
+	log.Infof("Created MCP config file: %s", tempFile.Name())
 	return tempFile.Name(), nil
 }
