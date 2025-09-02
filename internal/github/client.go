@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/log"
+	"github.com/qiniu/x/xlog"
 )
 
 type Client struct {
@@ -266,117 +267,129 @@ func (c *Client) CommitAndPush(workspace *models.Workspace, result *models.Execu
 }
 
 // PullLatestChanges 拉取远端最新代码（优先使用rebase策略）
-func (c *Client) PullLatestChanges(workspace *models.Workspace, pr *github.PullRequest) error {
-	log.Infof("Pulling latest changes for workspace: %s (PR #%d)", workspace.Path, pr.GetNumber())
+func (c *Client) PullLatestChanges(ctx context.Context, workspace *models.Workspace, pr *github.PullRequest) error {
+	xl := xlog.NewWith(ctx)
+	xl.Infof("Pulling latest changes for workspace: %s (PR #%d)", workspace.Path, pr.GetNumber())
 
 	// 获取 PR 的目标分支（base branch）
 	baseBranch := pr.GetBase().GetRef()
 	if baseBranch == "" {
-		log.Errorf("PR base branch is empty for PR #%d", pr.GetNumber())
+		xl.Errorf("PR base branch is empty for PR #%d", pr.GetNumber())
 		return fmt.Errorf("PR base branch is empty for PR #%d", pr.GetNumber())
 	}
 
 	// 获取 PR 的源分支（head branch）
 	headBranch := pr.GetHead().GetRef()
 	if headBranch == "" {
-		log.Errorf("PR head branch is empty for PR #%d", pr.GetNumber())
+		xl.Errorf("PR head branch is empty for PR #%d", pr.GetNumber())
 		return fmt.Errorf("PR head branch is empty for PR #%d", pr.GetNumber())
 	}
 
-	log.Infof("PR #%d: %s -> %s", pr.GetNumber(), headBranch, baseBranch)
+	xl.Infof("PR #%d: %s -> %s", pr.GetNumber(), headBranch, baseBranch)
 
 	// 1. 获取所有远程引用
 	cmd := exec.Command("git", "fetch", "--all", "--prune")
 	cmd.Dir = workspace.Path
+	xl.Infof("Executing git command: %s (workDir: %s)", cmd.String(), workspace.Path)
 	fetchOutput, err := cmd.CombinedOutput()
 	if err != nil {
+		xl.Errorf("failed to fetch latest changes: %v\nCommand output: %s, workDir: %s, cmd: %s", err, string(fetchOutput), workspace.Path, cmd.String())
 		return fmt.Errorf("failed to fetch latest changes: %w\nCommand output: %s", err, string(fetchOutput))
 	}
-	log.Infof("Fetched all remote references for PR #%d", pr.GetNumber())
+	xl.Infof("Fetched all remote references for PR #%d", pr.GetNumber())
 
 	// 2. 检查当前是否有未提交的变更
 	cmd = exec.Command("git", "status", "--porcelain")
 	cmd.Dir = workspace.Path
+	xl.Infof("Executing git command: %s (workDir: %s)", cmd.String(), workspace.Path)
 	statusOutput, err := cmd.Output()
 	if err != nil {
+		xl.Errorf("failed to check git status: %v\nCommand output: %s, workDir: %s, cmd: %s", err, string(statusOutput), workspace.Path, cmd.String())
 		return fmt.Errorf("failed to check git status: %w", err)
 	}
 
 	hasChanges := strings.TrimSpace(string(statusOutput)) != ""
 	if hasChanges {
 		// 有未提交的变更，先 stash
-		log.Infof("Found uncommitted changes in worktree, stashing them")
+		xl.Infof("Found uncommitted changes in worktree, stashing them")
 		cmd = exec.Command("git", "stash", "push", "-m", fmt.Sprintf("Auto stash before syncing PR #%d", pr.GetNumber()))
 		cmd.Dir = workspace.Path
+		xl.Infof("Executing git command: %s (workDir: %s)", cmd.String(), workspace.Path)
 		stashOutput, err := cmd.CombinedOutput()
 		if err != nil {
-			log.Warnf("Failed to stash changes: %v, output: %s", err, string(stashOutput))
+			xl.Warnf("Failed to stash changes: %v, output: %s", err, string(stashOutput))
 		}
 	}
 
 	// 3. 尝试直接获取 PR 内容
 	prNumber := pr.GetNumber()
-	log.Infof("Attempting to fetch PR #%d content directly", prNumber)
+	xl.Infof("Attempting to fetch PR #%d content directly", prNumber)
 	cmd = exec.Command("git", "fetch", "origin", fmt.Sprintf("pull/%d/head", prNumber))
 	cmd.Dir = workspace.Path
+	xl.Infof("Executing git command: %s (workDir: %s)", cmd.String(), workspace.Path)
 	fetchOutput, err = cmd.CombinedOutput()
 	if err == nil {
 		// 直接获取成功，使用rebase合并更新
-		log.Infof("Successfully fetched PR #%d content, attempting rebase", prNumber)
+		xl.Infof("Successfully fetched PR #%d content, attempting rebase", prNumber)
 		cmd = exec.Command("git", "rebase", "FETCH_HEAD")
 		cmd.Dir = workspace.Path
+		xl.Infof("Executing git command: %s (workDir: %s)", cmd.String(), workspace.Path)
 		rebaseOutput, err := cmd.CombinedOutput()
 		if err != nil {
-			log.Errorf("Rebase failed, trying reset: %v, output: %s", err, string(rebaseOutput))
+			xl.Errorf("Rebase failed, trying reset: %v, output: %s", err, string(rebaseOutput))
 			// rebase失败，强制切换到PR内容
 			cmd = exec.Command("git", "reset", "--hard", "FETCH_HEAD")
 			cmd.Dir = workspace.Path
+			xl.Infof("Executing git command: %s (workDir: %s)", cmd.String(), workspace.Path)
 			resetOutput, err := cmd.CombinedOutput()
 			if err != nil {
 				return fmt.Errorf("failed to reset to PR #%d: %w\nCommand output: %s", prNumber, err, string(resetOutput))
 			}
-			log.Infof("Hard reset worktree to PR #%d content", prNumber)
+			xl.Infof("Hard reset worktree to PR #%d content", prNumber)
 		} else {
-			log.Infof("Successfully rebased worktree to PR #%d content", prNumber)
+			xl.Infof("Successfully rebased worktree to PR #%d content", prNumber)
 		}
 	} else {
 		// 直接获取失败，使用传统rebase方式
-		log.Errorf("Failed to fetch PR #%d directly: %v, falling back to traditional rebase, output: %s", prNumber, err, string(fetchOutput))
+		xl.Errorf("Failed to fetch PR #%d directly: %v, falling back to traditional rebase, output: %s", prNumber, err, string(fetchOutput))
 
 		// 尝试rebase到目标分支的最新代码
 		cmd = exec.Command("git", "rebase", fmt.Sprintf("origin/%s", baseBranch))
 		cmd.Dir = workspace.Path
+		xl.Infof("Executing git command: %s (workDir: %s)", cmd.String(), workspace.Path)
 		rebaseOutput, err := cmd.CombinedOutput()
 		if err != nil {
 			log.Errorf("Rebase to base branch failed: %v, output: %s", err, string(rebaseOutput))
 			// rebase失败，尝试强制同步到基础分支
 			cmd = exec.Command("git", "reset", "--hard", fmt.Sprintf("origin/%s", baseBranch))
 			cmd.Dir = workspace.Path
+			xl.Infof("Executing git command: %s (workDir: %s)", cmd.String(), workspace.Path)
 			resetOutput, err := cmd.CombinedOutput()
 			if err != nil {
 				return fmt.Errorf("failed to reset to base branch %s: %w\nCommand output: %s", baseBranch, err, string(resetOutput))
 			}
-			log.Infof("Hard reset worktree to base branch %s", baseBranch)
+			xl.Infof("Hard reset worktree to base branch %s", baseBranch)
 		} else {
-			log.Infof("Successfully rebased worktree to base branch %s", baseBranch)
+			xl.Infof("Successfully rebased worktree to base branch %s", baseBranch)
 		}
 	}
 
 	// 4. 如果之前有stash，尝试恢复
 	if hasChanges {
-		log.Infof("Attempting to restore stashed changes for PR #%d", prNumber)
+		xl.Infof("Attempting to restore stashed changes for PR #%d", prNumber)
 		cmd = exec.Command("git", "stash", "pop")
 		cmd.Dir = workspace.Path
+		xl.Infof("Executing git command: %s (workDir: %s)", cmd.String(), workspace.Path)
 		stashPopOutput, err := cmd.CombinedOutput()
 		if err != nil {
-			log.Warnf("Failed to restore stashed changes: %v, output: %s", err, string(stashPopOutput))
+			xl.Warnf("Failed to restore stashed changes: %v, output: %s", err, string(stashPopOutput))
 			log.Infof("You may need to manually resolve the stashed changes later")
 		} else {
-			log.Infof("Successfully restored stashed changes")
+			xl.Infof("Successfully restored stashed changes")
 		}
 	}
 
-	log.Infof("Successfully pulled latest changes for PR #%d using rebase strategy", pr.GetNumber())
+	xl.Infof("Successfully pulled latest changes for PR #%d using rebase strategy", pr.GetNumber())
 	return nil
 }
 

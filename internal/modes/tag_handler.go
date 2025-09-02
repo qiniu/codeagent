@@ -947,7 +947,7 @@ func (th *TagHandler) processPRCommand(
 
 	// 6. 拉取远端最新代码
 	xl.Infof("Pulling latest changes from remote")
-	if err := ghClient.PullLatestChanges(ws, pr); err != nil {
+	if err := ghClient.PullLatestChanges(ctx, ws, pr); err != nil {
 		xl.Warnf("Failed to pull latest changes: %v", err)
 		// 不返回错误，继续执行
 	} else {
@@ -1136,7 +1136,7 @@ func (th *TagHandler) processPRReviewCommand(
 	}
 
 	// 5. 拉取远端最新代码
-	if err := ghClient.PullLatestChanges(ws, pr); err != nil {
+	if err := ghClient.PullLatestChanges(ctx, ws, pr); err != nil {
 		xl.Errorf("Failed to pull latest changes: %v", err)
 		// 不返回错误，继续执行，因为可能是网络问题
 	}
@@ -1317,7 +1317,7 @@ func (th *TagHandler) processPRReviewCommentCommand(
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub client: %w", err)
 	}
-	if err := ghClient.PullLatestChanges(ws, pr); err != nil {
+	if err := ghClient.PullLatestChanges(ctx, ws, pr); err != nil {
 		xl.Errorf("Failed to pull latest changes: %v", err)
 		// 不返回错误，继续执行，因为可能是网络问题
 	}
