@@ -47,6 +47,9 @@ func NewManager(cfg *config.Config) *Manager {
 	// Recover existing workspaces on startup
 	m.recoverExistingWorkspaces()
 
+	// Start periodic cleanup
+	m.startPeriodicCleanup()
+
 	return m
 }
 
@@ -321,6 +324,46 @@ func (m *Manager) GetExpiredWorkspaces() []*models.Workspace {
 	return m.repository.GetExpired(m.config.Workspace.CleanupAfter)
 }
 
+// startPeriodicCleanup starts a goroutine for periodic cleanup of expired workspaces
+func (m *Manager) startPeriodicCleanup() {
+	// Run cleanup every 24 hours
+	ticker := time.NewTicker(24 * time.Hour)
+	// Cleanup expired workspaces immediately
+	m.cleanupExpiredWorkspaces()
+	go func() {
+		log.Infof("Started periodic workspace cleanup")
+		defer ticker.Stop()
+		for range ticker.C {
+			// Cleanup expired workspaces periodically
+			m.cleanupExpiredWorkspaces()
+		}
+	}()
+}
+
+// cleanupExpiredWorkspaces cleans up all expired workspaces
+func (m *Manager) cleanupExpiredWorkspaces() {
+	expiredWorkspaces := m.GetExpiredWorkspaces()
+	if len(expiredWorkspaces) == 0 {
+		log.Info("No expired workspaces found for cleanup")
+		return
+	}
+
+	log.Infof("Found %d expired workspaces, starting cleanup", len(expiredWorkspaces))
+	cleanedCount := 0
+
+	for _, ws := range expiredWorkspaces {
+		log.Infof("Cleaning up expired workspace: %s (created at: %s)", ws.Path, ws.CreatedAt.Format(time.RFC3339))
+		if m.CleanupWorkspace(ws) {
+			cleanedCount++
+			log.Infof("Successfully cleaned up expired workspace: %s", ws.Path)
+		} else {
+			log.Errorf("Failed to cleanup expired workspace: %s", ws.Path)
+		}
+	}
+
+	log.Infof("Expired workspace cleanup completed. Cleaned %d/%d workspaces", cleanedCount, len(expiredWorkspaces))
+}
+
 // ExtractAIModelFromBranch extracts AI model information from branch name
 func (m *Manager) ExtractAIModelFromBranch(branchName string) string {
 	// Check if it's a codeagent branch
@@ -417,8 +460,6 @@ func (m *Manager) cleanupClonedRepository(clonePath string) error {
 	if err := os.RemoveAll(clonePath); err != nil {
 		return fmt.Errorf("failed to remove cloned repository directory: %w", err)
 	}
-
-	log.Infof("Successfully removed cloned repository: %s", clonePath)
 	return nil
 }
 
