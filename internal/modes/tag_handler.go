@@ -389,8 +389,12 @@ func (th *TagHandler) processIssueComment(
 
 	responseText := string(output)
 	xl.Infof("AI response generated, length: %d, response: %s", len(responseText), responseText)
+	err = th.replyToIssueComment(ctx, event, responseText)
+	if err != nil {
+		return fmt.Errorf("failed to reply to issue comment: %w", err)
+	}
 
-	xl.Infof("AI response generated successfully, Claude will handle the reply automatically")
+	xl.Infof("Successfully replied to issue comment")
 	return nil
 }
 
@@ -1883,4 +1887,41 @@ func (th *TagHandler) processReviewCommand(
 
 	// 调用 ReviewHandler 的手动审查方法（简化调用，移除不必要的commentID）
 	return th.reviewHandler.ProcessManualCodeReview(ctx, event, client)
+}
+
+// replyToIssueComment 使用MCP工具回复Issue评论
+func (th *TagHandler) replyToIssueComment(
+	ctx context.Context,
+	event *models.IssueCommentContext,
+	responseText string,
+) error {
+	xl := xlog.NewWith(ctx)
+
+	// 创建MCP上下文
+	mcpCtx := &models.MCPContext{
+		Repository:  event,
+		Permissions: []string{"github:read", "github:write"},
+		Constraints: []string{},
+	}
+
+	// 使用MCP工具添加评论
+	commentCall := &models.ToolCall{
+		ID: models.MCPID{Value: "reply_issue_" + fmt.Sprintf("%d", event.Issue.GetNumber())},
+		Function: models.ToolFunction{
+			Name: "github-comments__create_comment",
+			Arguments: map[string]interface{}{
+				"issue_number": event.Issue.GetNumber(),
+				"body":         responseText,
+			},
+		},
+	}
+
+	_, err := th.mcpClient.ExecuteToolCalls(ctx, []*models.ToolCall{commentCall}, mcpCtx)
+	if err != nil {
+		xl.Errorf("Failed to reply via MCP: %v", err)
+		return err
+	}
+
+	xl.Infof("Successfully replied to issue comment via MCP")
+	return nil
 }
