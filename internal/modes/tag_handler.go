@@ -38,7 +38,7 @@ func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerIn
 	// Create context manager with dynamic client support
 	collector := ctxsys.NewDefaultContextCollector(clientManager)
 	formatter := ctxsys.NewDefaultContextFormatter(50000) // 50k tokens limit
-	generator := ctxsys.NewDefaultPromptGenerator(formatter)
+	generator := ctxsys.NewTemplatePromptGenerator(formatter)
 	contextManager := &ctxsys.ContextManager{
 		Collector: collector,
 		Formatter: formatter,
@@ -1701,7 +1701,7 @@ func (th *TagHandler) buildPRPrompt(ctx context.Context, event *models.IssueComm
 	}
 
 	// 使用增强的提示词生成器，用于PR评论回复
-	prompt, err := th.contextManager.Generator.GeneratePrompt(enhancedCtx, "Reply", cmdInfo.Args)
+	prompt, err := th.contextManager.Generator.GeneratePrompt(enhancedCtx, "default", cmdInfo.Args)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate enhanced prompt: %w", err)
 	}
