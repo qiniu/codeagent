@@ -798,6 +798,11 @@ func (m *mockGitService) CreateTrackingBranch(repoPath, branchName string) error
 	return nil
 }
 
+func (m *mockGitService) FetchAndCheckoutPR(repoPath string, prNumber int) error {
+	// Mock implementation for testing
+	return nil
+}
+
 // TestIssueWorkspaceReuse tests the Issue workspace reuse mechanism
 func TestIssueWorkspaceReuse(t *testing.T) {
 	// Setup test environment

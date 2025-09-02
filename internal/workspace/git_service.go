@@ -23,6 +23,7 @@ type GitService interface {
 	CreateAndCheckoutBranch(repoPath, branchName string) error
 	CheckoutBranch(repoPath, branchName string) error
 	CreateTrackingBranch(repoPath, branchName string) error
+	FetchAndCheckoutPR(repoPath string, prNumber int) error
 }
 
 type gitService struct{}
@@ -226,5 +227,41 @@ func (g *gitService) CreateTrackingBranch(repoPath, branchName string) error {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create tracking branch %s: %w, output: %s", branchName, err, string(output))
 	}
+	return nil
+}
+
+// FetchAndCheckoutPR fetches and checks out PR content using GitHub's PR refs
+// Always uses force mode to handle updates, force pushes, and ensure latest content
+func (g *gitService) FetchAndCheckoutPR(repoPath string, prNumber int) error {
+	log.Infof("Fetching PR #%d content using GitHub PR refs (force mode)", prNumber)
+
+	prBranchName := fmt.Sprintf("pr-%d", prNumber)
+
+	// Step 1: Reset workspace to clean state if we're on the PR branch
+	currentBranch, err := g.GetCurrentBranch(repoPath)
+	if err == nil && currentBranch == prBranchName {
+		// Reset workspace to avoid conflicts
+		resetCmd := exec.Command("git", "reset", "--hard")
+		resetCmd.Dir = repoPath
+		if output, err := resetCmd.CombinedOutput(); err != nil {
+			log.Warnf("Failed to reset workspace: %v, output: %s", err, string(output))
+		}
+	}
+
+	// Step 2: Force fetch the PR using GitHub's pull/<number>/head reference
+	fetchCmd := exec.Command("git", "fetch", "origin", fmt.Sprintf("pull/%d/head:%s", prNumber, prBranchName), "--force")
+	fetchCmd.Dir = repoPath
+	if output, err := fetchCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to fetch PR #%d: %w, output: %s", prNumber, err, string(output))
+	}
+
+	// Step 3: Force checkout the PR branch
+	checkoutCmd := exec.Command("git", "checkout", prBranchName, "--force")
+	checkoutCmd.Dir = repoPath
+	if output, err := checkoutCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to checkout PR branch %s: %w, output: %s", prBranchName, err, string(output))
+	}
+
+	log.Infof("Successfully fetched and checked out PR #%d content to branch: %s", prNumber, prBranchName)
 	return nil
 }

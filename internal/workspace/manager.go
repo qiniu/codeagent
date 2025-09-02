@@ -222,6 +222,21 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest, aiModel string) 
 		return nil
 	}
 
+	// For fork PRs, fetch and checkout the PR content after cloning
+	var actualBranch = cloneBranch
+	if isForkPR {
+		log.Infof("Fork PR detected, fetching PR #%d content using GitHub PR refs", pr.GetNumber())
+
+		if err := m.gitService.FetchAndCheckoutPR(clonePath, pr.GetNumber()); err != nil {
+			log.Errorf("Failed to fetch fork PR content for PR #%d: %v", pr.GetNumber(), err)
+			// Don't fail completely, but log the error - the base branch clone still works
+		} else {
+			// Update the actual branch to the PR branch we checked out
+			actualBranch = fmt.Sprintf("pr-%d", pr.GetNumber())
+			log.Infof("Successfully fetched fork PR content, workspace is now on branch: %s", actualBranch)
+		}
+	}
+
 	// Create session directory
 	suffix := m.dirFormatter.ExtractSuffixFromPRDir(aiModel, repo, pr.GetNumber(), prDir)
 	sessionPath, err := m.CreateSessionPath(filepath.Join(m.baseDir, org), aiModel, repo, pr.GetNumber(), suffix)
@@ -239,7 +254,7 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest, aiModel string) 
 		Path:        clonePath,
 		SessionPath: sessionPath,
 		Repository:  repoURL,
-		Branch:      pr.GetHead().GetRef(), // Always use the actual PR head branch for workspace
+		Branch:      actualBranch, // Use the actual branch after potential PR content fetch
 		PullRequest: pr,
 		CreatedAt:   time.Now(),
 	}
@@ -260,6 +275,11 @@ func (m *Manager) GetOrCreateWorkspaceForPR(pr *github.PullRequest, aiModel stri
 	if ws != nil {
 		// Validate workspace for PR
 		if m.validateWorkspaceForPR(ws, pr) {
+			// For PR workspaces, also check if content is stale and sync if needed
+			if err := m.syncPRContentIfStale(ws, pr); err != nil {
+				log.Errorf("Failed to sync PR content for workspace: %v", err)
+				// Continue with existing workspace even if sync fails
+			}
 			return ws
 		}
 		// If validation fails, cleanup old workspace
@@ -587,7 +607,13 @@ func (m *Manager) validateWorkspaceForPR(ws *models.Workspace, pr *github.PullRe
 	}
 
 	// Check if workspace is on correct branch
-	expectedBranch := pr.GetHead().GetRef()
+	// Use the branch stored in workspace (which reflects the actual cloned branch)
+	// rather than always expecting the PR head branch
+	expectedBranch := ws.Branch
+	if expectedBranch == "" {
+		// Fallback to PR head branch if workspace branch is not set
+		expectedBranch = pr.GetHead().GetRef()
+	}
 	return m.gitService.ValidateBranch(ws.Path, expectedBranch)
 }
 
@@ -738,5 +764,23 @@ func (m *Manager) recoverPRWorkspaceFromClone(org, repo, clonePath, remoteURL st
 	}
 
 	log.Infof("Recovered PR workspace from clone: %v", ws)
+	return nil
+}
+
+// syncPRContentIfStale force syncs PR content to ensure it's up to date
+func (m *Manager) syncPRContentIfStale(ws *models.Workspace, pr *github.PullRequest) error {
+	// Only sync for PR workspaces that are on PR branches
+	if ws.PRNumber == 0 || !strings.HasPrefix(ws.Branch, "pr-") {
+		return nil
+	}
+
+	log.Infof("Force syncing PR #%d content in workspace to ensure it's up to date: %s", pr.GetNumber(), ws.Path)
+
+	// Force fetch and checkout PR content to handle any updates/force pushes
+	if err := m.gitService.FetchAndCheckoutPR(ws.Path, pr.GetNumber()); err != nil {
+		return fmt.Errorf("failed to force sync PR content: %w", err)
+	}
+
+	log.Infof("Successfully synced PR #%d content in workspace", pr.GetNumber())
 	return nil
 }
