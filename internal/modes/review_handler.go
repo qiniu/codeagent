@@ -284,7 +284,7 @@ func (rh *ReviewHandler) processCodeReview(ctx context.Context, prEvent *models.
 		return fmt.Errorf("failed to get or create workspace for PR review")
 	}
 	// 拉取最新代码
-	if err := client.PullLatestChanges(ws, pr); err != nil {
+	if err := client.PullLatestChanges(ctx, ws, pr); err != nil {
 		xl.Warnf("Failed to pull latest changes: %v", err)
 	}
 	xl.Infof("Workspace ready: %s", ws.Path)

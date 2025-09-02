@@ -206,6 +206,7 @@ func (r *repoCacheService) runGitCommand(workDir string, args ...string) error {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		log.Errorf("git command failed: %s, output: %s, workDir: %s, args: %s", err, string(output), workDir, strings.Join(args, " "))
 		return fmt.Errorf("git command failed: %s, output: %s", err, string(output))
 	}
 	return nil

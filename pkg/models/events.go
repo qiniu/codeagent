@@ -146,7 +146,7 @@ type CommandInfo struct {
 const (
 	CommandCode     = "/code"
 	CommandContinue = "/continue"
-	CommandClaude   = "@qiniu-ci"
+	CommandMention  = "@qiniu-ci"
 	CommandReview   = "/review"
 )
 
@@ -262,7 +262,7 @@ func parseCommand(content string) (*CommandInfo, bool) {
 
 // parseMention 解析@qiniu-ci提及（默认触发词，向后兼容）
 func parseMention(content string) (*CommandInfo, bool) {
-	return parseMentionWithTrigger(content, CommandClaude)
+	return parseMentionWithTrigger(content, CommandMention)
 }
 
 // parseMentionWithConfig 使用配置解析mention
@@ -309,7 +309,7 @@ func parseMentionWithTrigger(content string, trigger string) (*CommandInfo, bool
 	}
 
 	return &CommandInfo{
-		Command: CommandClaude, // 总是使用CommandClaude作为mention的标识
+		Command: CommandMention, // 总是使用CommandClaude作为mention的标识
 		AIModel: aiModel,
 		Args:    fullContent, // 传递完整评论内容
 		RawText: content,

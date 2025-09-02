@@ -115,8 +115,8 @@ func TestParseMention(t *testing.T) {
 				return
 			}
 
-			if cmdInfo.Command != CommandClaude {
-				t.Errorf("parseMention(%q) command = %v, want %v", tt.content, cmdInfo.Command, CommandClaude)
+			if cmdInfo.Command != CommandMention {
+				t.Errorf("parseMention(%q) command = %v, want %v", tt.content, cmdInfo.Command, CommandMention)
 			}
 
 			if cmdInfo.Args != tt.args {
@@ -145,7 +145,7 @@ func TestHasCommand(t *testing.T) {
 			name:     "Issue评论中的@qiniu-ci",
 			context:  "请帮我 @qiniu-ci 分析这个函数",
 			expected: true,
-			command:  CommandClaude,
+			command:  CommandMention,
 		},
 		{
 			name:     "斜杠命令优先级更高",

@@ -182,8 +182,20 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest, aiModel string) 
 		return nil
 	}
 
-	// Get PR branch
-	prBranch := pr.GetHead().GetRef()
+	// Check if this is a fork repository PR
+	isForkPR := m.isForkRepositoryPR(pr)
+
+	// Get appropriate branch for cloning
+	var cloneBranch string
+	if isForkPR {
+		// For fork repository PRs, use the base branch (main branch of target repository)
+		cloneBranch = pr.GetBase().GetRef()
+		log.Infof("Detected fork repository PR #%d, using base branch '%s' for cloning", pr.GetNumber(), cloneBranch)
+	} else {
+		// For same repository PRs, use the head branch
+		cloneBranch = pr.GetHead().GetRef()
+		log.Infof("Same repository PR #%d, using head branch '%s' for cloning", pr.GetNumber(), cloneBranch)
+	}
 
 	// Generate PR workspace directory name with AI model information
 	timestamp := time.Now().Unix()
@@ -200,8 +212,8 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest, aiModel string) 
 		return nil
 	}
 
-	// Clone from cache to workspace (don't create new branch, switch to existing PR branch)
-	if err := m.repoCacheService.CloneFromCache(cachedRepoPath, clonePath, prBranch, repoURL, false); err != nil {
+	// Clone from cache to workspace using the appropriate branch
+	if err := m.repoCacheService.CloneFromCache(cachedRepoPath, clonePath, cloneBranch, repoURL, false); err != nil {
 		log.Errorf("Failed to clone from cache for PR #%d: %v", pr.GetNumber(), err)
 		return nil
 	}
@@ -223,7 +235,7 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest, aiModel string) 
 		Path:        clonePath,
 		SessionPath: sessionPath,
 		Repository:  repoURL,
-		Branch:      prBranch,
+		Branch:      pr.GetHead().GetRef(), // Always use the actual PR head branch for workspace
 		PullRequest: pr,
 		CreatedAt:   time.Now(),
 	}
@@ -408,6 +420,31 @@ func (m *Manager) cleanupClonedRepository(clonePath string) error {
 
 	log.Infof("Successfully removed cloned repository: %s", clonePath)
 	return nil
+}
+
+// isForkRepositoryPR checks if a PR is from a fork repository
+func (m *Manager) isForkRepositoryPR(pr *github.PullRequest) bool {
+	if pr == nil || pr.GetHead() == nil || pr.GetBase() == nil {
+		return false
+	}
+
+	headRepo := pr.GetHead().GetRepo()
+	baseRepo := pr.GetBase().GetRepo()
+
+	if headRepo == nil || baseRepo == nil {
+		return false
+	}
+
+	// Check if head and base repositories are different
+	headFullName := headRepo.GetFullName()
+	baseFullName := baseRepo.GetFullName()
+
+	isFork := headFullName != baseFullName
+	if isFork {
+		log.Infof("Detected fork repository PR: head=%s, base=%s", headFullName, baseFullName)
+	}
+
+	return isFork
 }
 
 // validateWorkspaceForPR validates workspace for PR branch alignment
