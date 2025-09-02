@@ -1653,11 +1653,12 @@ func (th *TagHandler) buildPRPrompt(ctx context.Context, event *models.IssueComm
 		Timestamp: time.Now(),
 		Subject:   event,
 		Metadata: map[string]interface{}{
-			"pr_number":  pr.GetNumber(),
-			"pr_title":   pr.GetTitle(),
-			"pr_body":    pr.GetBody(),
-			"repository": repoFullName,
-			"sender":     event.Sender.GetLogin(),
+			"pr_number":       pr.GetNumber(),
+			"pr_title":        pr.GetTitle(),
+			"pr_body":         pr.GetBody(),
+			"repository":      repoFullName,
+			"sender":          event.Sender.GetLogin(),
+			"trigger_comment": event.Comment.GetBody(), // 将当前评论作为触发指令
 		},
 	}
 
@@ -1720,11 +1721,12 @@ func (th *TagHandler) buildPrompt(ctx context.Context, event *models.IssueCommen
 		Timestamp: time.Now(),
 		Subject:   event,
 		Metadata: map[string]interface{}{
-			"issue_number": issue.GetNumber(),
-			"issue_title":  issue.GetTitle(),
-			"issue_body":   issue.GetBody(),
-			"repository":   repoFullName,
-			"sender":       event.Sender.GetLogin(),
+			"issue_number":    issue.GetNumber(),
+			"issue_title":     issue.GetTitle(),
+			"issue_body":      issue.GetBody(),
+			"repository":      repoFullName,
+			"sender":          event.Sender.GetLogin(),
+			"trigger_comment": event.Comment.GetBody(), // 将当前评论作为触发指令
 		},
 	}
 
