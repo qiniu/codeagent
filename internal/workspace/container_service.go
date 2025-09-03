@@ -37,7 +37,7 @@ func (c *containerService) CleanupWorkspaceContainers(ws *models.Workspace) erro
 	for _, containerName := range containerNames {
 		exists, err := c.ContainerExists(containerName)
 		if err != nil {
-			log.Debugf("Failed to check container %s: %v", containerName, err)
+			log.Errorf("Failed to check container %s: %v", containerName, err)
 			continue
 		}
 
@@ -88,31 +88,38 @@ func (c *containerService) GenerateContainerNames(ws *models.Workspace) []string
 	// Generate container names based on AI model
 	switch ws.AIModel {
 	case "claude":
-		// New naming format
-		containerNames = append(containerNames, fmt.Sprintf("claude__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber))
-		// Legacy naming format (backward compatibility)
-		containerNames = append(containerNames, fmt.Sprintf("claude-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber))
-
-		// Interactive container variants
+		if ws.PRNumber > 0 {
+			containerNames = append(containerNames, fmt.Sprintf("claude__%s__%s__pr__%d", ws.Org, ws.Repo, ws.PRNumber))
+		}
+		if ws.Issue != nil {
+			containerNames = append(containerNames, fmt.Sprintf("claude__%s__%s__issue__%d", ws.Org, ws.Repo, ws.Issue.GetNumber()))
+		}
+		// Interactive container variant
 		containerNames = append(containerNames, fmt.Sprintf("claude__interactive__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber))
-		containerNames = append(containerNames, fmt.Sprintf("claude-interactive-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber))
 
 	case "gemini":
-		// New naming format
-		containerNames = append(containerNames, fmt.Sprintf("gemini__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber))
-		// Legacy naming format (backward compatibility)
-		containerNames = append(containerNames, fmt.Sprintf("gemini-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber))
+		if ws.PRNumber > 0 {
+			containerNames = append(containerNames, fmt.Sprintf("gemini__%s__%s__pr__%d", ws.Org, ws.Repo, ws.PRNumber))
+		}
+		if ws.Issue != nil {
+			containerNames = append(containerNames, fmt.Sprintf("gemini__%s__%s__issue__%d", ws.Org, ws.Repo, ws.Issue.GetNumber()))
+		}
 
 	default:
 		// If AI model is unknown, try all possible patterns
-		containerNames = append(containerNames,
-			fmt.Sprintf("claude__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
-			fmt.Sprintf("gemini__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
-			fmt.Sprintf("claude__interactive__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber),
-			fmt.Sprintf("claude-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
-			fmt.Sprintf("gemini-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
-			fmt.Sprintf("claude-interactive-%s-%s-%d", ws.Org, ws.Repo, ws.PRNumber),
-		)
+		if ws.PRNumber > 0 {
+			containerNames = append(containerNames,
+				fmt.Sprintf("claude__%s__%s__pr__%d", ws.Org, ws.Repo, ws.PRNumber),
+				fmt.Sprintf("gemini__%s__%s__pr__%d", ws.Org, ws.Repo, ws.PRNumber),
+			)
+		}
+		if ws.Issue != nil {
+			containerNames = append(containerNames,
+				fmt.Sprintf("claude__%s__%s__issue__%d", ws.Org, ws.Repo, ws.Issue.GetNumber()),
+				fmt.Sprintf("gemini__%s__%s__issue__%d", ws.Org, ws.Repo, ws.Issue.GetNumber()),
+			)
+		}
+		containerNames = append(containerNames, fmt.Sprintf("claude__interactive__%s__%s__%d", ws.Org, ws.Repo, ws.PRNumber))
 	}
 
 	return containerNames

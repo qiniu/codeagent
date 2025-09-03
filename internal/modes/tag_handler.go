@@ -129,7 +129,6 @@ func (th *TagHandler) Execute(ctx context.Context, event models.GitHubContext) e
 	case models.EventPullRequestReview:
 		return th.handlePRReview(ctx, event.(*models.PullRequestReviewContext), cmdInfo, client)
 	case models.EventPullRequestReviewComment:
-		// NOTE(CarlJi): 可能不需要响应这个事件，因为PR Review Comment事件已经通过PR Review事件响应了
 		return th.handlePRReviewComment(ctx, event.(*models.PullRequestReviewCommentContext), cmdInfo, client)
 	default:
 		return fmt.Errorf("unsupported event type for TagHandler: %s", event.GetEventType())
@@ -1858,8 +1857,6 @@ func (th *TagHandler) processPRComment(
 
 	responseText := string(output)
 	xl.Infof("AI response generated, length: %d, response: %s", len(responseText), responseText)
-
-	xl.Infof("AI response generated successfully, Claude will handle the reply automatically")
 	return nil
 }
 
