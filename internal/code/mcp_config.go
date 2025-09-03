@@ -146,6 +146,7 @@ func (g *MCPConfigGenerator) CreateTempConfig() (string, error) {
 	}
 
 	// 创建临时文件在workspace相关目录中
+	// TODO(CarlJi): mcp config file name should be align with the workspace name
 	tempFile, err := os.CreateTemp(mcpConfigDir, "codeagent-mcp-*.json")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)

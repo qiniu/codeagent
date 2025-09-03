@@ -47,18 +47,25 @@ func (g *gitService) CloneRepository(repoURL, clonePath, branch string, createNe
 	if createNewBranch {
 		// Clone the default branch first, then create new branch
 		cmd = exec.Command("git", "clone", "--depth", "50", repoURL, clonePath)
+		log.Infof("Executing Git command: %s", cmd.String())
 	} else {
 		// Try to clone specific branch directly
 		cmd = exec.Command("git", "clone", "--depth", "50", "--branch", branch, repoURL, clonePath)
+		log.Infof("Executing Git command: %s", cmd.String())
 	}
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		log.Errorf("Git command failed: %s, output: %s, error: %v", cmd.String(), string(output), err)
 		if !createNewBranch {
 			// If direct branch clone failed, try cloning default branch first
 			log.Warnf("Failed to clone specific branch %s directly, cloning default branch: %v", branch, err)
 			cmd = exec.Command("git", "clone", "--depth", "50", repoURL, clonePath)
+			log.Infof("Executing fallback Git command: %s", cmd.String())
 			output, err = cmd.CombinedOutput()
+			if err != nil {
+				log.Errorf("Git command failed: %s, output: %s, error: %v", cmd.String(), string(output), err)
+			}
 		}
 		if err != nil {
 			return GitError("clone", clonePath, fmt.Errorf("%s: %w", string(output), err))
@@ -104,8 +111,10 @@ func (g *gitService) CloneRepository(repoURL, clonePath, branch string, createNe
 func (g *gitService) GetRemoteURL(repoPath string) (string, error) {
 	cmd := exec.Command("git", "remote", "get-url", "origin")
 	cmd.Dir = repoPath
+	log.Infof("Executing Git command: %s", cmd.String())
 	output, err := cmd.Output()
 	if err != nil {
+		log.Errorf("Git command failed: %s, output: %s, error: %v", cmd.String(), string(output), err)
 		return "", GitError("get_remote_url", repoPath, err)
 	}
 	return strings.TrimSpace(string(output)), nil
@@ -115,8 +124,10 @@ func (g *gitService) GetRemoteURL(repoPath string) (string, error) {
 func (g *gitService) GetCurrentBranch(repoPath string) (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 	cmd.Dir = repoPath
+	log.Infof("Executing Git command: %s", cmd.String())
 	output, err := cmd.Output()
 	if err != nil {
+		log.Errorf("Git command failed: %s, output: %s, error: %v", cmd.String(), string(output), err)
 		return "", GitError("get_current_branch", repoPath, err)
 	}
 	return strings.TrimSpace(string(output)), nil
@@ -126,8 +137,10 @@ func (g *gitService) GetCurrentBranch(repoPath string) (string, error) {
 func (g *gitService) GetCurrentCommit(repoPath string) (string, error) {
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = repoPath
+	log.Infof("Executing Git command: %s", cmd.String())
 	output, err := cmd.Output()
 	if err != nil {
+		log.Errorf("Git command failed: %s, output: %s, error: %v", cmd.String(), string(output), err)
 		return "", fmt.Errorf("failed to get current commit: %w", err)
 	}
 	return strings.TrimSpace(string(output)), nil
@@ -137,8 +150,10 @@ func (g *gitService) GetCurrentCommit(repoPath string) (string, error) {
 func (g *gitService) GetBranchCommit(repoPath, branch string) (string, error) {
 	cmd := exec.Command("git", "rev-parse", fmt.Sprintf("origin/%s", branch))
 	cmd.Dir = repoPath
+	log.Infof("Executing Git command: %s", cmd.String())
 	output, err := cmd.Output()
 	if err != nil {
+		log.Errorf("Git command failed: %s, output: %s, error: %v", cmd.String(), string(output), err)
 		return "", fmt.Errorf("failed to get branch commit for %s: %w", branch, err)
 	}
 	return strings.TrimSpace(string(output)), nil
@@ -184,7 +199,9 @@ func (g *gitService) ValidateBranch(repoPath, expectedBranch string) bool {
 func (g *gitService) ConfigureSafeDirectory(repoPath string) error {
 	cmd := exec.Command("git", "config", "--local", "--add", "safe.directory", repoPath)
 	cmd.Dir = repoPath
+	log.Infof("Executing Git command: %s", cmd.String())
 	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Errorf("Git command failed: %s, output: %s, error: %v", cmd.String(), string(output), err)
 		return GitError("config_safe_directory", repoPath, fmt.Errorf("%s: %w", string(output), err))
 	}
 	return nil
@@ -194,7 +211,9 @@ func (g *gitService) ConfigureSafeDirectory(repoPath string) error {
 func (g *gitService) ConfigurePullStrategy(repoPath string) error {
 	cmd := exec.Command("git", "config", "--local", "pull.rebase", "true")
 	cmd.Dir = repoPath
+	log.Infof("Executing Git command: %s", cmd.String())
 	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Errorf("Git command failed: %s, output: %s, error: %v", cmd.String(), string(output), err)
 		return fmt.Errorf("failed to configure pull strategy: %w, output: %s", err, string(output))
 	}
 	return nil
@@ -204,7 +223,9 @@ func (g *gitService) ConfigurePullStrategy(repoPath string) error {
 func (g *gitService) CreateAndCheckoutBranch(repoPath, branchName string) error {
 	cmd := exec.Command("git", "checkout", "-b", branchName)
 	cmd.Dir = repoPath
+	log.Infof("Executing Git command: %s", cmd.String())
 	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Errorf("Git command failed: %s, output: %s, error: %v", cmd.String(), string(output), err)
 		return fmt.Errorf("failed to create new branch %s: %w, output: %s", branchName, err, string(output))
 	}
 	return nil
@@ -214,7 +235,9 @@ func (g *gitService) CreateAndCheckoutBranch(repoPath, branchName string) error 
 func (g *gitService) CheckoutBranch(repoPath, branchName string) error {
 	cmd := exec.Command("git", "checkout", branchName)
 	cmd.Dir = repoPath
+	log.Infof("Executing Git command: %s", cmd.String())
 	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Errorf("Git command failed: %s, output: %s, error: %v", cmd.String(), string(output), err)
 		return fmt.Errorf("failed to checkout branch %s: %w, output: %s", branchName, err, string(output))
 	}
 	return nil
@@ -224,7 +247,9 @@ func (g *gitService) CheckoutBranch(repoPath, branchName string) error {
 func (g *gitService) CreateTrackingBranch(repoPath, branchName string) error {
 	cmd := exec.Command("git", "checkout", "-b", branchName, fmt.Sprintf("origin/%s", branchName))
 	cmd.Dir = repoPath
+	log.Infof("Executing Git command: %s", cmd.String())
 	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Errorf("Git command failed: %s, output: %s, error: %v", cmd.String(), string(output), err)
 		return fmt.Errorf("failed to create tracking branch %s: %w, output: %s", branchName, err, string(output))
 	}
 	return nil
@@ -245,14 +270,18 @@ func (g *gitService) FetchAndCheckoutPR(repoPath string, prNumber int) error {
 		// Step 1: First fetch the PR content to FETCH_HEAD without creating/updating local branch
 		fetchCmd := exec.Command("git", "fetch", "origin", fmt.Sprintf("pull/%d/head", prNumber))
 		fetchCmd.Dir = repoPath
+		log.Infof("Executing Git command: %s", fetchCmd.String())
 		if output, err := fetchCmd.CombinedOutput(); err != nil {
+			log.Errorf("Git command failed: %s, output: %s, error: %v", fetchCmd.String(), string(output), err)
 			return fmt.Errorf("failed to fetch PR #%d content: %w, output: %s", prNumber, err, string(output))
 		}
 
 		// Step 2: Reset current branch to the fetched content
 		resetCmd := exec.Command("git", "reset", "--hard", "FETCH_HEAD")
 		resetCmd.Dir = repoPath
+		log.Infof("Executing Git command: %s", resetCmd.String())
 		if output, err := resetCmd.CombinedOutput(); err != nil {
+			log.Errorf("Git command failed: %s, output: %s, error: %v", resetCmd.String(), string(output), err)
 			return fmt.Errorf("failed to reset PR branch to latest content: %w, output: %s", err, string(output))
 		}
 
@@ -262,13 +291,17 @@ func (g *gitService) FetchAndCheckoutPR(repoPath string, prNumber int) error {
 
 	fetchCmd := exec.Command("git", "fetch", "origin", fmt.Sprintf("pull/%d/head:%s", prNumber, prBranchName), "--force")
 	fetchCmd.Dir = repoPath
+	log.Infof("Executing Git command: %s", fetchCmd.String())
 	if output, err := fetchCmd.CombinedOutput(); err != nil {
+		log.Errorf("Git command failed: %s, output: %s, error: %v", fetchCmd.String(), string(output), err)
 		return fmt.Errorf("failed to fetch PR #%d: %w, output: %s", prNumber, err, string(output))
 	}
 
 	checkoutCmd := exec.Command("git", "checkout", prBranchName)
 	checkoutCmd.Dir = repoPath
+	log.Infof("Executing Git command: %s", checkoutCmd.String())
 	if output, err := checkoutCmd.CombinedOutput(); err != nil {
+		log.Errorf("Git command failed: %s, output: %s, error: %v", checkoutCmd.String(), string(output), err)
 		return fmt.Errorf("failed to checkout PR branch %s: %w, output: %s", prBranchName, err, string(output))
 	}
 
