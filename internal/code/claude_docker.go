@@ -35,6 +35,8 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MCP config: %w", err)
 	}
+	// Set MCP config path in workspace for tracking and cleanup
+	workspace.MCPConfigPath = mcpConfigPath
 	log.Infof("MCP config file created at: %s", mcpConfigPath)
 
 	// Check if corresponding container is already running

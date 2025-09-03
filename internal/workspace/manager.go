@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,6 +47,9 @@ func NewManager(cfg *config.Config) *Manager {
 
 	// Recover existing workspaces on startup
 	m.recoverExistingWorkspaces()
+
+	// Start periodic cleanup
+	m.startPeriodicCleanup()
 
 	return m
 }
@@ -218,6 +222,21 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest, aiModel string) 
 		return nil
 	}
 
+	// For fork PRs, fetch and checkout the PR content after cloning
+	var actualBranch = cloneBranch
+	if isForkPR {
+		log.Infof("Fork PR detected, fetching PR #%d content using GitHub PR refs", pr.GetNumber())
+
+		if err := m.gitService.FetchAndCheckoutPR(clonePath, pr.GetNumber()); err != nil {
+			log.Errorf("Failed to fetch fork PR content for PR #%d: %v", pr.GetNumber(), err)
+			// Don't fail completely, but log the error - the base branch clone still works
+		} else {
+			// Update the actual branch to the PR branch we checked out
+			actualBranch = fmt.Sprintf("pr-%d", pr.GetNumber())
+			log.Infof("Successfully fetched fork PR content, workspace is now on branch: %s", actualBranch)
+		}
+	}
+
 	// Create session directory
 	suffix := m.dirFormatter.ExtractSuffixFromPRDir(aiModel, repo, pr.GetNumber(), prDir)
 	sessionPath, err := m.CreateSessionPath(filepath.Join(m.baseDir, org), aiModel, repo, pr.GetNumber(), suffix)
@@ -235,7 +254,7 @@ func (m *Manager) CreateWorkspaceFromPR(pr *github.PullRequest, aiModel string) 
 		Path:        clonePath,
 		SessionPath: sessionPath,
 		Repository:  repoURL,
-		Branch:      pr.GetHead().GetRef(), // Always use the actual PR head branch for workspace
+		Branch:      actualBranch, // Use the actual branch after potential PR content fetch
 		PullRequest: pr,
 		CreatedAt:   time.Now(),
 	}
@@ -256,6 +275,11 @@ func (m *Manager) GetOrCreateWorkspaceForPR(pr *github.PullRequest, aiModel stri
 	if ws != nil {
 		// Validate workspace for PR
 		if m.validateWorkspaceForPR(ws, pr) {
+			// For PR workspaces, also check if content is stale and sync if needed
+			if err := m.syncPRContentIfStale(ws, pr); err != nil {
+				log.Errorf("Failed to sync PR content for workspace: %v", err)
+				// Continue with existing workspace even if sync fails
+			}
 			return ws
 		}
 		// If validation fails, cleanup old workspace
@@ -321,6 +345,46 @@ func (m *Manager) GetExpiredWorkspaces() []*models.Workspace {
 	return m.repository.GetExpired(m.config.Workspace.CleanupAfter)
 }
 
+// startPeriodicCleanup starts a goroutine for periodic cleanup of expired workspaces
+func (m *Manager) startPeriodicCleanup() {
+	// Run cleanup every 24 hours
+	ticker := time.NewTicker(24 * time.Hour)
+	// Cleanup expired workspaces immediately
+	m.cleanupExpiredWorkspaces()
+	go func() {
+		log.Infof("Started periodic workspace cleanup")
+		defer ticker.Stop()
+		for range ticker.C {
+			// Cleanup expired workspaces periodically
+			m.cleanupExpiredWorkspaces()
+		}
+	}()
+}
+
+// cleanupExpiredWorkspaces cleans up all expired workspaces
+func (m *Manager) cleanupExpiredWorkspaces() {
+	expiredWorkspaces := m.GetExpiredWorkspaces()
+	if len(expiredWorkspaces) == 0 {
+		log.Info("No expired workspaces found for cleanup")
+		return
+	}
+
+	log.Infof("Found %d expired workspaces, starting cleanup", len(expiredWorkspaces))
+	cleanedCount := 0
+
+	for _, ws := range expiredWorkspaces {
+		log.Infof("Cleaning up expired workspace: %s (created at: %s)", ws.Path, ws.CreatedAt.Format(time.RFC3339))
+		if m.CleanupWorkspace(ws) {
+			cleanedCount++
+			log.Infof("Successfully cleaned up expired workspace: %s", ws.Path)
+		} else {
+			log.Errorf("Failed to cleanup expired workspace: %s", ws.Path)
+		}
+	}
+
+	log.Infof("Expired workspace cleanup completed. Cleaned %d/%d workspaces", cleanedCount, len(expiredWorkspaces))
+}
+
 // ExtractAIModelFromBranch extracts AI model information from branch name
 func (m *Manager) ExtractAIModelFromBranch(branchName string) string {
 	// Check if it's a codeagent branch
@@ -375,6 +439,7 @@ func (m *Manager) ExtractSuffixFromIssueDir(aiModel, repo string, issueNumber in
 func (m *Manager) cleanupPhysicalWorkspace(ws *models.Workspace) bool {
 	cloneRemoved := false
 	sessionRemoved := false
+	mcpConfigsRemoved := true // 默认为true，如果有MCP配置文件但清理失败则设为false
 
 	// Remove cloned repository directory
 	if ws.Path != "" {
@@ -396,13 +461,19 @@ func (m *Manager) cleanupPhysicalWorkspace(ws *models.Workspace) bool {
 		}
 	}
 
+	// Clean up MCP configuration files
+	if err := m.cleanupMCPConfigs(ws); err != nil {
+		log.Errorf("Failed to cleanup MCP config files: %v", err)
+		mcpConfigsRemoved = false
+	}
+
 	// Clean up related Docker containers
 	if err := m.containerService.CleanupWorkspaceContainers(ws); err != nil {
 		log.Warnf("Failed to cleanup containers for workspace %s: %v", ws.Path, err)
 	}
 
-	// Only return true if both clone and session are cleaned successfully
-	return cloneRemoved && sessionRemoved
+	// Return true if all cleanup operations succeeded
+	return cloneRemoved && sessionRemoved && mcpConfigsRemoved
 }
 
 // cleanupClonedRepository removes a cloned repository directory
@@ -417,9 +488,89 @@ func (m *Manager) cleanupClonedRepository(clonePath string) error {
 	if err := os.RemoveAll(clonePath); err != nil {
 		return fmt.Errorf("failed to remove cloned repository directory: %w", err)
 	}
-
-	log.Infof("Successfully removed cloned repository: %s", clonePath)
 	return nil
+}
+
+// cleanupMCPConfigs removes MCP configuration files associated with the workspace
+func (m *Manager) cleanupMCPConfigs(ws *models.Workspace) error {
+	if ws == nil {
+		return nil
+	}
+
+	removedCount := 0
+
+	// Remove the specific MCP config file if path is known
+	if ws.MCPConfigPath != "" {
+		if err := os.Remove(ws.MCPConfigPath); err != nil {
+			if !os.IsNotExist(err) {
+				log.Warnf("Failed to remove MCP config file %s: %v", ws.MCPConfigPath, err)
+				return err
+			} else {
+				log.Infof("MCP config file already removed: %s", ws.MCPConfigPath)
+			}
+		} else {
+			log.Infof("Successfully removed MCP config file: %s", ws.MCPConfigPath)
+			removedCount++
+		}
+	} else {
+		// Fallback: search for MCP config files using pattern matching (for legacy workspaces)
+		var mcpConfigDirs []string
+
+		if ws.SessionPath != "" {
+			// session目录的同级目录
+			mcpConfigDirs = append(mcpConfigDirs, filepath.Dir(ws.SessionPath))
+		} else if ws.Path != "" {
+			// 代码仓的同级目录
+			mcpConfigDirs = append(mcpConfigDirs, filepath.Dir(ws.Path))
+		}
+
+		for _, dir := range mcpConfigDirs {
+			matches, err := filepath.Glob(filepath.Join(dir, "codeagent-mcp-*.json"))
+			if err != nil {
+				log.Warnf("Failed to search MCP config files in %s: %v", dir, err)
+				continue
+			}
+
+			for _, mcpFile := range matches {
+				if err := os.Remove(mcpFile); err != nil {
+					log.Warnf("Failed to remove MCP config file %s: %v", mcpFile, err)
+				} else {
+					log.Infof("Successfully removed MCP config file: %s", mcpFile)
+					removedCount++
+				}
+			}
+		}
+	}
+
+	if removedCount > 0 {
+		log.Infof("Cleaned up %d MCP config files for workspace", removedCount)
+	}
+
+	return nil
+}
+
+// findExistingMCPConfig tries to find an existing MCP config file in the specified directory
+func (m *Manager) findExistingMCPConfig(searchDir string) string {
+	if searchDir == "" {
+		return ""
+	}
+
+	// Search for codeagent-mcp-*.json pattern
+	matches, err := filepath.Glob(filepath.Join(searchDir, "codeagent-mcp-*.json"))
+	if err != nil {
+		log.Warnf("Failed to search for MCP config files in %s: %v", searchDir, err)
+		return ""
+	}
+
+	// Return the first match if found
+	for _, match := range matches {
+		if _, err := os.Stat(match); err == nil {
+			log.Infof("Found existing MCP config file during recovery: %s", match)
+			return match
+		}
+	}
+
+	return ""
 }
 
 // isForkRepositoryPR checks if a PR is from a fork repository
@@ -456,7 +607,13 @@ func (m *Manager) validateWorkspaceForPR(ws *models.Workspace, pr *github.PullRe
 	}
 
 	// Check if workspace is on correct branch
-	expectedBranch := pr.GetHead().GetRef()
+	// Use the branch stored in workspace (which reflects the actual cloned branch)
+	// rather than always expecting the PR head branch
+	expectedBranch := ws.Branch
+	if expectedBranch == "" {
+		// Fallback to PR head branch if workspace branch is not set
+		expectedBranch = pr.GetHead().GetRef()
+	}
 	return m.gitService.ValidateBranch(ws.Path, expectedBranch)
 }
 
@@ -573,8 +730,9 @@ func (m *Manager) recoverExistingWorkspaces() {
 
 // recoverPRWorkspaceFromClone recovers a single PR workspace from clone
 func (m *Manager) recoverPRWorkspaceFromClone(org, repo, clonePath, remoteURL string, prNumber int, aiModel string, timestamp int64) error {
-	// Create corresponding session directory (same level as clone directory)
-	sessionPath := m.dirFormatter.CreateSessionPathWithTimestamp(m.baseDir, aiModel, repo, prNumber, timestamp)
+	// Create corresponding session directory using the same suffix as the clone directory
+	suffix := strconv.FormatInt(timestamp, 10)
+	sessionPath := m.dirFormatter.CreateSessionPath(filepath.Join(m.baseDir, org), aiModel, repo, prNumber, suffix)
 
 	// Get current branch information
 	currentBranch, err := m.gitService.GetCurrentBranch(clonePath)
@@ -583,17 +741,21 @@ func (m *Manager) recoverPRWorkspaceFromClone(org, repo, clonePath, remoteURL st
 		currentBranch = ""
 	}
 
+	// Try to find existing MCP config file
+	mcpConfigPath := m.findExistingMCPConfig(filepath.Dir(sessionPath))
+
 	// Recover workspace object
 	ws := &models.Workspace{
-		Org:         org,
-		Repo:        repo,
-		AIModel:     aiModel,
-		Path:        clonePath,
-		PRNumber:    prNumber,
-		SessionPath: sessionPath,
-		Repository:  remoteURL,
-		Branch:      currentBranch,
-		CreatedAt:   time.Unix(timestamp, 0),
+		Org:           org,
+		Repo:          repo,
+		AIModel:       aiModel,
+		Path:          clonePath,
+		PRNumber:      prNumber,
+		SessionPath:   sessionPath,
+		MCPConfigPath: mcpConfigPath,
+		Repository:    remoteURL,
+		Branch:        currentBranch,
+		CreatedAt:     time.Unix(timestamp, 0),
 	}
 
 	// Store in repository
@@ -602,5 +764,23 @@ func (m *Manager) recoverPRWorkspaceFromClone(org, repo, clonePath, remoteURL st
 	}
 
 	log.Infof("Recovered PR workspace from clone: %v", ws)
+	return nil
+}
+
+// syncPRContentIfStale force syncs PR content to ensure it's up to date
+func (m *Manager) syncPRContentIfStale(ws *models.Workspace, pr *github.PullRequest) error {
+	// Only sync for PR workspaces that are on PR branches
+	if ws.PRNumber == 0 || !strings.HasPrefix(ws.Branch, "pr-") {
+		return nil
+	}
+
+	log.Infof("Force syncing PR #%d content in workspace to ensure it's up to date: %s", pr.GetNumber(), ws.Path)
+
+	// Force fetch and checkout PR content to handle any updates/force pushes
+	if err := m.gitService.FetchAndCheckoutPR(ws.Path, pr.GetNumber()); err != nil {
+		return fmt.Errorf("failed to force sync PR content: %w", err)
+	}
+
+	log.Infof("Successfully synced PR #%d content in workspace", pr.GetNumber())
 	return nil
 }

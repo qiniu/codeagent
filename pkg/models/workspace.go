@@ -19,6 +19,8 @@ type Workspace struct {
 	Path string `json:"path"`
 	// session path in local file system
 	SessionPath string `json:"session_path"`
+	// MCP configuration file path in local file system
+	MCPConfigPath string `json:"mcp_config_path,omitempty"`
 	// processed .codeagent directory path with GitHub context applied
 	ProcessedCodeAgentPath string `json:"processed_codeagent_path,omitempty"`
 	// github repo url
