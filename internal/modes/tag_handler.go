@@ -389,11 +389,6 @@ func (th *TagHandler) processIssueComment(
 
 	responseText := string(output)
 	xl.Infof("AI response generated, length: %d, response: %s", len(responseText), responseText)
-	err = th.replyToIssueComment(ctx, event, responseText)
-	if err != nil {
-		return fmt.Errorf("failed to reply to issue comment: %w", err)
-	}
-
 	xl.Infof("Successfully replied to issue comment")
 	return nil
 }
