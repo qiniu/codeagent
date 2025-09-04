@@ -316,6 +316,7 @@ func (rh *ReviewHandler) processCodeReview(ctx context.Context, prEvent *models.
 		return fmt.Errorf("failed to read review output: %w", err)
 	}
 
+	xl.Infof("resp output:\n %s", output)
 	xl.Infof("AI code review completed, output length: %d", len(output))
 	xl.Debugf("Review Output: %s", string(output))
 
@@ -359,6 +360,7 @@ func (rh *ReviewHandler) buildReviewPrompt(ctx context.Context, prEvent *models.
 				"trigger_username":     prEvent.Sender.GetLogin(),
 				"trigger_display_name": prEvent.Sender.GetLogin(),
 				"claude_comment_id":    commentID,
+				"is_fork_pr":           rh.workspace.IsForkRepositoryPR(prEvent.PullRequest),
 			}
 
 			if triggerComment != nil && *triggerComment != "" {
