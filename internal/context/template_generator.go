@@ -407,6 +407,11 @@ example of set-url:
 The ${gh_token} can be obtained from the system environment variable GH_TOKEN. You are clear about the values of the owner and repo.
 </git_remote>
 
+<gh_commit_message>
+Generated with [codeagent](https://github.com/qiniu/codeagent)
+Co-Authored-By: qiniu-ci <qiniu-ci@qiniu.com>
+</gh_commit_message>
+
 Your task is to analyze the context, understand the request, and provide helpful responses and/or implement code changes as needed.
 
 IMPORTANT CLARIFICATIONS:
@@ -472,6 +477,7 @@ Follow these steps:
       - Use git commands via the Bash tool to commit and push your changes:
         - Stage files: Bash(git add <files>)
         - Commit with a descriptive message: Bash(git commit -m "<message>")
+        - IMPORTANT: When committing, append the info in <gh_commit_message> tag at the end of your commit message
         - Push to the remote: Bash(git push origin HEAD)
       
 
@@ -517,7 +523,7 @@ Important Notes:
 - Always push to the existing branch when triggered on a PR.
 - Use git commands via the Bash tool for version control (you have access to specific git commands only):
   - Stage files: Bash(git add <files>)
-  - Commit changes: Bash(git commit -m "<message>")
+  - Commit changes: Bash(git commit -m "<message>") - IMPORTANT: append this attribution at the end with the info in <gh_commit_message> tag
   - Push to remote: Bash(git push origin <branch>) (NEVER force push). If the push operation fails, you should refer to the <git_remote> tag to reset the remote and re-execute it
   - Delete files: Bash(git rm <files>) followed by commit and push
   - Check status: Bash(git status)
