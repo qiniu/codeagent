@@ -229,12 +229,12 @@ func (th *TagHandler) handlePRReviewComment(
 	// PR Review评论支持行级命令
 	switch cmdInfo.Command {
 	case models.CommandContinue:
-		// 实现PR Review评论继续逻辑，集成原姻 Agent功能
 		xl.Infof("Processing PR review comment continue with new architecture")
 		return th.processPRReviewCommentCommand(ctx, event, cmdInfo, "Continue")
 	case models.CommandMention:
-		// TODO(CarlJi): TO BE IMPLEMENTED
-		return fmt.Errorf("unsupported command for PR review comment: %s", cmdInfo.Command)
+		// 实现PR Review Comment中的mention处理
+		xl.Infof("Processing mention command in PR review comment")
+		return th.processPRCodeReviewComment(ctx, event, cmdInfo)
 	default:
 		return fmt.Errorf("unsupported command for PR review comment: %s", cmdInfo.Command)
 	}
@@ -1702,6 +1702,148 @@ func (th *TagHandler) buildPRPrompt(ctx context.Context, event *models.IssueComm
 	return prompt, nil
 }
 
+// getTriggerDisplayName 获取用户的显示名，直接返回原始值
+func getTriggerDisplayName(user *github.User) string {
+	name := user.GetName()
+	if name == "" {
+		return user.GetLogin()
+	}
+	return name
+}
+
+// buildEnhancedTriggerComment 构建包含文件和行号信息的trigger comment
+func buildEnhancedTriggerComment(comment *github.PullRequestComment) string {
+	body := comment.GetBody()
+	filePath := comment.GetPath()
+	lineNumber := comment.GetLine()
+	startLine := comment.GetStartLine()
+
+	if filePath != "" {
+		if lineNumber != 0 {
+			if startLine != 0 && startLine != lineNumber {
+				// Multi-line comment (start_line to line_number)
+				return fmt.Sprintf("%s (文件: %s, 行数: %d-%d)", body, filePath, startLine, lineNumber)
+			} else {
+				// Single line comment
+				return fmt.Sprintf("%s (文件: %s, 行数: %d)", body, filePath, lineNumber)
+			}
+		} else {
+			// Only file path available
+			return fmt.Sprintf("%s (文件: %s)", body, filePath)
+		}
+	}
+
+	// No file info available, return original body
+	return body
+}
+
+// buildPRReviewCommentPrompt 构建PR Review Comment的提示词，包含代码行上下文
+func (th *TagHandler) buildPRReviewCommentPrompt(ctx context.Context, event *models.PullRequestReviewCommentContext, cmdInfo *models.CommandInfo) (string, error) {
+	xl := xlog.NewWith(ctx)
+
+	// 收集PR Review Comment的完整上下文
+	pr := event.PullRequest
+	comment := event.Comment
+	repo := event.Repository
+	repoFullName := repo.GetFullName()
+
+	// 创建增强上下文，专门针对Review Comment
+	ctxType := ctxsys.ContextTypePR
+	enhancedCtx := &ctxsys.EnhancedContext{
+		Type:      ctxType,
+		Priority:  ctxsys.PriorityHigh,
+		Timestamp: time.Now(),
+		Subject:   event,
+		Metadata: map[string]interface{}{
+			"pr_number":            pr.GetNumber(),
+			"pr_title":             pr.GetTitle(),
+			"pr_body":              pr.GetBody(),
+			"repository":           repoFullName,
+			"sender":               event.Sender.GetLogin(),
+			"trigger_comment":      buildEnhancedTriggerComment(comment),     // 将当前评论作为触发指令，包含文件和行号信息
+			"trigger_username":     comment.GetUser().GetLogin(),             // PR review comment 作者的用户名
+			"trigger_display_name": getTriggerDisplayName(comment.GetUser()), // PR review comment 作者的显示名
+			// Review Comment特有的上下文信息
+			"comment_type": "review_comment",
+			"file_path":    comment.GetPath(),
+			"line_number":  comment.GetLine(),
+			"start_line":   comment.GetStartLine(),
+			"diff_hunk":    comment.GetDiffHunk(),
+			"commit_id":    comment.GetCommitID(),
+		},
+	}
+
+	// 收集PR的所有评论（包括issue comments和review comments）
+	prNumber := pr.GetNumber()
+	owner, repoName := th.extractRepoInfo(repoFullName)
+
+	// 获取PR的所有评论
+	repoInfo := &models.Repository{Owner: owner, Name: repoName}
+	client, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		xl.Warnf("Failed to get GitHub client: %v", err)
+		return "", fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
+	// 获取Issue评论
+	issueComments, _, err := client.GetClient().Issues.ListComments(ctx, owner, repoName, prNumber, &github.IssueListCommentsOptions{
+		Sort:      github.String("created"),
+		Direction: github.String("asc"),
+	})
+	if err != nil {
+		xl.Warnf("Failed to get PR issue comments: %v", err)
+	} else {
+		// 转换评论格式
+		for _, issueComment := range issueComments {
+			if issueComment.GetID() != comment.GetID() { // 排除当前评论
+				enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
+					ID:        issueComment.GetID(),
+					Type:      "comment",
+					Author:    issueComment.GetUser().GetLogin(),
+					Body:      issueComment.GetBody(),
+					CreatedAt: issueComment.GetCreatedAt().Time,
+					UpdatedAt: issueComment.GetUpdatedAt().Time,
+				})
+			}
+		}
+	}
+
+	// 获取Review评论
+	reviewComments, _, err := client.GetClient().PullRequests.ListComments(ctx, owner, repoName, prNumber, &github.PullRequestListCommentsOptions{
+		Sort:      "created",
+		Direction: "asc",
+	})
+	if err != nil {
+		xl.Warnf("Failed to get PR review comments: %v", err)
+	} else {
+		// 转换Review评论格式
+		for _, reviewComment := range reviewComments {
+			if reviewComment.GetID() != comment.GetID() { // 排除当前评论
+				enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
+					ID:         reviewComment.GetID(),
+					Type:       "review_comment",
+					Author:     reviewComment.GetUser().GetLogin(),
+					Body:       reviewComment.GetBody(),
+					CreatedAt:  reviewComment.GetCreatedAt().Time,
+					UpdatedAt:  reviewComment.GetUpdatedAt().Time,
+					FilePath:   reviewComment.GetPath(),
+					LineNumber: reviewComment.GetLine(),
+					StartLine:  reviewComment.GetStartLine(),
+				})
+			}
+		}
+	}
+
+	// 使用增强的提示词生成器，专门用于PR Review Comment回复
+	// 现在文件路径和行号信息已经包含在 trigger_comment 中了
+	prompt, err := th.contextManager.Generator.GeneratePrompt(enhancedCtx, "default", cmdInfo.Args)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate enhanced prompt: %w", err)
+	}
+
+	return prompt, nil
+}
+
 // buildPrompt 构建提示词
 func (th *TagHandler) buildPrompt(ctx context.Context, event *models.IssueCommentContext, cmdInfo *models.CommandInfo) (string, error) {
 	xl := xlog.NewWith(ctx)
@@ -1852,6 +1994,90 @@ func (th *TagHandler) processPRComment(
 
 	responseText := string(output)
 	xl.Infof("AI response generated, length: %d, response: %s", len(responseText), responseText)
+	return nil
+}
+
+// processPRCodeReviewComment 处理PR Review Comment中的@qiniu-ci命令（代码行级别）
+func (th *TagHandler) processPRCodeReviewComment(
+	ctx context.Context,
+	event *models.PullRequestReviewCommentContext,
+	cmdInfo *models.CommandInfo,
+) error {
+	xl := xlog.NewWith(ctx)
+
+	prNumber := event.PullRequest.GetNumber()
+	prTitle := event.PullRequest.GetTitle()
+	commentPath := event.Comment.GetPath()
+	commentLine := event.Comment.GetLine()
+
+	xl.Infof("Processing @qiniu-ci command in PR review comment: PR=#%d, title=%s, file=%s, line=%d, AI model=%s, instruction=%s",
+		prNumber, prTitle, commentPath, commentLine, cmdInfo.AIModel, cmdInfo.Args)
+
+	// 如果用户指定了AI模型，使用指定的；否则使用系统默认的
+	if strings.TrimSpace(cmdInfo.AIModel) == "" {
+		cmdInfo.AIModel = th.defaultAIModel
+	}
+
+	// 获取完整的PR信息
+	repoInfo := &models.Repository{
+		Owner: event.Repository.GetOwner().GetLogin(),
+		Name:  event.Repository.GetName(),
+	}
+	client, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
+	// 通过GitHub API获取完整的PR信息
+	pr, _, err := client.GetClient().PullRequests.Get(ctx,
+		event.Repository.GetOwner().GetLogin(),
+		event.Repository.GetName(),
+		event.PullRequest.GetNumber())
+	if err != nil {
+		return fmt.Errorf("failed to get PR info: %w", err)
+	}
+
+	xl.Infof("Retrieved full PR info: #%d, head=%s, base=%s",
+		pr.GetNumber(), pr.GetHead().GetRef(), pr.GetBase().GetRef())
+
+	// 使用完整的PR对象创建工作空间
+	tempWS := th.workspace.GetOrCreateWorkspaceForPR(pr, cmdInfo.AIModel)
+	if tempWS == nil {
+		return fmt.Errorf("failed to create temporary workspace for PR review comment reply")
+	}
+
+	// 设置仓库信息
+	tempWS.Org = event.Repository.GetOwner().GetLogin()
+	tempWS.Repo = event.Repository.GetName()
+
+	xl.Infof("Created temporary workspace for PR review comment reply: %s", tempWS.Path)
+
+	codeClient, err := th.sessionManager.GetSession(tempWS)
+	if err != nil {
+		return fmt.Errorf("failed to get code client: %w", err)
+	}
+
+	// 构建包含代码行上下文的prompt
+	event.PullRequest = pr
+	prompt, err := th.buildPRReviewCommentPrompt(ctx, event, cmdInfo)
+	if err != nil {
+		xl.Errorf("Failed to build PR review comment prompt: %v", err)
+		return err
+	}
+
+	xl.Infof("Executing AI query for PR review comment reply")
+	resp, err := th.promptWithRetry(ctx, codeClient, prompt, 3)
+	if err != nil {
+		return fmt.Errorf("failed to get AI response: %w", err)
+	}
+
+	output, err := io.ReadAll(resp.Out)
+	if err != nil {
+		return fmt.Errorf("failed to read AI response: %w", err)
+	}
+
+	responseText := string(output)
+	xl.Infof("AI response generated, length: %d", len(responseText))
 	return nil
 }
 
