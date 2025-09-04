@@ -176,6 +176,10 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 		vars["TRIGGER_COMMENT"] = fmt.Sprintf("%v", triggerComment)
 	}
 
+	if isForkPR, ok := ctx.Metadata["is_fork_pr"]; ok {
+		vars["IS_FORK_PR"] = fmt.Sprintf("%v", isForkPR)
+	}
+
 	return vars
 }
 
@@ -309,6 +313,7 @@ Images have been downloaded from GitHub comments and saved to disk. Their file p
 
 <event_type>$EVENT_TYPE</event_type>
 <is_pr>$IS_PR</is_pr>
+<is_fork_pr>$IS_FORK_PR</is_fork_pr>
 <trigger_context>pull request opened</trigger_context>
 <repository>$REPOSITORY</repository>
 <pr_number>$PR_NUMBER</pr_number>
@@ -399,6 +404,7 @@ Follow these steps:
    - Classify if it's a question, code review, implementation request, analysis, or combination.
    - For implementation requests, assess if they are straightforward or complex.
    - For analysis requests, only analyze user requirements and provide requirement solutions. Do not perform coding and testing.
+   - IF the tag <is_fork_pr> is true, you must use plan mode to execute actions, and do not change the local file , reply directly to the user with the planned result
    - Mark this todo as complete by checking the box.
 
 4. Execute Actions:
