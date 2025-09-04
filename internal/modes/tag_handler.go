@@ -285,15 +285,19 @@ func (th *TagHandler) buildIssueCodePrompt(ctx context.Context, event *models.Is
 	} else {
 		// 转换评论格式
 		for _, comment := range comments {
-			if comment.GetID() != event.Comment.GetID() { // 排除当前评论
-				enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
-					ID:        comment.GetID(),
-					Type:      "comment",
-					Author:    comment.GetUser().GetLogin(),
-					Body:      comment.GetBody(),
-					CreatedAt: comment.GetCreatedAt().Time,
-					UpdatedAt: comment.GetUpdatedAt().Time,
-				})
+			if comment.GetID() != event.Comment.GetID() && comment.GetUser() != nil { // 排除当前评论
+				author := comment.GetUser().GetLogin()
+				// 过滤机器人账号
+				if !ctxsys.IsBotAccount(author) {
+					enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
+						ID:        comment.GetID(),
+						Type:      "comment",
+						Author:    author,
+						Body:      comment.GetBody(),
+						CreatedAt: comment.GetCreatedAt().Time,
+						UpdatedAt: comment.GetUpdatedAt().Time,
+					})
+				}
 			}
 		}
 	}
@@ -1680,15 +1684,19 @@ func (th *TagHandler) buildPRPrompt(ctx context.Context, event *models.IssueComm
 	} else {
 		// 转换评论格式
 		for _, comment := range comments {
-			if comment.GetID() != event.Comment.GetID() { // 排除当前评论
-				enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
-					ID:        comment.GetID(),
-					Type:      "comment",
-					Author:    comment.GetUser().GetLogin(),
-					Body:      comment.GetBody(),
-					CreatedAt: comment.GetCreatedAt().Time,
-					UpdatedAt: comment.GetUpdatedAt().Time,
-				})
+			if comment.GetID() != event.Comment.GetID() && comment.GetUser() != nil { // 排除当前评论
+				author := comment.GetUser().GetLogin()
+				// 过滤机器人账号
+				if !ctxsys.IsBotAccount(author) {
+					enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
+						ID:        comment.GetID(),
+						Type:      "comment",
+						Author:    author,
+						Body:      comment.GetBody(),
+						CreatedAt: comment.GetCreatedAt().Time,
+						UpdatedAt: comment.GetUpdatedAt().Time,
+					})
+				}
 			}
 		}
 	}
@@ -1795,15 +1803,19 @@ func (th *TagHandler) buildPRReviewCommentPrompt(ctx context.Context, event *mod
 	} else {
 		// 转换评论格式
 		for _, issueComment := range issueComments {
-			if issueComment.GetID() != comment.GetID() { // 排除当前评论
-				enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
-					ID:        issueComment.GetID(),
-					Type:      "comment",
-					Author:    issueComment.GetUser().GetLogin(),
-					Body:      issueComment.GetBody(),
-					CreatedAt: issueComment.GetCreatedAt().Time,
-					UpdatedAt: issueComment.GetUpdatedAt().Time,
-				})
+			if issueComment.GetID() != comment.GetID() && issueComment.GetUser() != nil { // 排除当前评论
+				author := issueComment.GetUser().GetLogin()
+				// 过滤机器人账号
+				if !ctxsys.IsBotAccount(author) {
+					enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
+						ID:        issueComment.GetID(),
+						Type:      "comment",
+						Author:    author,
+						Body:      issueComment.GetBody(),
+						CreatedAt: issueComment.GetCreatedAt().Time,
+						UpdatedAt: issueComment.GetUpdatedAt().Time,
+					})
+				}
 			}
 		}
 	}
@@ -1818,18 +1830,22 @@ func (th *TagHandler) buildPRReviewCommentPrompt(ctx context.Context, event *mod
 	} else {
 		// 转换Review评论格式
 		for _, reviewComment := range reviewComments {
-			if reviewComment.GetID() != comment.GetID() { // 排除当前评论
-				enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
-					ID:         reviewComment.GetID(),
-					Type:       "review_comment",
-					Author:     reviewComment.GetUser().GetLogin(),
-					Body:       reviewComment.GetBody(),
-					CreatedAt:  reviewComment.GetCreatedAt().Time,
-					UpdatedAt:  reviewComment.GetUpdatedAt().Time,
-					FilePath:   reviewComment.GetPath(),
-					LineNumber: reviewComment.GetLine(),
-					StartLine:  reviewComment.GetStartLine(),
-				})
+			if reviewComment.GetID() != comment.GetID() && reviewComment.GetUser() != nil { // 排除当前评论
+				author := reviewComment.GetUser().GetLogin()
+				// 过滤机器人账号
+				if !ctxsys.IsBotAccount(author) {
+					enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
+						ID:         reviewComment.GetID(),
+						Type:       "review_comment",
+						Author:     author,
+						Body:       reviewComment.GetBody(),
+						CreatedAt:  reviewComment.GetCreatedAt().Time,
+						UpdatedAt:  reviewComment.GetUpdatedAt().Time,
+						FilePath:   reviewComment.GetPath(),
+						LineNumber: reviewComment.GetLine(),
+						StartLine:  reviewComment.GetStartLine(),
+					})
+				}
 			}
 		}
 	}
@@ -1890,15 +1906,19 @@ func (th *TagHandler) buildPrompt(ctx context.Context, event *models.IssueCommen
 	} else {
 		// 转换评论格式
 		for _, comment := range comments {
-			if comment.GetID() != event.Comment.GetID() { // 排除当前评论
-				enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
-					ID:        comment.GetID(),
-					Type:      "comment",
-					Author:    comment.GetUser().GetLogin(),
-					Body:      comment.GetBody(),
-					CreatedAt: comment.GetCreatedAt().Time,
-					UpdatedAt: comment.GetUpdatedAt().Time,
-				})
+			if comment.GetID() != event.Comment.GetID() && comment.GetUser() != nil { // 排除当前评论
+				author := comment.GetUser().GetLogin()
+				// 过滤机器人账号
+				if !ctxsys.IsBotAccount(author) {
+					enhancedCtx.Comments = append(enhancedCtx.Comments, ctxsys.CommentContext{
+						ID:        comment.GetID(),
+						Type:      "comment",
+						Author:    author,
+						Body:      comment.GetBody(),
+						CreatedAt: comment.GetCreatedAt().Time,
+						UpdatedAt: comment.GetUpdatedAt().Time,
+					})
+				}
 			}
 		}
 	}
@@ -2105,41 +2125,4 @@ func (th *TagHandler) processReviewCommand(
 
 	// 调用 ReviewHandler 的手动审查方法（简化调用，移除不必要的commentID）
 	return th.reviewHandler.ProcessManualCodeReview(ctx, event, client)
-}
-
-// replyToIssueComment 使用MCP工具回复Issue评论
-func (th *TagHandler) replyToIssueComment(
-	ctx context.Context,
-	event *models.IssueCommentContext,
-	responseText string,
-) error {
-	xl := xlog.NewWith(ctx)
-
-	// 创建MCP上下文
-	mcpCtx := &models.MCPContext{
-		Repository:  event,
-		Permissions: []string{"github:read", "github:write"},
-		Constraints: []string{},
-	}
-
-	// 使用MCP工具添加评论
-	commentCall := &models.ToolCall{
-		ID: models.MCPID{Value: "reply_issue_" + fmt.Sprintf("%d", event.Issue.GetNumber())},
-		Function: models.ToolFunction{
-			Name: "github-comments__create_comment",
-			Arguments: map[string]interface{}{
-				"issue_number": event.Issue.GetNumber(),
-				"body":         responseText,
-			},
-		},
-	}
-
-	_, err := th.mcpClient.ExecuteToolCalls(ctx, []*models.ToolCall{commentCall}, mcpCtx)
-	if err != nil {
-		xl.Errorf("Failed to reply via MCP: %v", err)
-		return err
-	}
-
-	xl.Infof("Successfully replied to issue comment via MCP")
-	return nil
 }

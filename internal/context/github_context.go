@@ -849,12 +849,17 @@ func (g *GitHubContextInjector) collectCommentHistory(ctx context.Context, event
 				// Log error but don't fail completely
 				// Note: In production, this should use proper context logging
 			} else {
-				issueComments = make([]string, len(issueCommentList))
-				for i, comment := range issueCommentList {
-					if comment != nil {
-						issueComments[i] = comment.GetBody()
+				var filteredComments []string
+				for _, comment := range issueCommentList {
+					if comment != nil && comment.GetUser() != nil {
+						author := comment.GetUser().GetLogin()
+						// 过滤机器人账号
+						if !IsBotAccount(author) {
+							filteredComments = append(filteredComments, comment.GetBody())
+						}
 					}
 				}
+				issueComments = filteredComments
 			}
 		}
 	}
@@ -872,12 +877,17 @@ func (g *GitHubContextInjector) collectCommentHistory(ctx context.Context, event
 			if err != nil {
 				// Note: In production, this should use proper context logging
 			} else {
-				prComments = make([]string, len(prIssueComments))
-				for i, comment := range prIssueComments {
-					if comment != nil {
-						prComments[i] = comment.GetBody()
+				var filteredPRComments []string
+				for _, comment := range prIssueComments {
+					if comment != nil && comment.GetUser() != nil {
+						author := comment.GetUser().GetLogin()
+						// 过滤机器人账号
+						if !IsBotAccount(author) {
+							filteredPRComments = append(filteredPRComments, comment.GetBody())
+						}
 					}
 				}
+				prComments = filteredPRComments
 			}
 
 			// Collect PR review comments (line-specific comments)
@@ -889,12 +899,17 @@ func (g *GitHubContextInjector) collectCommentHistory(ctx context.Context, event
 			if err != nil {
 				// Note: In production, this should use proper context logging
 			} else {
-				reviewComments = make([]string, len(prReviewComments))
-				for i, comment := range prReviewComments {
-					if comment != nil {
-						reviewComments[i] = comment.GetBody()
+				var filteredReviewComments []string
+				for _, comment := range prReviewComments {
+					if comment != nil && comment.GetUser() != nil {
+						author := comment.GetUser().GetLogin()
+						// 过滤机器人账号
+						if !IsBotAccount(author) {
+							filteredReviewComments = append(filteredReviewComments, comment.GetBody())
+						}
 					}
 				}
+				reviewComments = filteredReviewComments
 			}
 		}
 	}
