@@ -408,8 +408,9 @@ The ${gh_token} can be obtained from the system environment variable GH_TOKEN. Y
 </git_remote>
 
 <gh_commit_message>
+
 Generated with [codeagent](https://github.com/qiniu/codeagent)
-Co-Authored-By: qiniu-ci <qiniu-ci@qiniu.com>
+Co-Authored-By: niupilot <noreply@qiniu.com>
 </gh_commit_message>
 
 Your task is to analyze the context, understand the request, and provide helpful responses and/or implement code changes as needed.
