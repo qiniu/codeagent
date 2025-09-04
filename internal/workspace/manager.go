@@ -385,6 +385,11 @@ func (m *Manager) cleanupExpiredWorkspaces() {
 	log.Infof("Expired workspace cleanup completed. Cleaned %d/%d workspaces", cleanedCount, len(expiredWorkspaces))
 }
 
+// public method
+func (m *Manager) IsForkRepositoryPR(pr *github.PullRequest) bool {
+	return m.isForkRepositoryPR(pr)
+}
+
 // ExtractAIModelFromBranch extracts AI model information from branch name
 func (m *Manager) ExtractAIModelFromBranch(branchName string) string {
 	// Check if it's a codeagent branch

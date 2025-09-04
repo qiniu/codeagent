@@ -1533,6 +1533,9 @@ func (th *TagHandler) buildEnhancedPrompt(
 			enhancedCtx.Code = codeCtx
 		}
 
+		// 添加fork PR信息到metadata
+		enhancedCtx.Metadata["is_fork_pr"] = th.workspace.IsForkRepositoryPR(pr)
+
 		// 收集评论上下文
 		var currentCommentID int64
 		if eventType == "issue_comment" {
@@ -1639,11 +1642,10 @@ func (th *TagHandler) truncateText(text string, maxLength int) string {
 }
 
 // buildPRPrompt 构建PR评论的提示词
-func (th *TagHandler) buildPRPrompt(ctx context.Context, event *models.IssueCommentContext, cmdInfo *models.CommandInfo) (string, error) {
+func (th *TagHandler) buildPRPrompt(ctx context.Context, event *models.IssueCommentContext, cmdInfo *models.CommandInfo, pr *github.PullRequest) (string, error) {
 	xl := xlog.NewWith(ctx)
 
 	// 收集PR的完整上下文
-	pr := event.Issue // 在PR评论中，Issue实际上是PR
 	repo := event.Repository
 	repoFullName := repo.GetFullName()
 
@@ -1663,6 +1665,7 @@ func (th *TagHandler) buildPRPrompt(ctx context.Context, event *models.IssueComm
 			"trigger_comment": event.Comment.GetBody(), // 将当前评论作为触发指令
 		},
 	}
+	enhancedCtx.Metadata["is_fork_pr"] = th.workspace.IsForkRepositoryPR(pr)
 
 	// 收集PR的评论上下文
 	prNumber := pr.GetNumber()
@@ -1995,7 +1998,7 @@ func (th *TagHandler) processPRComment(
 		return fmt.Errorf("failed to get code client: %w", err)
 	}
 
-	prompt, err := th.buildPRPrompt(ctx, event, cmdInfo)
+	prompt, err := th.buildPRPrompt(ctx, event, cmdInfo, pr)
 	if err != nil {
 		xl.Errorf("Failed to build enhanced prompt: %v", err)
 		return err

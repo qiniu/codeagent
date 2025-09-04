@@ -359,6 +359,7 @@ func (rh *ReviewHandler) buildReviewPrompt(ctx context.Context, prEvent *models.
 				"trigger_username":     prEvent.Sender.GetLogin(),
 				"trigger_display_name": prEvent.Sender.GetLogin(),
 				"claude_comment_id":    commentID,
+				"is_fork_pr":           rh.workspace.IsForkRepositoryPR(prEvent.PullRequest),
 			}
 
 			if triggerComment != nil && *triggerComment != "" {
