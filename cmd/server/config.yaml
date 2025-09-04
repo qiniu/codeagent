@@ -5,12 +5,12 @@ server:
 github:
   #token: "1234567890"
   webhook_url: "http://localhost:8888/hook"
-
   # GitHub App 配置
-  # app:
-  #   app_id: 1032243  # GitHub App ID
-  #   private_key_path: "/Users/dir/xxxxx.private-key.pem"  # GitHub App Private Key 文件路径
-  # 或者通过环境变量指定: private_key_env: "GITHUB_APP_PRIVATE_KEY"
+  app:
+    app_id: 1894735
+    # private_key_path: "/Users/jicarl/Downloads/niupilot.2025-09-04.private-key.pem" # GitHub App Private Key 文件路径
+    private_key_env: "GITHUB_APP_PRIVATE_KEY"
+    # 或者通过环境变量指定: private_key_env: "GITHUB_APP_PRIVATE_KEY"
   # 或者直接配置: private_key: "-----BEGIN RSA PRIVATE KEY-----..."
 
 workspace:
