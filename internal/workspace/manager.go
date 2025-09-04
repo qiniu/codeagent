@@ -385,7 +385,8 @@ func (m *Manager) cleanupExpiredWorkspaces() {
 	log.Infof("Expired workspace cleanup completed. Cleaned %d/%d workspaces", cleanedCount, len(expiredWorkspaces))
 }
 
-// public method
+// IsForkRepositoryPR returns true if the given pull request is from a forked repository.
+// It checks whether the head repository differs from the base repository.
 func (m *Manager) IsForkRepositoryPR(pr *github.PullRequest) bool {
 	return m.isForkRepositoryPR(pr)
 }

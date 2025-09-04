@@ -316,7 +316,7 @@ func (rh *ReviewHandler) processCodeReview(ctx context.Context, prEvent *models.
 		return fmt.Errorf("failed to read review output: %w", err)
 	}
 
-	xl.Infof("resp output:\n %s", output)
+	xl.Debugf("resp output:\n %s", output)
 	xl.Infof("AI code review completed, output length: %d", len(output))
 	xl.Debugf("Review Output: %s", string(output))
 
