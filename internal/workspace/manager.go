@@ -347,8 +347,7 @@ func (m *Manager) GetExpiredWorkspaces() []*models.Workspace {
 
 // startPeriodicCleanup starts a goroutine for periodic cleanup of expired workspaces
 func (m *Manager) startPeriodicCleanup() {
-	// Run cleanup every 24 hours
-	ticker := time.NewTicker(24 * time.Hour)
+	ticker := time.NewTicker(10 * time.Hour)
 	// Cleanup expired workspaces immediately
 	m.cleanupExpiredWorkspaces()
 	go func() {
