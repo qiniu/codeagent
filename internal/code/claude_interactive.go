@@ -97,6 +97,7 @@ func NewClaudeInteractive(workspace *models.Workspace, cfg *config.Config) (Code
 	}
 
 	// 添加 Claude API 相关环境变量
+	args = append(args, "-e", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 	if cfg.Claude.AuthToken != "" {
 		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=%s", cfg.Claude.AuthToken))
 	} else if cfg.Claude.APIKey != "" {
