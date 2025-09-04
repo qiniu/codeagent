@@ -93,8 +93,50 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 				vars["ISSUE_BODY"] = event.Issue.GetBody()
 			}
 		}
+	} else if ctx.Type == ContextTypePR {
+		// PR context - handle both Code-based PRs and PR review comments
+		if ctx.Code != nil {
+			// Code-based PR context
+			vars["REPOSITORY"] = ctx.Code.Repository
+		}
+
+		vars["PR_NUMBER"] = ""
+		vars["ISSUE_NUMBER"] = ""
+
+		// Extract PR/Issue numbers from metadata
+		if prNumber, ok := ctx.Metadata["pr_number"]; ok {
+			vars["PR_NUMBER"] = fmt.Sprintf("%v", prNumber)
+			vars["IS_PR"] = "true"
+		}
+		if issueNumber, ok := ctx.Metadata["issue_number"]; ok {
+			vars["ISSUE_NUMBER"] = fmt.Sprintf("%v", issueNumber)
+			// Only override IS_PR if no PR number exists
+			if vars["PR_NUMBER"] == "" {
+				vars["IS_PR"] = "false"
+			}
+		}
+
+		// Extract repository from metadata if not set from Code
+		if repo, ok := ctx.Metadata["repository"]; ok && vars["REPOSITORY"] == "" {
+			vars["REPOSITORY"] = fmt.Sprintf("%v", repo)
+		}
+
+		// Extract PR body from metadata
+		if prBody, ok := ctx.Metadata["pr_body"]; ok {
+			vars["PR_BODY"] = fmt.Sprintf("%v", prBody)
+		}
+
+		// Extract PR title from metadata
+		if prTitle, ok := ctx.Metadata["pr_title"]; ok {
+			vars["PR_TITLE"] = fmt.Sprintf("%v", prTitle)
+		}
+
+		// Extract base branch from metadata
+		if baseBranch, ok := ctx.Metadata["base_branch"]; ok {
+			vars["BASE_BRANCH"] = fmt.Sprintf("%v", baseBranch)
+		}
 	} else if ctx.Code != nil {
-		// PR context
+		// Legacy PR context handling (for backward compatibility)
 		vars["REPOSITORY"] = ctx.Code.Repository
 		vars["PR_NUMBER"] = ""
 		vars["ISSUE_NUMBER"] = ""

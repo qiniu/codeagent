@@ -1702,6 +1702,32 @@ func (th *TagHandler) buildPRPrompt(ctx context.Context, event *models.IssueComm
 	return prompt, nil
 }
 
+// buildEnhancedTriggerComment 构建包含文件和行号信息的trigger comment
+func buildEnhancedTriggerComment(comment *github.PullRequestComment) string {
+	body := comment.GetBody()
+	filePath := comment.GetPath()
+	lineNumber := comment.GetLine()
+	startLine := comment.GetStartLine()
+
+	if filePath != "" {
+		if lineNumber != 0 {
+			if startLine != 0 && startLine != lineNumber {
+				// Multi-line comment (start_line to line_number)
+				return fmt.Sprintf("%s (文件: %s, 行数: %d-%d)", body, filePath, startLine, lineNumber)
+			} else {
+				// Single line comment
+				return fmt.Sprintf("%s (文件: %s, 行数: %d)", body, filePath, lineNumber)
+			}
+		} else {
+			// Only file path available
+			return fmt.Sprintf("%s (文件: %s)", body, filePath)
+		}
+	}
+
+	// No file info available, return original body
+	return body
+}
+
 // buildPRReviewCommentPrompt 构建PR Review Comment的提示词，包含代码行上下文
 func (th *TagHandler) buildPRReviewCommentPrompt(ctx context.Context, event *models.PullRequestReviewCommentContext, cmdInfo *models.CommandInfo) (string, error) {
 	xl := xlog.NewWith(ctx)
@@ -1725,7 +1751,7 @@ func (th *TagHandler) buildPRReviewCommentPrompt(ctx context.Context, event *mod
 			"pr_body":         pr.GetBody(),
 			"repository":      repoFullName,
 			"sender":          event.Sender.GetLogin(),
-			"trigger_comment": comment.GetBody(), // 将当前评论作为触发指令
+			"trigger_comment": buildEnhancedTriggerComment(comment), // 将当前评论作为触发指令，包含文件和行号信息
 			// Review Comment特有的上下文信息
 			"comment_type": "review_comment",
 			"file_path":    comment.GetPath(),
@@ -1797,28 +1823,9 @@ func (th *TagHandler) buildPRReviewCommentPrompt(ctx context.Context, event *mod
 		}
 	}
 
-	// 构建专门的Review Comment指令
-	reviewCommentInstruction := fmt.Sprintf(
-		"用户在第%d行（文件：%s）的代码评论中提到了你。请针对这个具体的代码行和上下文提供帮助。\n\n原始评论：%s\n\n%s\n\n"+
-			"重要：请使用 create_review_comment 工具来回复到相同的代码行位置，形成comment thread。\n"+
-			"工具参数：\n"+
-			"- pull_number: %d\n"+
-			"- body: 你的回复内容\n"+
-			"- commit_id: %s\n"+
-			"- path: %s\n"+
-			"- line: %d",
-		comment.GetLine(),
-		comment.GetPath(),
-		comment.GetBody(),
-		cmdInfo.Args,
-		pr.GetNumber(),
-		comment.GetCommitID(),
-		comment.GetPath(),
-		comment.GetLine(),
-	)
-
 	// 使用增强的提示词生成器，专门用于PR Review Comment回复
-	prompt, err := th.contextManager.Generator.GeneratePrompt(enhancedCtx, "default", reviewCommentInstruction)
+	// 现在文件路径和行号信息已经包含在 trigger_comment 中了
+	prompt, err := th.contextManager.Generator.GeneratePrompt(enhancedCtx, "default", cmdInfo.Args)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate enhanced prompt: %w", err)
 	}
