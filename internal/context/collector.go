@@ -50,6 +50,39 @@ func extractRepoFromFullName(repoFullName string) *models.Repository {
 	}
 }
 
+// IsBotAccount 判断用户是否为机器人账号
+// 机器人账号通常在用户名中包含[bot]标识
+func IsBotAccount(username string) bool {
+	if username == "" {
+		return false
+	}
+
+	usernameLower := strings.ToLower(username)
+
+	// GitHub机器人账号通常包含[bot]或以bot结尾
+	if strings.Contains(usernameLower, "[bot]") {
+		return true
+	}
+
+	// 特殊的机器人账号模式
+	botPatterns := []string{
+		"dependabot",
+		"renovate",
+		"codecov",
+		"github-actions",
+		"actions-user",
+		"sonarcloud",
+	}
+
+	for _, pattern := range botPatterns {
+		if strings.Contains(usernameLower, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // CollectBasicContext 收集基础上下文
 func (c *DefaultContextCollector) CollectBasicContext(eventType string, payload interface{}) (*EnhancedContext, error) {
 	ctx := &EnhancedContext{
@@ -268,47 +301,59 @@ func (c *DefaultContextCollector) CollectCommentContext(pr *github.PullRequest, 
 
 	// 处理一般评论
 	for _, comment := range allComments.IssueComments {
-		if comment.GetID() != currentCommentID {
-			comments = append(comments, CommentContext{
-				ID:        comment.GetID(),
-				Type:      "comment",
-				Author:    comment.GetUser().GetLogin(),
-				Body:      comment.GetBody(),
-				CreatedAt: comment.GetCreatedAt().Time,
-				UpdatedAt: comment.GetUpdatedAt().Time,
-			})
+		if comment.GetID() != currentCommentID && comment.GetUser() != nil {
+			author := comment.GetUser().GetLogin()
+			// 过滤机器人账号
+			if !IsBotAccount(author) {
+				comments = append(comments, CommentContext{
+					ID:        comment.GetID(),
+					Type:      "comment",
+					Author:    author,
+					Body:      comment.GetBody(),
+					CreatedAt: comment.GetCreatedAt().Time,
+					UpdatedAt: comment.GetUpdatedAt().Time,
+				})
+			}
 		}
 	}
 
 	// 处理代码行评论
 	for _, comment := range allComments.ReviewComments {
-		if comment.GetID() != currentCommentID {
-			comments = append(comments, CommentContext{
-				ID:         comment.GetID(),
-				Type:       "review_comment",
-				Author:     comment.GetUser().GetLogin(),
-				Body:       comment.GetBody(),
-				CreatedAt:  comment.GetCreatedAt().Time,
-				UpdatedAt:  comment.GetUpdatedAt().Time,
-				FilePath:   comment.GetPath(),
-				LineNumber: comment.GetLine(),
-				StartLine:  comment.GetStartLine(),
-			})
+		if comment.GetID() != currentCommentID && comment.GetUser() != nil {
+			author := comment.GetUser().GetLogin()
+			// 过滤机器人账号
+			if !IsBotAccount(author) {
+				comments = append(comments, CommentContext{
+					ID:         comment.GetID(),
+					Type:       "review_comment",
+					Author:     author,
+					Body:       comment.GetBody(),
+					CreatedAt:  comment.GetCreatedAt().Time,
+					UpdatedAt:  comment.GetUpdatedAt().Time,
+					FilePath:   comment.GetPath(),
+					LineNumber: comment.GetLine(),
+					StartLine:  comment.GetStartLine(),
+				})
+			}
 		}
 	}
 
 	// 处理Review评论
 	for _, review := range allComments.Reviews {
-		if review.GetBody() != "" {
-			comments = append(comments, CommentContext{
-				ID:          review.GetID(),
-				Type:        "review",
-				Author:      review.GetUser().GetLogin(),
-				Body:        review.GetBody(),
-				CreatedAt:   review.GetSubmittedAt().Time,
-				UpdatedAt:   review.GetSubmittedAt().Time,
-				ReviewState: review.GetState(),
-			})
+		if review.GetBody() != "" && review.GetUser() != nil {
+			author := review.GetUser().GetLogin()
+			// 过滤机器人账号
+			if !IsBotAccount(author) {
+				comments = append(comments, CommentContext{
+					ID:          review.GetID(),
+					Type:        "review",
+					Author:      author,
+					Body:        review.GetBody(),
+					CreatedAt:   review.GetSubmittedAt().Time,
+					UpdatedAt:   review.GetSubmittedAt().Time,
+					ReviewState: review.GetState(),
+				})
+			}
 		}
 	}
 
