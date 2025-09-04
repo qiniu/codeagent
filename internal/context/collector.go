@@ -59,8 +59,8 @@ func IsBotAccount(username string) bool {
 
 	usernameLower := strings.ToLower(username)
 
-	// GitHub机器人账号通常包含[bot]或以bot结尾
-	if strings.Contains(usernameLower, "[bot]") {
+	// GitHub机器人账号通常包含[bot]或以-bot结尾
+	if strings.Contains(usernameLower, "[bot]") || strings.HasSuffix(usernameLower, "-bot") {
 		return true
 	}
 
