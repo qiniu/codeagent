@@ -2,7 +2,6 @@ package github
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
