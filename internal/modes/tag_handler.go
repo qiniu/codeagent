@@ -1702,6 +1702,15 @@ func (th *TagHandler) buildPRPrompt(ctx context.Context, event *models.IssueComm
 	return prompt, nil
 }
 
+// getTriggerDisplayName 获取用户的显示名，直接返回原始值
+func getTriggerDisplayName(user *github.User) string {
+	name := user.GetName()
+	if name == "" {
+		return user.GetLogin()
+	}
+	return name
+}
+
 // buildEnhancedTriggerComment 构建包含文件和行号信息的trigger comment
 func buildEnhancedTriggerComment(comment *github.PullRequestComment) string {
 	body := comment.GetBody()
@@ -1746,12 +1755,14 @@ func (th *TagHandler) buildPRReviewCommentPrompt(ctx context.Context, event *mod
 		Timestamp: time.Now(),
 		Subject:   event,
 		Metadata: map[string]interface{}{
-			"pr_number":       pr.GetNumber(),
-			"pr_title":        pr.GetTitle(),
-			"pr_body":         pr.GetBody(),
-			"repository":      repoFullName,
-			"sender":          event.Sender.GetLogin(),
-			"trigger_comment": buildEnhancedTriggerComment(comment), // 将当前评论作为触发指令，包含文件和行号信息
+			"pr_number":            pr.GetNumber(),
+			"pr_title":             pr.GetTitle(),
+			"pr_body":              pr.GetBody(),
+			"repository":           repoFullName,
+			"sender":               event.Sender.GetLogin(),
+			"trigger_comment":      buildEnhancedTriggerComment(comment),     // 将当前评论作为触发指令，包含文件和行号信息
+			"trigger_username":     comment.GetUser().GetLogin(),             // PR review comment 作者的用户名
+			"trigger_display_name": getTriggerDisplayName(comment.GetUser()), // PR review comment 作者的显示名
 			// Review Comment特有的上下文信息
 			"comment_type": "review_comment",
 			"file_path":    comment.GetPath(),
