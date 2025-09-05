@@ -46,6 +46,16 @@ type GitHubConfig struct {
 	WebhookURL string          `yaml:"webhook_url"`
 	GHToken    string          `yaml:"gh_token"`
 	App        GitHubAppConfig `yaml:"app"`
+	API        GitHubAPIConfig `yaml:"api"`
+}
+
+type GitHubAPIConfig struct {
+	// GraphQL configuration
+	UseGraphQL         bool `yaml:"use_graphql"`          // Whether to use GraphQL API instead of REST
+	GraphQLFallback    bool `yaml:"graphql_fallback"`     // Fallback to REST API if GraphQL fails
+	RateLimitThreshold int  `yaml:"rate_limit_threshold"` // Warn when remaining requests below this threshold
+	// Rate limiting
+	EnableRateMonitoring bool `yaml:"enable_rate_monitoring"` // Enable rate limit monitoring and logging
 }
 
 type GitHubAppConfig struct {
@@ -197,6 +207,27 @@ func (c *Config) loadFromEnv() {
 	if excludedAccounts := os.Getenv("REVIEW_EXCLUDED_ACCOUNTS"); excludedAccounts != "" {
 		c.Review.ExcludedAccounts = strings.Split(excludedAccounts, ",")
 	}
+	// GitHub API configuration from environment
+	if useGraphQLStr := os.Getenv("GITHUB_USE_GRAPHQL"); useGraphQLStr != "" {
+		if useGraphQL, err := strconv.ParseBool(useGraphQLStr); err == nil {
+			c.GitHub.API.UseGraphQL = useGraphQL
+		}
+	}
+	if graphQLFallbackStr := os.Getenv("GITHUB_GRAPHQL_FALLBACK"); graphQLFallbackStr != "" {
+		if graphQLFallback, err := strconv.ParseBool(graphQLFallbackStr); err == nil {
+			c.GitHub.API.GraphQLFallback = graphQLFallback
+		}
+	}
+	if rateLimitThresholdStr := os.Getenv("GITHUB_RATE_LIMIT_THRESHOLD"); rateLimitThresholdStr != "" {
+		if rateLimitThreshold, err := strconv.Atoi(rateLimitThresholdStr); err == nil {
+			c.GitHub.API.RateLimitThreshold = rateLimitThreshold
+		}
+	}
+	if enableRateMonitoringStr := os.Getenv("GITHUB_ENABLE_RATE_MONITORING"); enableRateMonitoringStr != "" {
+		if enableRateMonitoring, err := strconv.ParseBool(enableRateMonitoringStr); err == nil {
+			c.GitHub.API.EnableRateMonitoring = enableRateMonitoring
+		}
+	}
 }
 
 func loadFromEnv() *Config {
@@ -216,6 +247,12 @@ func loadFromEnv() *Config {
 			Token:      os.Getenv("GITHUB_TOKEN"),
 			WebhookURL: os.Getenv("WEBHOOK_URL"),
 			GHToken:    os.Getenv("GH_TOKEN"),
+			API: GitHubAPIConfig{
+				UseGraphQL:           getEnvBoolOrDefault("GITHUB_USE_GRAPHQL", false),
+				GraphQLFallback:      getEnvBoolOrDefault("GITHUB_GRAPHQL_FALLBACK", true),
+				RateLimitThreshold:   getEnvIntOrDefault("GITHUB_RATE_LIMIT_THRESHOLD", 1000),
+				EnableRateMonitoring: getEnvBoolOrDefault("GITHUB_ENABLE_RATE_MONITORING", true),
+			},
 		},
 		Workspace: WorkspaceConfig{
 			BaseDir:      getEnvOrDefault("WORKSPACE_BASE_DIR", "/tmp/codeagent"),
@@ -297,6 +334,15 @@ func getEnvBoolOrDefault(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
 		if b, err := strconv.ParseBool(value); err == nil {
 			return b
+		}
+	}
+	return defaultValue
+}
+
+func getEnvIntOrDefault(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if i, err := strconv.Atoi(value); err == nil {
+			return i
 		}
 	}
 	return defaultValue

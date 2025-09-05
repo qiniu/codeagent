@@ -15,13 +15,40 @@ import (
 // DefaultContextCollector 默认上下文收集器实现
 type DefaultContextCollector struct {
 	clientManager ghclient.ClientManagerInterface
+	graphqlClient *ghclient.GraphQLClient
+	useGraphQL    bool
 }
 
 // NewDefaultContextCollector 创建默认上下文收集器
 func NewDefaultContextCollector(clientManager ghclient.ClientManagerInterface) *DefaultContextCollector {
 	return &DefaultContextCollector{
 		clientManager: clientManager,
+		useGraphQL:    false, // Default to REST API for backward compatibility
 	}
+}
+
+// NewDefaultContextCollectorWithGraphQL 创建支持GraphQL的上下文收集器
+func NewDefaultContextCollectorWithGraphQL(clientManager ghclient.ClientManagerInterface, graphqlClient *ghclient.GraphQLClient) *DefaultContextCollector {
+	return &DefaultContextCollector{
+		clientManager: clientManager,
+		graphqlClient: graphqlClient,
+		useGraphQL:    true,
+	}
+}
+
+// SetGraphQLClient 设置GraphQL客户端
+func (c *DefaultContextCollector) SetGraphQLClient(client *ghclient.GraphQLClient) {
+	c.graphqlClient = client
+}
+
+// EnableGraphQL 启用GraphQL模式
+func (c *DefaultContextCollector) EnableGraphQL(enable bool) {
+	c.useGraphQL = enable && c.graphqlClient != nil
+}
+
+// IsGraphQLEnabled 检查是否启用了GraphQL
+func (c *DefaultContextCollector) IsGraphQLEnabled() bool {
+	return c.useGraphQL && c.graphqlClient != nil
 }
 
 // extractRepoFromPR 从PR中提取repository信息
@@ -363,4 +390,225 @@ func (c *DefaultContextCollector) CollectCommentContext(pr *github.PullRequest, 
 	}
 
 	return comments, nil
+}
+
+// CollectPRContextWithGraphQL 使用GraphQL收集PR完整上下文
+func (c *DefaultContextCollector) CollectPRContextWithGraphQL(owner, repo string, prNumber int) (*GraphQLPRContext, *RateLimitInfo, error) {
+	if !c.IsGraphQLEnabled() {
+		return nil, nil, fmt.Errorf("GraphQL client not available")
+	}
+
+	ctx := context.Background()
+
+	// 使用GraphQL查询获取PR完整上下文
+	prContext, err := c.graphqlClient.GetPullRequestContext(ctx, owner, repo, prNumber)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get PR context with GraphQL: %w", err)
+	}
+
+	// 转换为GraphQLPRContext格式
+	result := &GraphQLPRContext{
+		Repository:    fmt.Sprintf("%s/%s", owner, repo),
+		DefaultBranch: "", // Will be populated if needed
+		PR: GraphQLPullRequest{
+			Number:    prContext.Number,
+			Title:     prContext.Title,
+			Body:      prContext.Body,
+			State:     prContext.State,
+			Additions: prContext.Additions,
+			Deletions: prContext.Deletions,
+			Commits:   prContext.Commits,
+			Author: GraphQLUser{
+				Login:     prContext.Author,
+				AvatarURL: prContext.AuthorAvatar,
+			},
+			BaseRefName: prContext.BaseRef,
+			HeadRefName: prContext.HeadRef,
+		},
+	}
+
+	// 转换文件变更
+	result.Files = make([]GraphQLFileChange, len(prContext.Files))
+	for i, file := range prContext.Files {
+		result.Files[i] = GraphQLFileChange{
+			Path:       file.Path,
+			Additions:  file.Additions,
+			Deletions:  file.Deletions,
+			ChangeType: file.ChangeType,
+		}
+	}
+
+	// 转换评论
+	result.Comments = make([]GraphQLComment, len(prContext.Comments))
+	for i, comment := range prContext.Comments {
+		result.Comments[i] = GraphQLComment{
+			ID:   comment.ID,
+			Body: comment.Body,
+			Author: GraphQLUser{
+				Login: comment.Author,
+			},
+			CreatedAt: comment.CreatedAt,
+			UpdatedAt: comment.UpdatedAt,
+		}
+	}
+
+	// 转换评审
+	result.Reviews = make([]GraphQLReview, len(prContext.Reviews))
+	for i, review := range prContext.Reviews {
+		reviewComments := make([]GraphQLReviewComment, len(review.Comments))
+		for j, comment := range review.Comments {
+			reviewComments[j] = GraphQLReviewComment{
+				ID:       comment.ID,
+				Body:     comment.Body,
+				Path:     comment.Path,
+				Line:     comment.Line,
+				DiffHunk: comment.DiffHunk,
+				Author: GraphQLUser{
+					Login: comment.Author,
+				},
+				CreatedAt: comment.CreatedAt,
+			}
+		}
+
+		result.Reviews[i] = GraphQLReview{
+			ID:    review.ID,
+			Body:  review.Body,
+			State: review.State,
+			Author: GraphQLUser{
+				Login: review.Author,
+			},
+			CreatedAt: review.CreatedAt,
+			Comments:  reviewComments,
+		}
+	}
+
+	// 分离行级评论为单独的列表
+	var reviewComments []GraphQLReviewComment
+	for _, review := range result.Reviews {
+		reviewComments = append(reviewComments, review.Comments...)
+	}
+	result.ReviewComments = reviewComments
+
+	rateLimitInfo := &RateLimitInfo{
+		Limit:     prContext.RateLimit.Limit,
+		Cost:      prContext.RateLimit.Cost,
+		Remaining: prContext.RateLimit.Remaining,
+		ResetAt:   prContext.RateLimit.ResetAt,
+	}
+
+	return result, rateLimitInfo, nil
+}
+
+// CollectIssueContextWithGraphQL 使用GraphQL收集Issue完整上下文
+func (c *DefaultContextCollector) CollectIssueContextWithGraphQL(owner, repo string, issueNumber int) (*GraphQLIssueContext, *RateLimitInfo, error) {
+	if !c.IsGraphQLEnabled() {
+		return nil, nil, fmt.Errorf("GraphQL client not available")
+	}
+
+	ctx := context.Background()
+
+	// 使用GraphQL查询获取Issue完整上下文
+	issueContext, err := c.graphqlClient.GetIssueContext(ctx, owner, repo, issueNumber)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get Issue context with GraphQL: %w", err)
+	}
+
+	// 转换为GraphQLIssueContext格式
+	result := &GraphQLIssueContext{
+		Repository: fmt.Sprintf("%s/%s", owner, repo),
+		Issue: GraphQLIssue{
+			Number: issueContext.Number,
+			Title:  issueContext.Title,
+			Body:   issueContext.Body,
+			State:  issueContext.State,
+			Author: GraphQLUser{
+				Login:     issueContext.Author,
+				AvatarURL: issueContext.AuthorAvatar,
+			},
+		},
+	}
+
+	// 转换标签
+	result.Issue.Labels = make([]GraphQLLabel, len(issueContext.Labels))
+	for i, label := range issueContext.Labels {
+		result.Issue.Labels[i] = GraphQLLabel{
+			Name:  label.Name,
+			Color: label.Color,
+		}
+	}
+
+	// 转换评论
+	result.Comments = make([]GraphQLComment, len(issueContext.Comments))
+	for i, comment := range issueContext.Comments {
+		result.Comments[i] = GraphQLComment{
+			ID:   comment.ID,
+			Body: comment.Body,
+			Author: GraphQLUser{
+				Login: comment.Author,
+			},
+			CreatedAt: comment.CreatedAt,
+		}
+	}
+
+	rateLimitInfo := &RateLimitInfo{
+		Limit:     issueContext.RateLimit.Limit,
+		Cost:      issueContext.RateLimit.Cost,
+		Remaining: issueContext.RateLimit.Remaining,
+		ResetAt:   issueContext.RateLimit.ResetAt,
+	}
+
+	return result, rateLimitInfo, nil
+}
+
+// CollectGitHubContextWithGraphQL 使用GraphQL收集GitHub上下文信息（优化版本）
+func (c *DefaultContextCollector) CollectGitHubContextWithGraphQL(repoFullName string, prNumber int) (*GitHubContext, *RateLimitInfo, error) {
+	if !c.IsGraphQLEnabled() {
+		// 回退到REST API
+		gitHubContext, err := c.CollectGitHubContext(repoFullName, prNumber)
+		return gitHubContext, nil, err
+	}
+
+	// 提取repository信息
+	repo := extractRepoFromFullName(repoFullName)
+	if repo == nil {
+		return nil, nil, fmt.Errorf("invalid repository format: %s", repoFullName)
+	}
+
+	// 使用GraphQL获取PR上下文
+	graphqlContext, rateLimitInfo, err := c.CollectPRContextWithGraphQL(repo.Owner, repo.Name, prNumber)
+	if err != nil {
+		return nil, rateLimitInfo, fmt.Errorf("failed to collect PR context with GraphQL: %w", err)
+	}
+
+	// 转换为GitHubContext格式以保持兼容性
+	gitHubContext := &GitHubContext{
+		Repository: repoFullName,
+		PRNumber:   prNumber,
+		PR: &PullRequestContext{
+			Number:     graphqlContext.PR.Number,
+			Title:      graphqlContext.PR.Title,
+			Body:       graphqlContext.PR.Body,
+			State:      graphqlContext.PR.State,
+			Author:     graphqlContext.PR.Author.Login,
+			BaseBranch: graphqlContext.PR.BaseRefName,
+			HeadBranch: graphqlContext.PR.HeadRefName,
+			Additions:  graphqlContext.PR.Additions,
+			Deletions:  graphqlContext.PR.Deletions,
+			Commits:    graphqlContext.PR.Commits,
+		},
+	}
+
+	// 转换文件变更信息
+	gitHubContext.Files = make([]FileChange, len(graphqlContext.Files))
+	for i, file := range graphqlContext.Files {
+		gitHubContext.Files[i] = FileChange{
+			Path:      file.Path,
+			Status:    file.ChangeType, // GraphQL uses ChangeType, REST uses Status
+			Additions: file.Additions,
+			Deletions: file.Deletions,
+			Changes:   file.Additions + file.Deletions,
+		}
+	}
+
+	return gitHubContext, rateLimitInfo, nil
 }

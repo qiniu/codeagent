@@ -1,7 +1,11 @@
 package context
 
 import (
+	"context"
+
+	"github.com/qiniu/codeagent/internal/config"
 	ghclient "github.com/qiniu/codeagent/internal/github"
+	"github.com/qiniu/x/log"
 	"github.com/qiniu/x/xlog"
 )
 
@@ -17,6 +21,47 @@ func NewFactory(clientManager ghclient.ClientManagerInterface, logger *xlog.Logg
 	// 根据配置选择生成器类型
 	// 使用模板生成器
 	collector := NewDefaultContextCollector(clientManager)
+	formatter := NewDefaultContextFormatter(50000) // 50k tokens limit
+	generator := NewTemplatePromptGenerator(formatter)
+
+	return &Factory{
+		collector: collector,
+		formatter: formatter,
+		generator: generator,
+	}
+}
+
+// NewFactoryWithConfig 根据配置创建上下文工厂，支持GraphQL
+func NewFactoryWithConfig(clientManager ghclient.ClientManagerInterface, cfg *config.Config, logger *xlog.Logger) *Factory {
+	var collector ContextCollector
+
+	// 检查是否应该使用GraphQL
+	if cfg.GitHub.API.UseGraphQL {
+		log.Infof("🔧 Creating context collector with GraphQL support enabled")
+
+		// 尝试创建GraphQL客户端
+		graphqlClient, err := clientManager.GetGraphQLClient(context.Background())
+		if err != nil {
+			log.Warnf("Failed to create GraphQL client, falling back to REST API: %v", err)
+			collector = NewDefaultContextCollector(clientManager)
+		} else {
+			// 创建支持GraphQL的收集器
+			collector = NewDefaultContextCollectorWithGraphQL(clientManager, graphqlClient)
+			log.Infof("✅ GraphQL context collector initialized successfully")
+
+			// 如果配置了fallback，设置降级选项
+			if cfg.GitHub.API.GraphQLFallback {
+				if defaultCollector, ok := collector.(*DefaultContextCollector); ok {
+					defaultCollector.EnableGraphQL(true)
+					log.Infof("📊 GraphQL fallback to REST API enabled")
+				}
+			}
+		}
+	} else {
+		log.Infof("🔧 Creating context collector with REST API only")
+		collector = NewDefaultContextCollector(clientManager)
+	}
+
 	formatter := NewDefaultContextFormatter(50000) // 50k tokens limit
 	generator := NewTemplatePromptGenerator(formatter)
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/qiniu/codeagent/internal/code"
 	"github.com/qiniu/codeagent/pkg/models"
@@ -13,10 +14,36 @@ import (
 	"github.com/google/go-github/v58/github"
 	"github.com/qiniu/x/log"
 	"github.com/qiniu/x/xlog"
+	"github.com/shurcooL/githubv4"
+	"golang.org/x/oauth2"
 )
 
 type Client struct {
 	client *github.Client
+}
+
+// GraphQLClient GraphQL客户端封装
+type GraphQLClient struct {
+	client *githubv4.Client
+	token  string
+}
+
+// NewGraphQLClient 创建GraphQL客户端
+func NewGraphQLClient(token string) *GraphQLClient {
+	src := oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: token},
+	)
+	httpClient := oauth2.NewClient(context.Background(), src)
+
+	return &GraphQLClient{
+		client: githubv4.NewClient(httpClient),
+		token:  token,
+	}
+}
+
+// GetClient 获取底层的GraphQL客户端
+func (gc *GraphQLClient) GetClient() *githubv4.Client {
+	return gc.client
 }
 
 // CreateBranch creates branch locally and pushes to remote
@@ -748,6 +775,338 @@ func (c *Client) GetComment(ctx context.Context, owner, repo string, commentID i
 // GetClient 获取底层的GitHub客户端（用于MCP服务器）
 func (c *Client) GetClient() *github.Client {
 	return c.client
+}
+
+// GraphQL context data structures used by collector
+type GraphQLPRContextResponse struct {
+	Number       int
+	Title        string
+	Body         string
+	State        string
+	Additions    int
+	Deletions    int
+	Commits      int
+	Author       string
+	AuthorAvatar string
+	BaseRef      string
+	HeadRef      string
+	Files        []GraphQLFileResponse
+	Comments     []GraphQLCommentResponse
+	Reviews      []GraphQLReviewResponse
+	RateLimit    GraphQLRateLimitResponse
+}
+
+type GraphQLIssueContextResponse struct {
+	Number       int
+	Title        string
+	Body         string
+	State        string
+	Author       string
+	AuthorAvatar string
+	Labels       []GraphQLLabelResponse
+	Comments     []GraphQLCommentResponse
+	RateLimit    GraphQLRateLimitResponse
+}
+
+type GraphQLFileResponse struct {
+	Path       string
+	Additions  int
+	Deletions  int
+	ChangeType string
+}
+
+type GraphQLCommentResponse struct {
+	ID        string
+	Body      string
+	Author    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type GraphQLReviewResponse struct {
+	ID        string
+	Body      string
+	State     string
+	Author    string
+	CreatedAt time.Time
+	Comments  []GraphQLReviewCommentResponse
+}
+
+type GraphQLReviewCommentResponse struct {
+	ID        string
+	Body      string
+	Path      string
+	Line      int
+	DiffHunk  string
+	Author    string
+	CreatedAt time.Time
+}
+
+type GraphQLLabelResponse struct {
+	Name  string
+	Color string
+}
+
+type GraphQLRateLimitResponse struct {
+	Limit     int
+	Cost      int
+	Remaining int
+	ResetAt   time.Time
+}
+
+// GetPullRequestContext 使用GraphQL获取PR完整上下文
+func (gc *GraphQLClient) GetPullRequestContext(ctx context.Context, owner, repo string, prNumber int) (*GraphQLPRContextResponse, error) {
+	var query struct {
+		Repository struct {
+			DefaultBranchRef struct {
+				Name githubv4.String
+			}
+			PullRequest struct {
+				Number    githubv4.Int
+				Title     githubv4.String
+				Body      githubv4.String
+				State     githubv4.PullRequestState
+				Additions githubv4.Int
+				Deletions githubv4.Int
+				Commits   struct {
+					TotalCount githubv4.Int
+				}
+				Author struct {
+					Login     githubv4.String
+					AvatarURL githubv4.String `graphql:"avatarUrl"`
+				}
+				BaseRefName githubv4.String
+				HeadRefName githubv4.String
+
+				// PR 文件变更
+				Files struct {
+					Nodes []struct {
+						Path       githubv4.String
+						Additions  githubv4.Int
+						Deletions  githubv4.Int
+						ChangeType githubv4.String
+					}
+				} `graphql:"files(first: 100)"`
+
+				// Issue 评论 (PR也是一种Issue)
+				Comments struct {
+					Nodes []struct {
+						ID        githubv4.String
+						Body      githubv4.String
+						CreatedAt githubv4.DateTime
+						UpdatedAt githubv4.DateTime
+						Author    struct {
+							Login githubv4.String
+						}
+					}
+				} `graphql:"comments(first: 50, orderBy: {field: UPDATED_AT, direction: ASC})"`
+
+				// 代码评审
+				Reviews struct {
+					Nodes []struct {
+						ID        githubv4.String
+						Body      githubv4.String
+						State     githubv4.PullRequestReviewState
+						CreatedAt githubv4.DateTime
+						Author    struct {
+							Login githubv4.String
+						}
+						// 评审中的行级评论
+						Comments struct {
+							Nodes []struct {
+								ID       githubv4.String
+								Body     githubv4.String
+								Path     githubv4.String
+								Line     githubv4.Int
+								DiffHunk githubv4.String
+								Author   struct {
+									Login githubv4.String
+								}
+								CreatedAt githubv4.DateTime
+							}
+						} `graphql:"comments(first: 50)"`
+					}
+				} `graphql:"reviews(first: 20, states: [APPROVED, CHANGES_REQUESTED, COMMENTED])"`
+			} `graphql:"pullRequest(number: $number)"`
+		} `graphql:"repository(owner: $owner, name: $name)"`
+
+		// 速率限制监控
+		RateLimit struct {
+			Limit     githubv4.Int
+			Cost      githubv4.Int
+			Remaining githubv4.Int
+			ResetAt   githubv4.DateTime
+		}
+	}
+
+	variables := map[string]interface{}{
+		"owner":  githubv4.String(owner),
+		"name":   githubv4.String(repo),
+		"number": githubv4.Int(prNumber),
+	}
+
+	if err := gc.client.Query(ctx, &query, variables); err != nil {
+		return nil, fmt.Errorf("failed to execute GraphQL PR query: %w", err)
+	}
+
+	// 转换响应数据
+	response := &GraphQLPRContextResponse{
+		Number:       int(query.Repository.PullRequest.Number),
+		Title:        string(query.Repository.PullRequest.Title),
+		Body:         string(query.Repository.PullRequest.Body),
+		State:        string(query.Repository.PullRequest.State),
+		Additions:    int(query.Repository.PullRequest.Additions),
+		Deletions:    int(query.Repository.PullRequest.Deletions),
+		Commits:      int(query.Repository.PullRequest.Commits.TotalCount),
+		Author:       string(query.Repository.PullRequest.Author.Login),
+		AuthorAvatar: string(query.Repository.PullRequest.Author.AvatarURL),
+		BaseRef:      string(query.Repository.PullRequest.BaseRefName),
+		HeadRef:      string(query.Repository.PullRequest.HeadRefName),
+		RateLimit: GraphQLRateLimitResponse{
+			Limit:     int(query.RateLimit.Limit),
+			Cost:      int(query.RateLimit.Cost),
+			Remaining: int(query.RateLimit.Remaining),
+			ResetAt:   query.RateLimit.ResetAt.Time,
+		},
+	}
+
+	// 转换文件变更
+	for _, file := range query.Repository.PullRequest.Files.Nodes {
+		response.Files = append(response.Files, GraphQLFileResponse{
+			Path:       string(file.Path),
+			Additions:  int(file.Additions),
+			Deletions:  int(file.Deletions),
+			ChangeType: string(file.ChangeType),
+		})
+	}
+
+	// 转换评论
+	for _, comment := range query.Repository.PullRequest.Comments.Nodes {
+		response.Comments = append(response.Comments, GraphQLCommentResponse{
+			ID:        string(comment.ID),
+			Body:      string(comment.Body),
+			Author:    string(comment.Author.Login),
+			CreatedAt: comment.CreatedAt.Time,
+			UpdatedAt: comment.UpdatedAt.Time,
+		})
+	}
+
+	// 转换评审和评审评论
+	for _, review := range query.Repository.PullRequest.Reviews.Nodes {
+		reviewResponse := GraphQLReviewResponse{
+			ID:        string(review.ID),
+			Body:      string(review.Body),
+			State:     string(review.State),
+			Author:    string(review.Author.Login),
+			CreatedAt: review.CreatedAt.Time,
+		}
+
+		// 转换评审中的行级评论
+		for _, comment := range review.Comments.Nodes {
+			reviewComment := GraphQLReviewCommentResponse{
+				ID:        string(comment.ID),
+				Body:      string(comment.Body),
+				Path:      string(comment.Path),
+				Line:      int(comment.Line),
+				DiffHunk:  string(comment.DiffHunk),
+				Author:    string(comment.Author.Login),
+				CreatedAt: comment.CreatedAt.Time,
+			}
+			reviewResponse.Comments = append(reviewResponse.Comments, reviewComment)
+		}
+
+		response.Reviews = append(response.Reviews, reviewResponse)
+	}
+
+	return response, nil
+}
+
+// GetIssueContext 使用GraphQL获取Issue完整上下文
+func (gc *GraphQLClient) GetIssueContext(ctx context.Context, owner, repo string, issueNumber int) (*GraphQLIssueContextResponse, error) {
+	var query struct {
+		Repository struct {
+			Issue struct {
+				Number githubv4.Int
+				Title  githubv4.String
+				Body   githubv4.String
+				State  githubv4.IssueState
+				Author struct {
+					Login     githubv4.String
+					AvatarURL githubv4.String `graphql:"avatarUrl"`
+				}
+				Labels struct {
+					Nodes []struct {
+						Name  githubv4.String
+						Color githubv4.String
+					}
+				} `graphql:"labels(first: 10)"`
+				Comments struct {
+					Nodes []struct {
+						ID        githubv4.String
+						Body      githubv4.String
+						CreatedAt githubv4.DateTime
+						Author    struct {
+							Login githubv4.String
+						}
+					}
+				} `graphql:"comments(first: 50, orderBy: {field: UPDATED_AT, direction: ASC})"`
+			} `graphql:"issue(number: $number)"`
+		} `graphql:"repository(owner: $owner, name: $name)"`
+
+		// 速率限制监控
+		RateLimit struct {
+			Limit     githubv4.Int
+			Cost      githubv4.Int
+			Remaining githubv4.Int
+			ResetAt   githubv4.DateTime
+		}
+	}
+
+	variables := map[string]interface{}{
+		"owner":  githubv4.String(owner),
+		"name":   githubv4.String(repo),
+		"number": githubv4.Int(issueNumber),
+	}
+
+	if err := gc.client.Query(ctx, &query, variables); err != nil {
+		return nil, fmt.Errorf("failed to execute GraphQL Issue query: %w", err)
+	}
+
+	// 转换响应数据
+	response := &GraphQLIssueContextResponse{
+		Number:       int(query.Repository.Issue.Number),
+		Title:        string(query.Repository.Issue.Title),
+		Body:         string(query.Repository.Issue.Body),
+		State:        string(query.Repository.Issue.State),
+		Author:       string(query.Repository.Issue.Author.Login),
+		AuthorAvatar: string(query.Repository.Issue.Author.AvatarURL),
+		RateLimit: GraphQLRateLimitResponse{
+			Limit:     int(query.RateLimit.Limit),
+			Cost:      int(query.RateLimit.Cost),
+			Remaining: int(query.RateLimit.Remaining),
+			ResetAt:   query.RateLimit.ResetAt.Time,
+		},
+	}
+
+	// 转换标签
+	for _, label := range query.Repository.Issue.Labels.Nodes {
+		response.Labels = append(response.Labels, GraphQLLabelResponse{
+			Name:  string(label.Name),
+			Color: string(label.Color),
+		})
+	}
+
+	// 转换评论
+	for _, comment := range query.Repository.Issue.Comments.Nodes {
+		response.Comments = append(response.Comments, GraphQLCommentResponse{
+			ID:        string(comment.ID),
+			Body:      string(comment.Body),
+			Author:    string(comment.Author.Login),
+			CreatedAt: comment.CreatedAt.Time,
+		})
+	}
+
+	return response, nil
 }
 
 // min 返回两个整数中的较小值

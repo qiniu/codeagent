@@ -10,6 +10,17 @@ server:
 github:
   token: your-github-token-here
   webhook_url: https://your-domain.com/webhook
+  
+  # GitHub API configuration
+  api:
+    # Enable GraphQL API instead of REST API for better performance and rate limits
+    use_graphql: false # Set to true to enable GraphQL
+    # Fallback to REST API if GraphQL queries fail
+    graphql_fallback: true
+    # Warn when remaining rate limit falls below this threshold
+    rate_limit_threshold: 1000
+    # Enable rate limit monitoring and logging
+    enable_rate_monitoring: true
 
 workspace:
   base_dir: /tmp/codeagent
