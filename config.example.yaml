@@ -27,12 +27,19 @@ gemini:
   container_image: google-gemini/gemini-cli:latest
   timeout: 30m
 
+deepseek:
+  api_key: your-deepseek-api-key-here
+  base_url: https://api.deepseek.com # Optional, defaults to official API address
+  model: deepseek-chat # Optional, defaults to deepseek-chat
+  container_image: codeagent/deepseek-cli:latest
+  timeout: 30m
+
 docker:
   socket: unix:///var/run/docker.sock
   network: bridge
 
 # Code provider configuration
-code_provider: claude # Options: claude, gemini
+code_provider: claude # Options: claude, gemini, deepseek
 use_docker: true # Whether to use Docker, false means use local CLI
 
 # AI mention configuration
