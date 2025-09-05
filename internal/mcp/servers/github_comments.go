@@ -93,8 +93,13 @@ func NewGitHubCommentsServer(clientManager github.ClientManagerInterface) *GitHu
 									Type:        "string",
 									Description: "New comment body (Markdown supported)",
 								},
+								"comment_type": {
+									Type:        "string",
+									Description: "Type of comment: 'issue_comment' for issue/PR conversation comments, 'pr_review_comment' for PR review comments",
+									Enum:        []interface{}{"issue_comment", "pr_review_comment"},
+								},
 							},
-							Required: []string{"comment_id", "body"},
+							Required: []string{"comment_id", "body", "comment_type"},
 						},
 					},
 					{
@@ -341,7 +346,26 @@ func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.T
 			Type:    "error",
 		}, nil
 	}
-	body := call.Function.Arguments["body"].(string)
+
+	body, ok := call.Function.Arguments["body"].(string)
+	if !ok {
+		return &models.ToolResult{
+			ID:      call.ID,
+			Success: false,
+			Error:   "body must be a string",
+			Type:    "error",
+		}, nil
+	}
+
+	commentType, ok := call.Function.Arguments["comment_type"].(string)
+	if !ok {
+		return &models.ToolResult{
+			ID:      call.ID,
+			Success: false,
+			Error:   "comment_type must be a string",
+			Type:    "error",
+		}, nil
+	}
 
 	// 检查写权限
 	if !s.hasWritePermission(mcpCtx) {
@@ -353,12 +377,27 @@ func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.T
 		}, nil
 	}
 
-	updateErr := client.UpdateComment(ctx, owner, repo, commentID, body)
+	// 根据comment_type调用对应的API方法
+	var updateErr error
+	switch commentType {
+	case "issue_comment":
+		updateErr = client.UpdateComment(ctx, owner, repo, commentID, body)
+	case "pr_review_comment":
+		updateErr = client.UpdatePRComment(ctx, owner, repo, commentID, body)
+	default:
+		return &models.ToolResult{
+			ID:      call.ID,
+			Success: false,
+			Error:   fmt.Sprintf("invalid comment_type: %s, must be 'issue_comment' or 'pr_review_comment'", commentType),
+			Type:    "error",
+		}, nil
+	}
+
 	if updateErr != nil {
 		return &models.ToolResult{
 			ID:      call.ID,
 			Success: false,
-			Error:   fmt.Sprintf("failed to update comment: %v", updateErr),
+			Error:   fmt.Sprintf("failed to update %s: %v", commentType, updateErr),
 			Type:    "error",
 		}, nil
 	}
@@ -367,9 +406,10 @@ func (s *GitHubCommentsServer) updateComment(ctx context.Context, call *models.T
 		ID:      call.ID,
 		Success: true,
 		Content: map[string]interface{}{
-			"id":         commentID,
-			"body":       body,
-			"updated_at": time.Now(),
+			"id":           commentID,
+			"body":         body,
+			"comment_type": commentType,
+			"updated_at":   time.Now(),
 		},
 		Type: "json",
 	}, nil
