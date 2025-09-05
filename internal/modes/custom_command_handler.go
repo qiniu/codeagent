@@ -9,6 +9,7 @@ import (
 
 	"github.com/qiniu/codeagent/internal/code"
 	"github.com/qiniu/codeagent/internal/command"
+	"github.com/qiniu/codeagent/internal/config"
 	githubcontext "github.com/qiniu/codeagent/internal/context"
 	"github.com/qiniu/codeagent/internal/mcp"
 	"github.com/qiniu/codeagent/internal/workspace"
@@ -29,11 +30,18 @@ type CustomCommandHandler struct {
 	contextInjector  *githubcontext.GitHubContextInjector
 	globalConfigPath string
 	defaultAIModel   string // 添加默认 AI 模型字段
+	mentionConfig    models.MentionConfig
 }
 
 // NewCustomCommandHandler creates a new custom command handler
-func NewCustomCommandHandler(clientManager ghclient.ClientManagerInterface, workspace *workspace.Manager, sessionManager *code.SessionManager, mcpClient mcp.MCPClient, globalConfigPath string, codeProvider string) *CustomCommandHandler {
+func NewCustomCommandHandler(clientManager ghclient.ClientManagerInterface, workspace *workspace.Manager, sessionManager *code.SessionManager, mcpClient mcp.MCPClient, globalConfigPath string, codeProvider string, cfg *config.Config) *CustomCommandHandler {
 	baseHandler := NewBaseHandler(CustomCommandMode, 1, "CodeAgent custom commands and subagents")
+
+	// Create mention config adapter
+	mentionConfig := &models.ConfigMentionAdapter{
+		Triggers:       cfg.Mention.Triggers,
+		DefaultTrigger: cfg.Mention.DefaultTrigger,
+	}
 
 	return &CustomCommandHandler{
 		BaseHandler:      baseHandler,
@@ -44,6 +52,7 @@ func NewCustomCommandHandler(clientManager ghclient.ClientManagerInterface, work
 		contextInjector:  githubcontext.NewGitHubContextInjector(),
 		globalConfigPath: globalConfigPath,
 		defaultAIModel:   codeProvider, // 使用配置中的 CodeProvider
+		mentionConfig:    mentionConfig,
 	}
 }
 
@@ -57,8 +66,8 @@ func (h *CustomCommandHandler) CanHandle(ctx context.Context, githubCtx models.G
 		return false
 	}
 
-	// Extract command from the event using models.HasCommand
-	cmdInfo, hasCmd := models.HasCommand(githubCtx)
+	// Extract command from the event using models.HasCommandWithConfig
+	cmdInfo, hasCmd := models.HasCommandWithConfig(githubCtx, h.mentionConfig)
 	if !hasCmd {
 		xl.Infof("No slash command found in event")
 		return false
@@ -72,8 +81,8 @@ func (h *CustomCommandHandler) CanHandle(ctx context.Context, githubCtx models.G
 func (h *CustomCommandHandler) Execute(ctx context.Context, githubCtx models.GitHubContext) error {
 	xl := xlog.NewWith(ctx)
 
-	// Extract command and instruction using models.HasCommand
-	cmdInfo, hasCmd := models.HasCommand(githubCtx)
+	// Extract command and instruction using models.HasCommandWithConfig
+	cmdInfo, hasCmd := models.HasCommandWithConfig(githubCtx, h.mentionConfig)
 	if !hasCmd {
 		return fmt.Errorf("no command found in event")
 	}

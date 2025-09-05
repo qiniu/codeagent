@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/v58/github"
+	"github.com/qiniu/x/log"
 )
 
 // EventType defines GitHub event types
@@ -176,11 +177,6 @@ func (c *ConfigMentionAdapter) GetDefaultTrigger() string {
 	return c.DefaultTrigger
 }
 
-// HasCommand 检查上下文是否包含命令（使用默认mention配置）
-func HasCommand(ctx GitHubContext) (*CommandInfo, bool) {
-	return HasCommandWithConfig(ctx, nil)
-}
-
 // HasCommandWithConfig 检查上下文是否包含命令（支持自定义mention配置）
 func HasCommandWithConfig(ctx GitHubContext, mentionConfig MentionConfig) (*CommandInfo, bool) {
 	var content string
@@ -272,6 +268,7 @@ func parseMentionWithConfig(content string, config MentionConfig) (*CommandInfo,
 		triggers = []string{config.GetDefaultTrigger()}
 	}
 
+	log.Infof("parseMentionWithConfig: %s, %v", content, triggers)
 	// 尝试所有配置的触发词
 	for _, trigger := range triggers {
 		if trigger == "" {
@@ -287,6 +284,7 @@ func parseMentionWithConfig(content string, config MentionConfig) (*CommandInfo,
 
 // parseMentionWithTrigger 使用指定触发词解析mention，传递完整评论内容
 func parseMentionWithTrigger(content string, trigger string) (*CommandInfo, bool) {
+	log.Infof("parseMentionWithTrigger: %s, %s", content, trigger)
 	content = strings.TrimSpace(content)
 	pattern := `(^|\s)` + regexp.QuoteMeta(trigger) + `([\s.,!?;:]|$)`
 	re := regexp.MustCompile(pattern)
@@ -309,7 +307,7 @@ func parseMentionWithTrigger(content string, trigger string) (*CommandInfo, bool
 	}
 
 	return &CommandInfo{
-		Command: CommandMention, // 总是使用CommandClaude作为mention的标识
+		Command: CommandMention,
 		AIModel: aiModel,
 		Args:    fullContent, // 传递完整评论内容
 		RawText: content,

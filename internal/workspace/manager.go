@@ -363,7 +363,6 @@ func (m *Manager) startPeriodicCleanup() {
 func (m *Manager) cleanupExpiredWorkspaces() {
 	expiredWorkspaces := m.GetExpiredWorkspaces()
 	if len(expiredWorkspaces) == 0 {
-		log.Info("No expired workspaces found for cleanup")
 		return
 	}
 

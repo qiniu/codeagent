@@ -106,16 +106,24 @@ func TestEventParser_ParsePRCommentEvent(t *testing.T) {
 	assert.True(t, issueCommentCtx.IsPRComment)
 }
 
-func TestHasCommand(t *testing.T) {
+func TestHasCommandWithConfig(t *testing.T) {
+	// 创建测试用的mention配置
+	mentionConfig := &models.ConfigMentionAdapter{
+		Triggers:       []string{"@qiniu-ci", "@test-bot"},
+		DefaultTrigger: "@qiniu-ci",
+	}
+
 	tests := []struct {
 		name     string
 		content  string
+		config   models.MentionConfig
 		expected *models.CommandInfo
 		hasCmd   bool
 	}{
 		{
 			name:    "code command with claude",
 			content: "/code -claude implement this feature",
+			config:  mentionConfig,
 			expected: &models.CommandInfo{
 				Command: "/code",
 				AIModel: "claude",
@@ -127,6 +135,7 @@ func TestHasCommand(t *testing.T) {
 		{
 			name:    "continue command with gemini",
 			content: "/continue -gemini fix the issue",
+			config:  mentionConfig,
 			expected: &models.CommandInfo{
 				Command: "/continue",
 				AIModel: "gemini",
@@ -135,16 +144,48 @@ func TestHasCommand(t *testing.T) {
 			},
 			hasCmd: true,
 		},
-
+		{
+			name:    "mention with config",
+			content: "@test-bot please help me",
+			config:  mentionConfig,
+			expected: &models.CommandInfo{
+				Command: "@qiniu-ci", // CommandMention constant
+				AIModel: "",
+				Args:    "@test-bot please help me",
+				RawText: "@test-bot please help me",
+			},
+			hasCmd: true,
+		},
+		{
+			name:    "mention with nil config (default behavior)",
+			content: "@qiniu-ci analyze this",
+			config:  nil,
+			expected: &models.CommandInfo{
+				Command: "@qiniu-ci", // CommandMention constant
+				AIModel: "",
+				Args:    "@qiniu-ci analyze this",
+				RawText: "@qiniu-ci analyze this",
+			},
+			hasCmd: true,
+		},
+		{
+			name:     "unconfigured mention",
+			content:  "@unknown-bot help",
+			config:   mentionConfig,
+			expected: nil,
+			hasCmd:   false,
+		},
 		{
 			name:     "no command",
 			content:  "just a regular comment",
+			config:   mentionConfig,
 			expected: nil,
 			hasCmd:   false,
 		},
 		{
 			name:     "command in middle",
 			content:  "please /code this feature",
+			config:   mentionConfig,
 			expected: nil,
 			hasCmd:   false,
 		},
@@ -159,7 +200,7 @@ func TestHasCommand(t *testing.T) {
 				},
 			}
 
-			cmdInfo, hasCmd := models.HasCommand(ctx)
+			cmdInfo, hasCmd := models.HasCommandWithConfig(ctx, tt.config)
 			assert.Equal(t, tt.hasCmd, hasCmd)
 
 			if tt.hasCmd {

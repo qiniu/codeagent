@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/qiniu/codeagent/internal/code"
+	"github.com/qiniu/codeagent/internal/config"
 	ctxsys "github.com/qiniu/codeagent/internal/context"
 	ghclient "github.com/qiniu/codeagent/internal/github"
 	"github.com/qiniu/codeagent/internal/interaction"
@@ -31,10 +32,11 @@ type TagHandler struct {
 	sessionManager *code.SessionManager
 	contextManager *ctxsys.ContextManager
 	reviewHandler  *ReviewHandler
+	mentionConfig  models.MentionConfig
 }
 
 // NewTagHandler creates a Tag mode handler
-func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerInterface, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager, reviewHandler *ReviewHandler) *TagHandler {
+func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerInterface, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager, reviewHandler *ReviewHandler, cfg *config.Config) *TagHandler {
 	// Create context manager with dynamic client support
 	collector := ctxsys.NewDefaultContextCollector(clientManager)
 	formatter := ctxsys.NewDefaultContextFormatter(50000) // 50k tokens limit
@@ -43,6 +45,12 @@ func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerIn
 		Collector: collector,
 		Formatter: formatter,
 		Generator: generator,
+	}
+
+	// Create mention config adapter
+	mentionConfig := &models.ConfigMentionAdapter{
+		Triggers:       cfg.Mention.Triggers,
+		DefaultTrigger: cfg.Mention.DefaultTrigger,
 	}
 
 	return &TagHandler{
@@ -58,6 +66,7 @@ func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerIn
 		sessionManager: sessionManager,
 		contextManager: contextManager,
 		reviewHandler:  reviewHandler,
+		mentionConfig:  mentionConfig,
 	}
 }
 
@@ -65,8 +74,8 @@ func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerIn
 func (th *TagHandler) CanHandle(ctx context.Context, event models.GitHubContext) bool {
 	xl := xlog.NewWith(ctx)
 
-	// Check if event contains commands
-	cmdInfo, hasCmd := models.HasCommand(event)
+	// Check if event contains commands using mention config
+	cmdInfo, hasCmd := models.HasCommandWithConfig(event, th.mentionConfig)
 	if !hasCmd {
 		xl.Debugf("No command found in event type: %s", event.GetEventType())
 		return false
@@ -108,8 +117,8 @@ func (th *TagHandler) Execute(ctx context.Context, event models.GitHubContext) e
 		return fmt.Errorf("failed to get GitHub client for %s/%s: %w", repo.Owner, repo.Name, err)
 	}
 
-	// Extract command information
-	cmdInfo, hasCmd := models.HasCommand(event)
+	// Extract command information using mention config
+	cmdInfo, hasCmd := models.HasCommandWithConfig(event, th.mentionConfig)
 	if !hasCmd {
 		return fmt.Errorf("no command found in event")
 	}

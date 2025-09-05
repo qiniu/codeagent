@@ -134,29 +134,65 @@ func TestParseMention(t *testing.T) {
 	}
 }
 
-func TestHasCommand(t *testing.T) {
+func TestHasCommandWithConfig(t *testing.T) {
+	// 创建测试用的mention配置
+	mentionConfig := &ConfigMentionAdapter{
+		Triggers:       []string{"@qiniu-ci", "@ai-assistant"},
+		DefaultTrigger: "@qiniu-ci",
+	}
+
 	tests := []struct {
 		name     string
 		context  string
 		expected bool
 		command  string
+		config   MentionConfig
 	}{
 		{
 			name:     "Issue评论中的@qiniu-ci",
 			context:  "请帮我 @qiniu-ci 分析这个函数",
 			expected: true,
 			command:  CommandMention,
+			config:   mentionConfig,
+		},
+		{
+			name:     "使用新配置的@ai-assistant",
+			context:  "Hello @ai-assistant, please help",
+			expected: true,
+			command:  CommandMention,
+			config:   mentionConfig,
 		},
 		{
 			name:     "斜杠命令优先级更高",
 			context:  "/code 实现登录功能 @qiniu-ci",
 			expected: true,
 			command:  CommandCode,
+			config:   mentionConfig,
 		},
 		{
 			name:     "无匹配命令",
 			context:  "这是一个普通的评论，没有特殊指令",
 			expected: false,
+			config:   mentionConfig,
+		},
+		{
+			name:     "未配置的mention不匹配",
+			context:  "@unknown-bot 请帮忙",
+			expected: false,
+			config:   mentionConfig,
+		},
+		{
+			name:     "空配置时不匹配mention",
+			context:  "@qiniu-ci 请帮忙",
+			expected: false,
+			config:   &ConfigMentionAdapter{Triggers: []string{}, DefaultTrigger: ""},
+		},
+		{
+			name:     "nil配置时使用默认行为",
+			context:  "@qiniu-ci 请帮忙",
+			expected: true,
+			command:  CommandMention,
+			config:   nil,
 		},
 	}
 
@@ -173,15 +209,15 @@ func TestHasCommand(t *testing.T) {
 				},
 			}
 
-			cmdInfo, found := HasCommand(mockComment)
+			cmdInfo, found := HasCommandWithConfig(mockComment, tt.config)
 
 			if found != tt.expected {
-				t.Errorf("HasCommand() found = %v, want %v", found, tt.expected)
+				t.Errorf("HasCommandWithConfig() found = %v, want %v", found, tt.expected)
 				return
 			}
 
 			if tt.expected && cmdInfo.Command != tt.command {
-				t.Errorf("HasCommand() command = %v, want %v", cmdInfo.Command, tt.command)
+				t.Errorf("HasCommandWithConfig() command = %v, want %v", cmdInfo.Command, tt.command)
 			}
 		})
 	}

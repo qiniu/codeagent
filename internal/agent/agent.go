@@ -38,8 +38,6 @@ type EnhancedAgent struct {
 // NewEnhancedAgent 创建增强版Agent
 func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (*EnhancedAgent, error) {
 	xl := xlog.New("")
-	xl.Infof("NewEnhancedAgent: %+v", cfg)
-
 	// 1. 初始化GitHub客户端管理器
 	clientManager, err := ghclient.NewClientManager(cfg)
 	if err != nil {
@@ -77,13 +75,13 @@ func NewEnhancedAgent(cfg *config.Config, workspaceManager *workspace.Manager) (
 	// Custom command handler has highest priority to handle custom commands first
 	var customCmdHandler *modes.CustomCommandHandler
 	if cfg.Commands.GlobalPath != "" {
-		customCmdHandler = modes.NewCustomCommandHandler(clientManager, workspaceManager, sessionManager, mcpClient, cfg.Commands.GlobalPath, cfg.CodeProvider)
+		customCmdHandler = modes.NewCustomCommandHandler(clientManager, workspaceManager, sessionManager, mcpClient, cfg.Commands.GlobalPath, cfg.CodeProvider, cfg)
 		modeManager.RegisterHandler(customCmdHandler)
 		xl.Infof("Custom command handler registered with global config path: %s", cfg.Commands.GlobalPath)
 	}
 
 	reviewHandler := modes.NewReviewHandler(clientManager, workspaceManager, mcpClient, sessionManager, cfg)
-	tagHandler := modes.NewTagHandler(cfg.CodeProvider, clientManager, workspaceManager, mcpClient, sessionManager, reviewHandler)
+	tagHandler := modes.NewTagHandler(cfg.CodeProvider, clientManager, workspaceManager, mcpClient, sessionManager, reviewHandler, cfg)
 	agentHandler := modes.NewAgentHandler(clientManager, workspaceManager, mcpClient)
 
 	modeManager.RegisterHandler(tagHandler)
