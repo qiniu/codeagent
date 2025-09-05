@@ -17,6 +17,7 @@ type Config struct {
 	Workspace    WorkspaceConfig `yaml:"workspace"`
 	Claude       ClaudeConfig    `yaml:"claude"`
 	Gemini       GeminiConfig    `yaml:"gemini"`
+	DeepSeek     DeepSeekConfig  `yaml:"deepseek"`
 	Docker       DockerConfig    `yaml:"docker"`
 	CodeProvider string          `yaml:"code_provider"`
 	UseDocker    bool            `yaml:"use_docker"`
@@ -34,6 +35,14 @@ type GeminiConfig struct {
 	Timeout            time.Duration `yaml:"timeout"`
 	ContainerImage     string        `yaml:"container_image"`
 	GoogleCloudProject string        `yaml:"google_cloud_project"`
+}
+
+type DeepSeekConfig struct {
+	APIKey         string        `yaml:"api_key"`
+	BaseURL        string        `yaml:"base_url"`
+	Model          string        `yaml:"model"`
+	ContainerImage string        `yaml:"container_image"`
+	Timeout        time.Duration `yaml:"timeout"`
 }
 
 type ServerConfig struct {
@@ -152,6 +161,15 @@ func (c *Config) loadFromEnv() {
 	if project := os.Getenv("GOOGLE_CLOUD_PROJECT"); project != "" {
 		c.Gemini.GoogleCloudProject = project
 	}
+	if apiKey := os.Getenv("DEEPSEEK_API_KEY"); apiKey != "" {
+		c.DeepSeek.APIKey = apiKey
+	}
+	if baseURL := os.Getenv("DEEPSEEK_BASE_URL"); baseURL != "" {
+		c.DeepSeek.BaseURL = baseURL
+	}
+	if model := os.Getenv("DEEPSEEK_MODEL"); model != "" {
+		c.DeepSeek.Model = model
+	}
 	if provider := os.Getenv("CODE_PROVIDER"); provider != "" {
 		c.CodeProvider = provider
 	} else {
@@ -235,6 +253,13 @@ func loadFromEnv() *Config {
 			ContainerImage:     getEnvOrDefault("GEMINI_IMAGE", "google-gemini/gemini-cli:latest"),
 			Timeout:            30 * time.Minute,
 			GoogleCloudProject: os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		},
+		DeepSeek: DeepSeekConfig{
+			APIKey:         os.Getenv("DEEPSEEK_API_KEY"),
+			BaseURL:        getEnvOrDefault("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+			Model:          getEnvOrDefault("DEEPSEEK_MODEL", "deepseek-chat"),
+			ContainerImage: getEnvOrDefault("DEEPSEEK_IMAGE", "codeagent/deepseek-cli:latest"),
+			Timeout:        30 * time.Minute,
 		},
 		Docker: DockerConfig{
 			Socket:  getEnvOrDefault("DOCKER_SOCKET", "unix:///var/run/docker.sock"),

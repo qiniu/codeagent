@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	ProviderClaude = "claude"
-	ProviderGemini = "gemini"
+	ProviderClaude   = "claude"
+	ProviderGemini   = "gemini"
+	ProviderDeepSeek = "deepseek"
 )
 
 type Response struct {
@@ -48,6 +49,11 @@ func New(workspace *models.Workspace, cfg *config.Config) (Code, error) {
 			return NewGeminiDocker(workspace, cfg)
 		}
 		return NewGeminiLocal(workspace, cfg)
+	case ProviderDeepSeek:
+		if cfg.UseDocker {
+			return NewDeepSeekDocker(workspace, cfg)
+		}
+		return NewDeepSeekLocal(workspace, cfg)
 	default:
 		return nil, fmt.Errorf("unsupported code provider: %s", provider)
 	}
