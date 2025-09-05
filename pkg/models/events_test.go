@@ -152,14 +152,14 @@ func TestHasCommandWithConfig(t *testing.T) {
 			name:     "Issue评论中的@qiniu-ci",
 			context:  "请帮我 @qiniu-ci 分析这个函数",
 			expected: true,
-			command:  CommandMention,
+			command:  "@qiniu-ci", // 现在 Command 字段存储实际的触发词
 			config:   mentionConfig,
 		},
 		{
 			name:     "使用新配置的@ai-assistant",
 			context:  "Hello @ai-assistant, please help",
 			expected: true,
-			command:  CommandMention,
+			command:  "@ai-assistant", // 现在 Command 字段存储实际的触发词
 			config:   mentionConfig,
 		},
 		{
@@ -191,7 +191,7 @@ func TestHasCommandWithConfig(t *testing.T) {
 			name:     "nil配置时使用默认行为",
 			context:  "@qiniu-ci 请帮忙",
 			expected: true,
-			command:  CommandMention,
+			command:  "@qiniu-ci", // 现在 Command 字段存储实际的触发词
 			config:   nil,
 		},
 	}

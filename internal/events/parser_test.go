@@ -125,10 +125,11 @@ func TestHasCommandWithConfig(t *testing.T) {
 			content: "/code -claude implement this feature",
 			config:  mentionConfig,
 			expected: &models.CommandInfo{
-				Command: "/code",
-				AIModel: "claude",
-				Args:    "implement this feature",
-				RawText: "/code -claude implement this feature",
+				Command:     "/code",
+				CommandType: models.CommandTypeSlash,
+				AIModel:     "claude",
+				Args:        "implement this feature",
+				RawText:     "/code -claude implement this feature",
 			},
 			hasCmd: true,
 		},
@@ -137,10 +138,11 @@ func TestHasCommandWithConfig(t *testing.T) {
 			content: "/continue -gemini fix the issue",
 			config:  mentionConfig,
 			expected: &models.CommandInfo{
-				Command: "/continue",
-				AIModel: "gemini",
-				Args:    "fix the issue",
-				RawText: "/continue -gemini fix the issue",
+				Command:     "/continue",
+				CommandType: models.CommandTypeSlash,
+				AIModel:     "gemini",
+				Args:        "fix the issue",
+				RawText:     "/continue -gemini fix the issue",
 			},
 			hasCmd: true,
 		},
@@ -149,10 +151,11 @@ func TestHasCommandWithConfig(t *testing.T) {
 			content: "@test-bot please help me",
 			config:  mentionConfig,
 			expected: &models.CommandInfo{
-				Command: "@qiniu-ci", // CommandMention constant
-				AIModel: "",
-				Args:    "@test-bot please help me",
-				RawText: "@test-bot please help me",
+				Command:     "@test-bot", // 现在 Command 字段存储实际的触发词
+				CommandType: models.CommandTypeMention,
+				AIModel:     "",
+				Args:        "@test-bot please help me",
+				RawText:     "@test-bot please help me",
 			},
 			hasCmd: true,
 		},
@@ -161,10 +164,11 @@ func TestHasCommandWithConfig(t *testing.T) {
 			content: "@qiniu-ci analyze this",
 			config:  nil,
 			expected: &models.CommandInfo{
-				Command: "@qiniu-ci", // CommandMention constant
-				AIModel: "",
-				Args:    "@qiniu-ci analyze this",
-				RawText: "@qiniu-ci analyze this",
+				Command:     "@qiniu-ci", // 现在 Command 字段存储实际的触发词
+				CommandType: models.CommandTypeMention,
+				AIModel:     "",
+				Args:        "@qiniu-ci analyze this",
+				RawText:     "@qiniu-ci analyze this",
 			},
 			hasCmd: true,
 		},
@@ -206,6 +210,7 @@ func TestHasCommandWithConfig(t *testing.T) {
 			if tt.hasCmd {
 				require.NotNil(t, cmdInfo)
 				assert.Equal(t, tt.expected.Command, cmdInfo.Command)
+				assert.Equal(t, tt.expected.CommandType, cmdInfo.CommandType)
 				assert.Equal(t, tt.expected.AIModel, cmdInfo.AIModel)
 				assert.Equal(t, tt.expected.Args, cmdInfo.Args)
 				assert.Equal(t, tt.expected.RawText, cmdInfo.RawText)

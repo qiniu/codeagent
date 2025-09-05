@@ -81,7 +81,7 @@ func TestModeManager_FindHandler(t *testing.T) {
 
 	// 创建处理器
 	tagHandler := NewMockHandler(TagMode, 10, func(ctx context.Context, event models.GitHubContext) bool {
-		cmdInfo, hasCmd := models.HasCommand(event)
+		cmdInfo, hasCmd := models.HasCommandWithConfig(event, nil)
 		return hasCmd && cmdInfo != nil
 	})
 
@@ -161,7 +161,7 @@ func TestModeManager_DisabledModeSkipped(t *testing.T) {
 
 	// 创建能处理该事件的处理器
 	handler := NewMockHandler(TagMode, 10, func(ctx context.Context, event models.GitHubContext) bool {
-		cmdInfo, hasCmd := models.HasCommand(event)
+		cmdInfo, hasCmd := models.HasCommandWithConfig(event, nil)
 		return hasCmd && cmdInfo != nil
 	})
 

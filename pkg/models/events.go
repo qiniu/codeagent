@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/google/go-github/v58/github"
-	"github.com/qiniu/x/log"
 )
 
 // EventType defines GitHub event types
@@ -137,11 +136,20 @@ type Repository struct {
 
 // CommandInfo 提取的命令信息
 type CommandInfo struct {
-	Command string `json:"command"`  // 任意斜杠命令，如 /analyze, /deploy, /test
-	AIModel string `json:"ai_model"` // claude, gemini
-	Args    string `json:"args"`     // 命令参数
-	RawText string `json:"raw_text"` // 原始文本
+	Command     string      `json:"command"`      // 实际的触发词（如 /code, @qiniu-ci, @claude-ai）
+	CommandType CommandType `json:"command_type"` // 命令类型枚举
+	AIModel     string      `json:"ai_model"`     // claude, gemini
+	Args        string      `json:"args"`         // 命令参数
+	RawText     string      `json:"raw_text"`     // 原始文本
 }
+
+// CommandType 命令类型枚举
+type CommandType string
+
+const (
+	CommandTypeSlash   CommandType = "slash"   // 斜杠命令如 /code, /continue
+	CommandTypeMention CommandType = "mention" // 提及命令如 @qiniu-ci
+)
 
 // 命令类型
 const (
@@ -249,10 +257,11 @@ func parseCommand(content string) (*CommandInfo, bool) {
 	}
 
 	return &CommandInfo{
-		Command: command,
-		AIModel: aiModel,
-		Args:    args,
-		RawText: content,
+		Command:     command,
+		CommandType: CommandTypeSlash, // 设置为 slash 类型
+		AIModel:     aiModel,
+		Args:        args,
+		RawText:     content,
 	}, true
 }
 
@@ -268,7 +277,6 @@ func parseMentionWithConfig(content string, config MentionConfig) (*CommandInfo,
 		triggers = []string{config.GetDefaultTrigger()}
 	}
 
-	log.Infof("parseMentionWithConfig: %s, %v", content, triggers)
 	// 尝试所有配置的触发词
 	for _, trigger := range triggers {
 		if trigger == "" {
@@ -284,7 +292,6 @@ func parseMentionWithConfig(content string, config MentionConfig) (*CommandInfo,
 
 // parseMentionWithTrigger 使用指定触发词解析mention，传递完整评论内容
 func parseMentionWithTrigger(content string, trigger string) (*CommandInfo, bool) {
-	log.Infof("parseMentionWithTrigger: %s, %s", content, trigger)
 	content = strings.TrimSpace(content)
 	pattern := `(^|\s)` + regexp.QuoteMeta(trigger) + `([\s.,!?;:]|$)`
 	re := regexp.MustCompile(pattern)
@@ -307,10 +314,11 @@ func parseMentionWithTrigger(content string, trigger string) (*CommandInfo, bool
 	}
 
 	return &CommandInfo{
-		Command: CommandMention,
-		AIModel: aiModel,
-		Args:    fullContent, // 传递完整评论内容
-		RawText: content,
+		Command:     trigger,            // 使用实际的触发词，而不是固定常量
+		CommandType: CommandTypeMention, // 设置为 mention 类型
+		AIModel:     aiModel,
+		Args:        fullContent, // 传递完整评论内容
+		RawText:     content,
 	}, true
 }
 
