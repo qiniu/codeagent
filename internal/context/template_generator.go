@@ -50,6 +50,7 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 	vars["TRIGGER_USERNAME"] = ""
 	vars["TRIGGER_DISPLAY_NAME"] = ""
 	vars["CLAUDE_COMMENT_ID"] = ""
+	vars["COMMENT_TYPE"] = ""
 	vars["EVENT_TYPE"] = string(ctx.Type)
 	vars["IS_PR"] = "false"
 	vars["MODE"] = mode
@@ -203,6 +204,9 @@ func (g *TemplatePromptGenerator) buildVariables(ctx *EnhancedContext, mode stri
 	// Extract trigger and comment information from metadata
 	if claudeCommentID, ok := ctx.Metadata["claude_comment_id"]; ok {
 		vars["CLAUDE_COMMENT_ID"] = fmt.Sprintf("%v", claudeCommentID)
+	}
+	if commentType, ok := ctx.Metadata["comment_type"]; ok {
+		vars["COMMENT_TYPE"] = fmt.Sprintf("%v", commentType)
 	}
 	if triggerUsername, ok := ctx.Metadata["trigger_username"]; ok {
 		vars["TRIGGER_USERNAME"] = fmt.Sprintf("%v", triggerUsername)
@@ -360,6 +364,7 @@ Images have been downloaded from GitHub comments and saved to disk. Their file p
 <repository>$REPOSITORY</repository>
 <pr_number>$PR_NUMBER</pr_number>
 <claude_comment_id>$CLAUDE_COMMENT_ID</claude_comment_id>
+<comment_type>$COMMENT_TYPE</comment_type>
 <trigger_username>$TRIGGER_USERNAME</trigger_username>
 <trigger_display_name>$TRIGGER_DISPLAY_NAME</trigger_display_name>
 <trigger_phrase>$TRIGGER_PHRASE</trigger_phrase>
@@ -374,9 +379,10 @@ IMPORTANT: You have been provided with the mcp__codeagent__github-comments__upda
 Tool usage example for mcp__codeagent__github-comments__update_comment:
 {
   "comment_id": $CLAUDE_COMMENT_ID,
-  "body": "Your comment text here"
+  "body": "Your comment text here",
+  "comment_type": "$COMMENT_TYPE"
 }
-Only the body parameter is required - the tool automatically knows which comment to update.
+Only the body parameter is required - the tool automatically knows which comment to update, the comment_type value is $COMMENT_TYPE.
 
 Tool usage example for mcp__codeagent__github-comments__create_comment:
 {

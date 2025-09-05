@@ -136,11 +136,12 @@ type Repository struct {
 
 // CommandInfo 提取的命令信息
 type CommandInfo struct {
-	Command     string      `json:"command"`      // 实际的触发词（如 /code, @qiniu-ci, @claude-ai）
-	CommandType CommandType `json:"command_type"` // 命令类型枚举
-	AIModel     string      `json:"ai_model"`     // claude, gemini
-	Args        string      `json:"args"`         // 命令参数
-	RawText     string      `json:"raw_text"`     // 原始文本
+	Command      string      `json:"command"`        // 实际的触发词（如 /code, @qiniu-ci, @claude-ai）
+	CommandType  CommandType `json:"command_type"`   // 命令类型枚举
+	AIModel      string      `json:"ai_model"`       // claude, gemini
+	Args         string      `json:"args"`           // 命令参数
+	RawText      string      `json:"raw_text"`       // 原始文本
+	PreCommentID int64       `json:"pre_comment_id"` // 预创建评论ID，传递给AI prompt
 }
 
 // CommandType 命令类型枚举

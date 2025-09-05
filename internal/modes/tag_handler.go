@@ -406,6 +406,17 @@ func (th *TagHandler) processIssueComment(
 		return fmt.Errorf("failed to get code client: %w", err)
 	}
 
+	// 创建预评论
+	commentID, err := th.createIssueComment(ctx, event)
+
+	if err != nil {
+		xl.Warnf("Failed to create pre-comment: %v", err)
+		// Continue processing even if pre-comment creation fails
+	} else {
+		xl.Infof("Successfully created pre-comment with ID: %d", commentID)
+		cmdInfo.PreCommentID = commentID
+	}
+
 	prompt, err := th.buildPrompt(ctx, event, cmdInfo)
 	if err != nil {
 		xl.Errorf("Failed to build enhanced prompt: %v", err)
@@ -1438,7 +1449,7 @@ func (th *TagHandler) processPRReviewCommentCommand(
 			commitURL)
 	}
 
-	if err = ghClient.ReplyToReviewComment(pr, event.Comment.GetID(), replyBody); err != nil {
+	if _, err = ghClient.ReplyToReviewComment(pr, event.Comment.GetID(), replyBody); err != nil {
 		xl.Errorf("Failed to reply to review comment: %v", err)
 		// 不返回错误，因为这不是致命的，代码修改已经提交成功
 	} else {
@@ -1700,6 +1711,13 @@ func (th *TagHandler) buildPRPrompt(ctx context.Context, event *models.IssueComm
 	}
 	enhancedCtx.Metadata["is_fork_pr"] = th.workspace.IsForkRepositoryPR(pr)
 
+	// Add claude_comment_id to metadata if available
+	if cmdInfo.PreCommentID > 0 {
+		enhancedCtx.Metadata["claude_comment_id"] = cmdInfo.PreCommentID
+		// PR conversation comments are treated as issue_comment type
+		enhancedCtx.Metadata["comment_type"] = "issue_comment"
+	}
+
 	// 收集PR的评论上下文
 	prNumber := pr.GetNumber()
 	owner, repoName := th.extractRepoInfo(repoFullName)
@@ -1808,13 +1826,21 @@ func (th *TagHandler) buildPRReviewCommentPrompt(ctx context.Context, event *mod
 			"trigger_username":     comment.GetUser().GetLogin(),             // PR review comment 作者的用户名
 			"trigger_display_name": getTriggerDisplayName(comment.GetUser()), // PR review comment 作者的显示名
 			// Review Comment特有的上下文信息
-			"comment_type": "review_comment",
-			"file_path":    comment.GetPath(),
-			"line_number":  comment.GetLine(),
-			"start_line":   comment.GetStartLine(),
-			"diff_hunk":    comment.GetDiffHunk(),
-			"commit_id":    comment.GetCommitID(),
+			"file_path":   comment.GetPath(),
+			"line_number": comment.GetLine(),
+			"start_line":  comment.GetStartLine(),
+			"diff_hunk":   comment.GetDiffHunk(),
+			"commit_id":   comment.GetCommitID(),
 		},
+	}
+
+	enhancedCtx.Metadata["is_fork_pr"] = th.workspace.IsForkRepositoryPR(pr)
+
+	// Add claude_comment_id to metadata if available
+	if cmdInfo.PreCommentID > 0 {
+		enhancedCtx.Metadata["claude_comment_id"] = cmdInfo.PreCommentID
+		// PR review comments are pr_review_comment type
+		enhancedCtx.Metadata["comment_type"] = "pr_review_comment"
 	}
 
 	// 收集PR的所有评论（包括issue comments和review comments）
@@ -1920,6 +1946,13 @@ func (th *TagHandler) buildPrompt(ctx context.Context, event *models.IssueCommen
 			"sender":          event.Sender.GetLogin(),
 			"trigger_comment": event.Comment.GetBody(), // 将当前评论作为触发指令
 		},
+	}
+
+	// Add claude_comment_id to metadata if available
+	if cmdInfo.PreCommentID > 0 {
+		enhancedCtx.Metadata["claude_comment_id"] = cmdInfo.PreCommentID
+		// Issue comments are issue_comment type
+		enhancedCtx.Metadata["comment_type"] = "issue_comment"
 	}
 
 	// 收集Issue的评论上下文
@@ -2031,6 +2064,17 @@ func (th *TagHandler) processPRComment(
 		return fmt.Errorf("failed to get code client: %w", err)
 	}
 
+	// 创建预评论
+	commentID, err := th.createPRComment(ctx, event)
+
+	if err != nil {
+		xl.Warnf("Failed to create pre-comment: %v", err)
+		// Continue processing even if pre-comment creation fails
+	} else {
+		xl.Infof("Successfully created pre-comment with ID: %d", commentID)
+		cmdInfo.PreCommentID = commentID
+	}
+
 	prompt, err := th.buildPRPrompt(ctx, event, cmdInfo, pr)
 	if err != nil {
 		xl.Errorf("Failed to build enhanced prompt: %v", err)
@@ -2113,6 +2157,16 @@ func (th *TagHandler) processPRCodeReviewComment(
 		return fmt.Errorf("failed to get code client: %w", err)
 	}
 
+	// Create pre-comment for review comment reply
+	commentID, err := th.createReviewCommentReply(ctx, event)
+	if err != nil {
+		xl.Warnf("Failed to create pre-comment for review comment: %v", err)
+		// Continue processing even if pre-comment creation fails
+	} else {
+		xl.Infof("Successfully created review comment reply with ID: %d", commentID)
+		cmdInfo.PreCommentID = commentID
+	}
+
 	// 构建包含代码行上下文的prompt
 	event.PullRequest = pr
 	prompt, err := th.buildPRReviewCommentPrompt(ctx, event, cmdInfo)
@@ -2161,4 +2215,72 @@ func (th *TagHandler) processReviewCommand(
 
 	// 调用 ReviewHandler 的手动审查方法（简化调用，移除不必要的commentID）
 	return th.reviewHandler.ProcessManualCodeReview(ctx, event, client)
+}
+
+// createIssueComment creates a regular comment on an issue
+func (th *TagHandler) createIssueComment(ctx context.Context, event *models.IssueCommentContext) (int64, error) {
+	xl := xlog.NewWith(ctx)
+
+	// Get GitHub client for the repository
+	repoInfo := &models.Repository{
+		Owner: event.Repository.GetOwner().GetLogin(),
+		Name:  event.Repository.GetName(),
+	}
+
+	client, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
+	// Create comment using GitHub API
+	comment, _, err := client.GetClient().Issues.CreateComment(
+		ctx,
+		repoInfo.Owner,
+		repoInfo.Name,
+		event.Issue.GetNumber(),
+		&github.IssueComment{
+			Body: github.String("🤖 CodeAgent is working… \n\nI'll analyze this and get back to you."),
+		},
+	)
+	if err != nil {
+		xl.Errorf("Failed to create issue comment: %v", err)
+		return 0, fmt.Errorf("failed to create issue comment: %w", err)
+	}
+
+	xl.Infof("Successfully created issue comment with ID: %d", comment.GetID())
+	return comment.GetID(), nil
+}
+
+// createPRComment creates a regular comment on a PR conversation
+func (th *TagHandler) createPRComment(ctx context.Context, event *models.IssueCommentContext) (int64, error) {
+	// For PR comments, we use the same MCP approach as issue comments
+	// since PR conversations use the same GitHub Issues API
+	return th.createIssueComment(ctx, event)
+}
+
+// createReviewCommentReply creates a reply to a PR review comment
+func (th *TagHandler) createReviewCommentReply(ctx context.Context, event *models.PullRequestReviewCommentContext) (int64, error) {
+	xl := xlog.NewWith(ctx)
+
+	// Get GitHub client for the repository
+	repoInfo := &models.Repository{
+		Owner: event.Repository.GetOwner().GetLogin(),
+		Name:  event.Repository.GetName(),
+	}
+
+	client, err := th.clientManager.GetClient(ctx, repoInfo)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get GitHub client: %w", err)
+	}
+
+	// Use the proper reply method to create a true reply to the review comment
+	replyBody := "🤖 CodeAgent is working… \n\nI'll analyze this and get back to you."
+	replyID, err := client.ReplyToReviewComment(event.PullRequest, event.Comment.GetID(), replyBody)
+	if err != nil {
+		xl.Errorf("Failed to reply to review comment: %v", err)
+		return 0, fmt.Errorf("failed to reply to review comment: %w", err)
+	}
+
+	xl.Infof("Successfully created reply to review comment ID: %d, new reply ID: %d", event.Comment.GetID(), replyID)
+	return replyID, nil
 }
