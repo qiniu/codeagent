@@ -112,6 +112,9 @@ func NewClaudeDocker(workspace *models.Workspace, cfg *config.Config) (Code, err
 	if cfg.Claude.BaseURL != "" {
 		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_BASE_URL=%s", cfg.Claude.BaseURL))
 	}
+	if cfg.Claude.Model != "" {
+		args = append(args, "-e", fmt.Sprintf("ANTHROPIC_MODEL=%s", cfg.Claude.Model))
+	}
 	if cfg.GitHub.GHToken != "" {
 		args = append(args, "-e", fmt.Sprintf("GH_TOKEN=%s", cfg.GitHub.GHToken))
 	}

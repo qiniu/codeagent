@@ -64,6 +64,7 @@ type ClaudeConfig struct {
 	APIKey         string        `yaml:"api_key"`
 	AuthToken      string        `yaml:"auth_token"`
 	BaseURL        string        `yaml:"base_url"`
+	Model          string        `yaml:"model"`
 	ContainerImage string        `yaml:"container_image"`
 	Timeout        time.Duration `yaml:"timeout"`
 	Interactive    bool          `yaml:"interactive"`
@@ -135,6 +136,9 @@ func (c *Config) loadFromEnv() {
 	}
 	if baseURL := os.Getenv("ANTHROPIC_BASE_URL"); baseURL != "" {
 		c.Claude.BaseURL = baseURL
+	}
+	if model := os.Getenv("ANTHROPIC_MODEL"); model != "" {
+		c.Claude.Model = model
 	}
 	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
 		c.Claude.APIKey = apiKey
@@ -221,6 +225,7 @@ func loadFromEnv() *Config {
 			APIKey:         os.Getenv("ANTHROPIC_API_KEY"),
 			AuthToken:      os.Getenv("ANTHROPIC_AUTH_TOKEN"),
 			BaseURL:        os.Getenv("ANTHROPIC_BASE_URL"),
+			Model:          os.Getenv("ANTHROPIC_MODEL"),
 			ContainerImage: getEnvOrDefault("CLAUDE_IMAGE", "anthropic/claude-code:latest"),
 			Timeout:        30 * time.Minute,
 			Interactive:    getEnvBoolOrDefault("CLAUDE_INTERACTIVE", false),
