@@ -406,13 +406,13 @@ func (c *DefaultContextCollector) CollectPRContextWithGraphQL(owner, repo string
 		Repository:    fmt.Sprintf("%s/%s", owner, repo),
 		DefaultBranch: "", // Will be populated if needed
 		PR: GraphQLPullRequest{
-			Number:      prContext.Number,
-			Title:       prContext.Title,
-			Body:        prContext.Body,
-			State:       prContext.State,
-			Additions:   prContext.Additions,
-			Deletions:   prContext.Deletions,
-			Commits:     prContext.Commits,
+			Number:    prContext.Number,
+			Title:     prContext.Title,
+			Body:      prContext.Body,
+			State:     prContext.State,
+			Additions: prContext.Additions,
+			Deletions: prContext.Deletions,
+			Commits:   prContext.Commits,
 			Author: GraphQLUser{
 				Login:     prContext.Author,
 				AvatarURL: prContext.AuthorAvatar,

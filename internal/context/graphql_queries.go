@@ -15,13 +15,13 @@ type PullRequestContextQuery struct {
 			Name githubv4.String
 		}
 		PullRequest struct {
-			Number     githubv4.Int
-			Title      githubv4.String
-			Body       githubv4.String
-			State      githubv4.PullRequestState
-			Additions  githubv4.Int
-			Deletions  githubv4.Int
-			Commits    struct {
+			Number    githubv4.Int
+			Title     githubv4.String
+			Body      githubv4.String
+			State     githubv4.PullRequestState
+			Additions githubv4.Int
+			Deletions githubv4.Int
+			Commits   struct {
 				TotalCount githubv4.Int
 			}
 			Author struct {
@@ -34,9 +34,9 @@ type PullRequestContextQuery struct {
 			// PR 文件变更
 			Files struct {
 				Nodes []struct {
-					Path      githubv4.String
-					Additions githubv4.Int
-					Deletions githubv4.Int
+					Path       githubv4.String
+					Additions  githubv4.Int
+					Deletions  githubv4.Int
 					ChangeType githubv4.String
 				}
 			} `graphql:"files(first: 100)"`
@@ -154,13 +154,13 @@ type GraphQLContextCollector interface {
 
 // GraphQLPRContext GraphQL PR上下文结果
 type GraphQLPRContext struct {
-	Repository      string
-	DefaultBranch   string
-	PR              GraphQLPullRequest
-	Files           []GraphQLFileChange
-	Comments        []GraphQLComment
-	Reviews         []GraphQLReview
-	ReviewComments  []GraphQLReviewComment
+	Repository     string
+	DefaultBranch  string
+	PR             GraphQLPullRequest
+	Files          []GraphQLFileChange
+	Comments       []GraphQLComment
+	Reviews        []GraphQLReview
+	ReviewComments []GraphQLReviewComment
 }
 
 // GraphQLIssueContext GraphQL Issue上下文结果

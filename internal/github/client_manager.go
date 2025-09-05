@@ -175,21 +175,21 @@ func (m *ClientManager) findInstallationForOrg(ctx context.Context, owner string
 // GetGraphQLClient 获取GraphQL客户端
 func (m *ClientManager) GetGraphQLClient(ctx context.Context) (*GraphQLClient, error) {
 	authInfo := m.authenticator.GetAuthInfo()
-	
+
 	// 目前只支持PAT模式的GraphQL，GitHub App模式需要更复杂的token管理
 	if authInfo.Type != auth.AuthTypePAT {
 		return nil, fmt.Errorf("GraphQL client currently only supports Personal Access Token authentication")
 	}
-	
+
 	// 从配置中获取token
 	token := m.config.GitHub.Token
 	if token == "" {
 		return nil, fmt.Errorf("GitHub token not configured")
 	}
-	
+
 	graphqlClient := NewGraphQLClient(token)
 	log.Infof("✅ Created GraphQL client with PAT authentication")
-	
+
 	return graphqlClient, nil
 }
 

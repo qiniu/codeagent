@@ -42,18 +42,18 @@ type ServerConfig struct {
 }
 
 type GitHubConfig struct {
-	Token      string            `yaml:"token"`
-	WebhookURL string            `yaml:"webhook_url"`
-	GHToken    string            `yaml:"gh_token"`
-	App        GitHubAppConfig   `yaml:"app"`
-	API        GitHubAPIConfig   `yaml:"api"`
+	Token      string          `yaml:"token"`
+	WebhookURL string          `yaml:"webhook_url"`
+	GHToken    string          `yaml:"gh_token"`
+	App        GitHubAppConfig `yaml:"app"`
+	API        GitHubAPIConfig `yaml:"api"`
 }
 
 type GitHubAPIConfig struct {
 	// GraphQL configuration
-	UseGraphQL          bool `yaml:"use_graphql"`           // Whether to use GraphQL API instead of REST
-	GraphQLFallback     bool `yaml:"graphql_fallback"`      // Fallback to REST API if GraphQL fails
-	RateLimitThreshold  int  `yaml:"rate_limit_threshold"`  // Warn when remaining requests below this threshold
+	UseGraphQL         bool `yaml:"use_graphql"`          // Whether to use GraphQL API instead of REST
+	GraphQLFallback    bool `yaml:"graphql_fallback"`     // Fallback to REST API if GraphQL fails
+	RateLimitThreshold int  `yaml:"rate_limit_threshold"` // Warn when remaining requests below this threshold
 	// Rate limiting
 	EnableRateMonitoring bool `yaml:"enable_rate_monitoring"` // Enable rate limit monitoring and logging
 }

@@ -34,7 +34,7 @@ func NewGraphQLClient(token string) *GraphQLClient {
 		&oauth2.Token{AccessToken: token},
 	)
 	httpClient := oauth2.NewClient(context.Background(), src)
-	
+
 	return &GraphQLClient{
 		client: githubv4.NewClient(httpClient),
 		token:  token,
@@ -852,13 +852,13 @@ func (gc *GraphQLClient) GetPullRequestContext(ctx context.Context, owner, repo 
 				Name githubv4.String
 			}
 			PullRequest struct {
-				Number     githubv4.Int
-				Title      githubv4.String
-				Body       githubv4.String
-				State      githubv4.PullRequestState
-				Additions  githubv4.Int
-				Deletions  githubv4.Int
-				Commits    struct {
+				Number    githubv4.Int
+				Title     githubv4.String
+				Body      githubv4.String
+				State     githubv4.PullRequestState
+				Additions githubv4.Int
+				Deletions githubv4.Int
+				Commits   struct {
 					TotalCount githubv4.Int
 				}
 				Author struct {
@@ -871,9 +871,9 @@ func (gc *GraphQLClient) GetPullRequestContext(ctx context.Context, owner, repo 
 				// PR 文件变更
 				Files struct {
 					Nodes []struct {
-						Path      githubv4.String
-						Additions githubv4.Int
-						Deletions githubv4.Int
+						Path       githubv4.String
+						Additions  githubv4.Int
+						Deletions  githubv4.Int
 						ChangeType githubv4.String
 					}
 				} `graphql:"files(first: 100)"`

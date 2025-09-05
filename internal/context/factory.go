@@ -2,7 +2,7 @@ package context
 
 import (
 	"context"
-	
+
 	"github.com/qiniu/codeagent/internal/config"
 	ghclient "github.com/qiniu/codeagent/internal/github"
 	"github.com/qiniu/x/log"
@@ -34,11 +34,11 @@ func NewFactory(clientManager ghclient.ClientManagerInterface, logger *xlog.Logg
 // NewFactoryWithConfig 根据配置创建上下文工厂，支持GraphQL
 func NewFactoryWithConfig(clientManager ghclient.ClientManagerInterface, cfg *config.Config, logger *xlog.Logger) *Factory {
 	var collector ContextCollector
-	
+
 	// 检查是否应该使用GraphQL
 	if cfg.GitHub.API.UseGraphQL {
 		log.Infof("🔧 Creating context collector with GraphQL support enabled")
-		
+
 		// 尝试创建GraphQL客户端
 		graphqlClient, err := clientManager.GetGraphQLClient(context.Background())
 		if err != nil {
@@ -48,7 +48,7 @@ func NewFactoryWithConfig(clientManager ghclient.ClientManagerInterface, cfg *co
 			// 创建支持GraphQL的收集器
 			collector = NewDefaultContextCollectorWithGraphQL(clientManager, graphqlClient)
 			log.Infof("✅ GraphQL context collector initialized successfully")
-			
+
 			// 如果配置了fallback，设置降级选项
 			if cfg.GitHub.API.GraphQLFallback {
 				if defaultCollector, ok := collector.(*DefaultContextCollector); ok {
@@ -61,7 +61,7 @@ func NewFactoryWithConfig(clientManager ghclient.ClientManagerInterface, cfg *co
 		log.Infof("🔧 Creating context collector with REST API only")
 		collector = NewDefaultContextCollector(clientManager)
 	}
-	
+
 	formatter := NewDefaultContextFormatter(50000) // 50k tokens limit
 	generator := NewTemplatePromptGenerator(formatter)
 
