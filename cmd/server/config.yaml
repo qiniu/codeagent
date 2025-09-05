@@ -15,7 +15,7 @@ github:
 
 workspace:
   base_dir: "/Users/jicarl/codeagent"
-  cleanup_after: "24h"
+  cleanup_after: "10h"
 
 claude:
   # api_key: 通过 --claude-api-key 参数或 CLAUDE_API_KEY 环境变量设置
@@ -33,3 +33,9 @@ review:
     - "renovate"
     - "github-actions"
     - "qiniu-ci"
+
+mention:
+  triggers:
+    - "@qiniu-ci"
+    - "@niupilot"
+  default_trigger: "@qiniu-ci"

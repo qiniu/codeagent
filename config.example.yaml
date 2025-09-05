@@ -41,7 +41,7 @@ mention:
   # Supports multiple triggers for different use cases
   triggers:
     - "@qiniu-ci" # Default company AI assistant
-    - "@qiniu-ai" # another company AI assistant
+    - "@niupilot" # another company AI assistant
   # Default trigger (used when no specific trigger list is provided)
   default_trigger: "@qiniu-ci"
 

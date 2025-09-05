@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/qiniu/codeagent/internal/code"
+	"github.com/qiniu/codeagent/internal/config"
 	ctxsys "github.com/qiniu/codeagent/internal/context"
 	ghclient "github.com/qiniu/codeagent/internal/github"
 	"github.com/qiniu/codeagent/internal/interaction"
@@ -31,10 +32,11 @@ type TagHandler struct {
 	sessionManager *code.SessionManager
 	contextManager *ctxsys.ContextManager
 	reviewHandler  *ReviewHandler
+	mentionConfig  models.MentionConfig
 }
 
 // NewTagHandler creates a Tag mode handler
-func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerInterface, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager, reviewHandler *ReviewHandler) *TagHandler {
+func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerInterface, workspace *workspace.Manager, mcpClient mcp.MCPClient, sessionManager *code.SessionManager, reviewHandler *ReviewHandler, cfg *config.Config) *TagHandler {
 	// Create context manager with dynamic client support
 	collector := ctxsys.NewDefaultContextCollector(clientManager)
 	formatter := ctxsys.NewDefaultContextFormatter(50000) // 50k tokens limit
@@ -43,6 +45,12 @@ func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerIn
 		Collector: collector,
 		Formatter: formatter,
 		Generator: generator,
+	}
+
+	// Create mention config adapter
+	mentionConfig := &models.ConfigMentionAdapter{
+		Triggers:       cfg.Mention.Triggers,
+		DefaultTrigger: cfg.Mention.DefaultTrigger,
 	}
 
 	return &TagHandler{
@@ -58,6 +66,7 @@ func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerIn
 		sessionManager: sessionManager,
 		contextManager: contextManager,
 		reviewHandler:  reviewHandler,
+		mentionConfig:  mentionConfig,
 	}
 }
 
@@ -65,8 +74,8 @@ func NewTagHandler(defaultAIModel string, clientManager ghclient.ClientManagerIn
 func (th *TagHandler) CanHandle(ctx context.Context, event models.GitHubContext) bool {
 	xl := xlog.NewWith(ctx)
 
-	// Check if event contains commands
-	cmdInfo, hasCmd := models.HasCommand(event)
+	// Check if event contains commands using mention config
+	cmdInfo, hasCmd := models.HasCommandWithConfig(event, th.mentionConfig)
 	if !hasCmd {
 		xl.Debugf("No command found in event type: %s", event.GetEventType())
 		return false
@@ -108,8 +117,8 @@ func (th *TagHandler) Execute(ctx context.Context, event models.GitHubContext) e
 		return fmt.Errorf("failed to get GitHub client for %s/%s: %w", repo.Owner, repo.Name, err)
 	}
 
-	// Extract command information
-	cmdInfo, hasCmd := models.HasCommand(event)
+	// Extract command information using mention config
+	cmdInfo, hasCmd := models.HasCommandWithConfig(event, th.mentionConfig)
 	if !hasCmd {
 		return fmt.Errorf("no command found in event")
 	}
@@ -152,26 +161,36 @@ func (th *TagHandler) handleIssueComment(
 	}
 
 	if event.IsPRComment {
-		switch cmdInfo.Command {
-		case models.CommandContinue:
-			return th.processPRCommand(ctx, event, cmdInfo, "Continue")
-		case models.CommandReview:
-			return th.processReviewCommand(ctx, event, cmdInfo, client)
-		case models.CommandMention:
-			// @qiniu-ci 在PR Conversation页面作为通用指令处理器，仅回复评论
+		switch cmdInfo.CommandType {
+		case models.CommandTypeSlash:
+			switch cmdInfo.Command {
+			case models.CommandContinue:
+				return th.processPRCommand(ctx, event, cmdInfo, "Continue")
+			case models.CommandReview:
+				return th.processReviewCommand(ctx, event, cmdInfo, client)
+			default:
+				return fmt.Errorf("unsupported slash command for PR comment: %s", cmdInfo.Command)
+			}
+		case models.CommandTypeMention:
+			// mention 命令在PR Conversation页面作为通用指令处理器，仅回复评论
 			return th.processPRComment(ctx, event, cmdInfo)
 		default:
-			return fmt.Errorf("unsupported command for PR comment: %s", cmdInfo.Command)
+			return fmt.Errorf("unsupported command type for PR comment: %s", cmdInfo.CommandType)
 		}
 	} else {
-		switch cmdInfo.Command {
-		case models.CommandCode:
-			return th.processIssueCodeCommand(ctx, event, cmdInfo)
-		case models.CommandMention:
-			// @qiniu-ci 作为通用指令处理器，仅回复评论
+		switch cmdInfo.CommandType {
+		case models.CommandTypeSlash:
+			switch cmdInfo.Command {
+			case models.CommandCode:
+				return th.processIssueCodeCommand(ctx, event, cmdInfo)
+			default:
+				return fmt.Errorf("unsupported slash command for Issue comment: %s", cmdInfo.Command)
+			}
+		case models.CommandTypeMention:
+			// mention 命令作为通用指令处理器，仅回复评论
 			return th.processIssueComment(ctx, event, cmdInfo)
 		default:
-			return fmt.Errorf("unsupported command for Issue comment: %s", cmdInfo.Command)
+			return fmt.Errorf("unsupported command type for Issue comment: %s", cmdInfo.CommandType)
 		}
 	}
 }
@@ -196,13 +215,22 @@ func (th *TagHandler) handlePRReview(
 	}
 
 	// PR Review supports batch command processing
-	switch cmdInfo.Command {
-	case models.CommandContinue:
-		// Implement PR Review continue logic, integrating original Agent functionality
-		xl.Infof("Processing PR review continue with new architecture")
+	switch cmdInfo.CommandType {
+	case models.CommandTypeSlash:
+		switch cmdInfo.Command {
+		case models.CommandContinue:
+			// Implement PR Review continue logic, integrating original Agent functionality
+			xl.Infof("Processing PR review continue with new architecture")
+			return th.processPRReviewCommand(ctx, event, cmdInfo, "Continue")
+		default:
+			return fmt.Errorf("unsupported slash command for PR review: %s", cmdInfo.Command)
+		}
+	case models.CommandTypeMention:
+		// PR Review mention 命令批量处理
+		xl.Infof("Processing PR review mention with new architecture")
 		return th.processPRReviewCommand(ctx, event, cmdInfo, "Continue")
 	default:
-		return fmt.Errorf("unsupported command for PR review: %s", cmdInfo.Command)
+		return fmt.Errorf("unsupported command type for PR review: %s", cmdInfo.CommandType)
 	}
 }
 
@@ -227,16 +255,21 @@ func (th *TagHandler) handlePRReviewComment(
 	}
 
 	// PR Review评论支持行级命令
-	switch cmdInfo.Command {
-	case models.CommandContinue:
-		xl.Infof("Processing PR review comment continue with new architecture")
-		return th.processPRReviewCommentCommand(ctx, event, cmdInfo, "Continue")
-	case models.CommandMention:
+	switch cmdInfo.CommandType {
+	case models.CommandTypeSlash:
+		switch cmdInfo.Command {
+		case models.CommandContinue:
+			xl.Infof("Processing PR review comment continue with new architecture")
+			return th.processPRReviewCommentCommand(ctx, event, cmdInfo, "Continue")
+		default:
+			return fmt.Errorf("unsupported slash command for PR review comment: %s", cmdInfo.Command)
+		}
+	case models.CommandTypeMention:
 		// 实现PR Review Comment中的mention处理
 		xl.Infof("Processing mention command in PR review comment")
 		return th.processPRCodeReviewComment(ctx, event, cmdInfo)
 	default:
-		return fmt.Errorf("unsupported command for PR review comment: %s", cmdInfo.Command)
+		return fmt.Errorf("unsupported command type for PR review comment: %s", cmdInfo.CommandType)
 	}
 }
 
@@ -1019,7 +1052,7 @@ func (th *TagHandler) processPRCommand(
 	xl.Infof("Adding completion comment")
 
 	// 只有 /code 命令才更新PR描述，/continue 命令不更新PR描述
-	if cmdInfo.Command == models.CommandCode {
+	if cmdInfo.CommandType == models.CommandTypeSlash && cmdInfo.Command == models.CommandCode {
 		xl.Infof("Updating PR description for /code command")
 
 		// 解析结构化输出用于PR描述
