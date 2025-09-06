@@ -433,7 +433,8 @@ Follow these steps:
 1. Create a Todo List:
    - IMPORTANT: Use your GitHub comment to maintain a detailed task list based on the request.
    - Format todos as a checklist (- [ ] for incomplete, - [x] for complete).
-   - IMPORTANT: If the tag <claude_comment_id> above is not empty, update the comment using mcp__codeagent__github-comments__update_comment, and each task is completed on the comment $CLAUDE_COMMENT_ID
+   - IMPORTANT: Since you have been provided with comment ID $CLAUDE_COMMENT_ID, update this existing comment using mcp__codeagent__github-comments__update_comment
+   - DO NOT create a new comment - always update the existing comment with ID $CLAUDE_COMMENT_ID
    - IMPORTANT: If the tag <claude_comment_id> above is empty, a comment needs to be created immediately by using mcp__codeagent__github-comments__create_comment, after successful creation, extract the json "id" from the response body, and subsequent update operations will be carried out on this id
 
 
