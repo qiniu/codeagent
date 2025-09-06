@@ -182,3 +182,79 @@ func TestDirectoryFormat_ExtractSuffixFromPRDir(t *testing.T) {
 		})
 	}
 }
+
+func TestDirectoryFormat_ParseIssueDirName(t *testing.T) {
+	df := NewDirFormatter()
+
+	tests := []struct {
+		name        string
+		dirName     string
+		expected    *IssueDirFormat
+		expectError bool
+	}{
+		{
+			name:    "valid issue directory",
+			dirName: "claude__codeagent__issue__123__1752829201",
+			expected: &IssueDirFormat{
+				AIModel:     "claude",
+				Repo:        "codeagent",
+				IssueNumber: 123,
+				Timestamp:   1752829201,
+			},
+		},
+		{
+			name:    "gemini issue directory",
+			dirName: "gemini__myrepo__issue__456__1752829202",
+			expected: &IssueDirFormat{
+				AIModel:     "gemini",
+				Repo:        "myrepo",
+				IssueNumber: 456,
+				Timestamp:   1752829202,
+			},
+		},
+		{
+			name:        "invalid format - no issue",
+			dirName:     "claude__codeagent__pr__123__1752829201",
+			expectError: true,
+		},
+		{
+			name:        "invalid format - too few parts",
+			dirName:     "claude__issue__123",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := df.ParseIssueDirName(tt.dirName)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if result.AIModel != tt.expected.AIModel {
+				t.Errorf("AIModel = %v, want %v", result.AIModel, tt.expected.AIModel)
+			}
+
+			if result.Repo != tt.expected.Repo {
+				t.Errorf("Repo = %v, want %v", result.Repo, tt.expected.Repo)
+			}
+
+			if result.IssueNumber != tt.expected.IssueNumber {
+				t.Errorf("IssueNumber = %v, want %v", result.IssueNumber, tt.expected.IssueNumber)
+			}
+
+			if result.Timestamp != tt.expected.Timestamp {
+				t.Errorf("Timestamp = %v, want %v", result.Timestamp, tt.expected.Timestamp)
+			}
+		})
+	}
+}

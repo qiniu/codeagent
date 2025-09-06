@@ -355,6 +355,8 @@ func (m *Manager) startPeriodicCleanup() {
 		for range ticker.C {
 			// Cleanup expired workspaces periodically
 			m.cleanupExpiredWorkspaces()
+			// Also cleanup orphaned containers independently
+			m.cleanupOrphanedContainers()
 		}
 	}()
 }
@@ -380,6 +382,14 @@ func (m *Manager) cleanupExpiredWorkspaces() {
 	}
 
 	log.Infof("Expired workspace cleanup completed. Cleaned %d/%d workspaces", cleanedCount, len(expiredWorkspaces))
+}
+
+// cleanupOrphanedContainers performs independent cleanup of orphaned containers
+func (m *Manager) cleanupOrphanedContainers() {
+	// Use the same cleanup period as workspace cleanup
+	if err := m.containerService.CleanupOrphanedContainers(m.config.Workspace.CleanupAfter); err != nil {
+		log.Errorf("Failed to cleanup orphaned containers: %v", err)
+	}
 }
 
 // public method
@@ -425,6 +435,10 @@ func (m *Manager) GenerateSessionDirName(aiModel, repo string, prNumber int, tim
 
 func (m *Manager) ParsePRDirName(dirName string) (*PRDirFormat, error) {
 	return m.dirFormatter.ParsePRDirName(dirName)
+}
+
+func (m *Manager) ParseIssueDirName(dirName string) (*IssueDirFormat, error) {
+	return m.dirFormatter.ParseIssueDirName(dirName)
 }
 
 func (m *Manager) ExtractSuffixFromPRDir(aiModel, repo string, prNumber int, dirName string) string {
@@ -689,27 +703,11 @@ func (m *Manager) recoverExistingWorkspaces() {
 			dirName := entry.Name()
 			dirPath := filepath.Join(orgPath, dirName)
 
-			// Check if it's a PR workspace directory: contains "__pr__"
-			if !strings.Contains(dirName, "__pr__") {
-				continue
-			}
-
 			// Check if it's a valid git repository (cloned workspace should contain complete .git directory)
 			if _, err := os.Stat(filepath.Join(dirPath, ".git")); os.IsNotExist(err) {
 				log.Warnf("Directory %s does not contain .git, skipping", dirPath)
 				continue
 			}
-
-			// Parse directory name using formatter
-			prFormat, err := m.dirFormatter.ParsePRDirName(dirName)
-			if err != nil {
-				log.Errorf("Failed to parse PR directory name %s: %v, skipping", dirName, err)
-				continue
-			}
-
-			aiModel := prFormat.AIModel
-			repoName := prFormat.Repo
-			prNumber := prFormat.PRNumber
 
 			// Get remote repository URL
 			remoteURL, err := m.gitService.GetRemoteURL(dirPath)
@@ -718,11 +716,46 @@ func (m *Manager) recoverExistingWorkspaces() {
 				continue
 			}
 
-			// Recover PR workspace
-			if err := m.recoverPRWorkspaceFromClone(org, repoName, dirPath, remoteURL, prNumber, aiModel, prFormat.Timestamp); err != nil {
-				log.Errorf("Failed to recover PR workspace %s: %v", dirName, err)
+			// Try to parse as PR workspace directory first
+			if strings.Contains(dirName, "__pr__") {
+				// Parse directory name using formatter
+				prFormat, err := m.dirFormatter.ParsePRDirName(dirName)
+				if err != nil {
+					log.Errorf("Failed to parse PR directory name %s: %v, skipping", dirName, err)
+					continue
+				}
+
+				aiModel := prFormat.AIModel
+				repoName := prFormat.Repo
+				prNumber := prFormat.PRNumber
+
+				// Recover PR workspace
+				if err := m.recoverPRWorkspaceFromClone(org, repoName, dirPath, remoteURL, prNumber, aiModel, prFormat.Timestamp); err != nil {
+					log.Errorf("Failed to recover PR workspace %s: %v", dirName, err)
+				} else {
+					recoveredCount++
+				}
+			} else if strings.Contains(dirName, "__issue__") {
+				// Try to parse as Issue workspace directory
+				issueFormat, err := m.dirFormatter.ParseIssueDirName(dirName)
+				if err != nil {
+					log.Errorf("Failed to parse Issue directory name %s: %v, skipping", dirName, err)
+					continue
+				}
+
+				aiModel := issueFormat.AIModel
+				repoName := issueFormat.Repo
+				issueNumber := issueFormat.IssueNumber
+
+				// Recover Issue workspace
+				if err := m.recoverIssueWorkspaceFromClone(org, repoName, dirPath, remoteURL, issueNumber, aiModel, issueFormat.Timestamp); err != nil {
+					log.Errorf("Failed to recover Issue workspace %s: %v", dirName, err)
+				} else {
+					recoveredCount++
+				}
 			} else {
-				recoveredCount++
+				// Skip directories that don't match known workspace patterns
+				log.Debugf("Skipping directory %s: does not match workspace pattern", dirName)
 			}
 		}
 	}
@@ -766,6 +799,44 @@ func (m *Manager) recoverPRWorkspaceFromClone(org, repo, clonePath, remoteURL st
 	}
 
 	log.Infof("Recovered PR workspace from clone: %v", ws)
+	return nil
+}
+
+// recoverIssueWorkspaceFromClone recovers a single Issue workspace from clone
+func (m *Manager) recoverIssueWorkspaceFromClone(org, repo, clonePath, remoteURL string, issueNumber int, aiModel string, timestamp int64) error {
+	// Get current branch information
+	currentBranch, err := m.gitService.GetCurrentBranch(clonePath)
+	if err != nil {
+		log.Warnf("Failed to get current branch for %s: %v", clonePath, err)
+		currentBranch = ""
+	}
+
+	// Try to find existing MCP config file
+	mcpConfigPath := m.findExistingMCPConfig(filepath.Dir(clonePath))
+
+	// Recover workspace object for Issue
+	ws := &models.Workspace{
+		Org:           org,
+		Repo:          repo,
+		AIModel:       aiModel,
+		Path:          clonePath,
+		PRNumber:      0,  // Issue workspace doesn't have PR number
+		SessionPath:   "", // Issue workspace doesn't have session path
+		MCPConfigPath: mcpConfigPath,
+		Repository:    remoteURL,
+		Branch:        currentBranch,
+		CreatedAt:     time.Unix(timestamp, 0),
+		Issue: &github.Issue{
+			Number: &issueNumber,
+		},
+	}
+
+	// Store in repository
+	if err := m.repository.Store(ws); err != nil {
+		return fmt.Errorf("failed to store recovered Issue workspace: %w", err)
+	}
+
+	log.Infof("Recovered Issue workspace from clone: %v", ws)
 	return nil
 }
 

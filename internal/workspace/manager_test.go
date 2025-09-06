@@ -433,6 +433,14 @@ func (m *mockContainerService) GenerateContainerNames(ws *models.Workspace) []st
 	return nil
 }
 
+func (m *mockContainerService) GetCodeAgentContainers() ([]ContainerInfo, error) {
+	return nil, nil
+}
+
+func (m *mockContainerService) CleanupOrphanedContainers(maxAge time.Duration) error {
+	return nil
+}
+
 // TestIssueWorkspaceLifecycle tests the complete lifecycle of Issue workspace management
 func TestIssueWorkspaceLifecycle(t *testing.T) {
 	// Setup test environment

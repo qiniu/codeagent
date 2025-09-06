@@ -41,6 +41,7 @@ type WorkspaceManager interface {
 	GeneratePRDirName(aiModel, repo string, prNumber int, timestamp int64) string
 	GenerateSessionDirName(aiModel, repo string, prNumber int, timestamp int64) string
 	ParsePRDirName(dirName string) (*PRDirFormat, error)
+	ParseIssueDirName(dirName string) (*IssueDirFormat, error)
 	ExtractSuffixFromPRDir(aiModel, repo string, prNumber int, dirName string) string
 	ExtractSuffixFromIssueDir(aiModel, repo string, issueNumber int, dirName string) string
 }
@@ -270,6 +271,15 @@ func (m *MockWorkspaceManager) ParsePRDirName(dirName string) (*PRDirFormat, err
 		Repo:      "test-repo",
 		PRNumber:  1,
 		Timestamp: time.Now().Unix(),
+	}, nil
+}
+
+func (m *MockWorkspaceManager) ParseIssueDirName(dirName string) (*IssueDirFormat, error) {
+	return &IssueDirFormat{
+		AIModel:     "claude",
+		Repo:        "test-repo",
+		IssueNumber: 1,
+		Timestamp:   time.Now().Unix(),
 	}, nil
 }
 

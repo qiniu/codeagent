@@ -13,6 +13,7 @@ type DirFormatter interface {
 	GeneratePRDirName(aiModel, repo string, prNumber int, timestamp int64) string
 	GenerateSessionDirName(aiModel, repo string, prNumber int, timestamp int64) string
 	ParsePRDirName(dirName string) (*PRDirFormat, error)
+	ParseIssueDirName(dirName string) (*IssueDirFormat, error)
 	ExtractSuffixFromPRDir(aiModel, repo string, prNumber int, dirName string) string
 	ExtractSuffixFromIssueDir(aiModel, repo string, issueNumber int, dirName string) string
 	CreateSessionPath(underPath, aiModel, repo string, prNumber int, suffix string) string
@@ -140,5 +141,50 @@ func (f *dirFormatter) ParsePRDirName(dirName string) (*PRDirFormat, error) {
 		Repo:      repo,
 		PRNumber:  prNumber,
 		Timestamp: timestamp,
+	}, nil
+}
+
+// ParseIssueDirName 解析Issue目录名
+func (f *dirFormatter) ParseIssueDirName(dirName string) (*IssueDirFormat, error) {
+	parts := strings.Split(dirName, "__")
+	if len(parts) < 5 {
+		return nil, fmt.Errorf("invalid Issue directory format: %s", dirName)
+	}
+
+	// 格式: {aiModel}__{repo}__issue__{issueNumber}__{timestamp}
+	// 找到 "issue" 的位置
+	issueIndex := -1
+	for i, part := range parts {
+		if part == "issue" {
+			issueIndex = i
+			break
+		}
+	}
+
+	if issueIndex == -1 || issueIndex < 2 || issueIndex >= len(parts)-2 {
+		return nil, fmt.Errorf("invalid Issue directory format: %s", dirName)
+	}
+
+	// 提取AI模型和仓库名
+	aiModel := parts[issueIndex-2]
+	repo := parts[issueIndex-1]
+
+	// 提取Issue编号
+	issueNumber, err := strconv.Atoi(parts[issueIndex+1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid issue number: %s", parts[issueIndex+1])
+	}
+
+	// 提取时间戳
+	timestamp, err := strconv.ParseInt(parts[issueIndex+2], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid timestamp: %s", parts[issueIndex+2])
+	}
+
+	return &IssueDirFormat{
+		AIModel:     aiModel,
+		Repo:        repo,
+		IssueNumber: issueNumber,
+		Timestamp:   timestamp,
 	}, nil
 }
