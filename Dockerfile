@@ -23,7 +23,8 @@ FROM node:24-bookworm
 RUN groupadd -g 24368 codeagent && useradd -u 24368 -g 24368 -m codeagent
 
 # 安装 Claude Code 和 Gemini CLI
-RUN npm install -g @anthropic-ai/claude-code @google/gemini-cli
+# NOTE(CarlJi): 固定Claude code 版本，防止上游更新导致不兼容
+RUN npm install -g @anthropic-ai/claude-code@1.0.85 @google/gemini-cli
 
 # 安装 toolkit
 RUN apt-get update && apt-get install -y tree jq fd-find ripgrep git-lfs
